@@ -22,3 +22,10 @@ test("original brand experience remains available as resource center", async () 
   const resource = await read("app/resources/page.tsx");
   assert.match(resource,/让教学准备/); assert.match(resource,/备课灵感库/); assert.match(resource,/题库导入/);
 });
+
+test("lesson closure persists attendance, performance, homework and feedback", async () => {
+  const [activity, detail, dashboard, classDetail, students] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx")]);
+  assert.match(activity,/studentRecord/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/);
+  for (const label of ["出勤与课堂记录","布置作业","保存反馈草稿","教师确认关注"]) assert.match(detail,new RegExp(label));
+  assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(classDetail,/平均出勤/); assert.match(students,/全部班级/);
+});

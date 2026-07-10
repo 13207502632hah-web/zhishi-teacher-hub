@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `attendance_lesson_student_unique` ON `attendance` (`lesson_id`,`student_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `student_lesson_unique` ON `student_lesson_records` (`lesson_id`,`student_id`);

@@ -15,6 +15,13 @@
       "when": 1783691285817,
       "tag": "0001_daily_sphinx",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783691747831,
+      "tag": "0002_faithful_ghost_rider",
+      "breakpoints": true
     }
   ]
 }
