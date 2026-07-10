@@ -1,87 +1,24 @@
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const developmentPreviewMeta =
-  /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
-const templateRoot = new URL("../", import.meta.url);
-const previewRoot = new URL("../app/_sites-preview/", import.meta.url);
+const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
-}
-
-test("server-renders the starter loading skeleton", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-
-  const html = await response.text();
-  assert.match(html, developmentPreviewMeta);
-  assert.match(html, /<title>Your site is taking shape<\/title>/i);
-  assert.match(html, /Codex is working/);
-  assert.match(html, /Your site is taking shape/);
-  assert.match(html, /Codex is building the first version/);
-  assert.match(html, /react-loading-skeleton/);
-  assert.match(html, /role="status"/);
+test("dashboard uses the political-teaching workspace navigation", async () => {
+  const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
+  for (const label of ["工作台","课时记录","学生与班级","题库与组卷","课程反馈","教学反思","数据中心","资源中心","设置"]) assert.match(shell, new RegExp(label));
+  assert.match(page, /今日课程/); assert.match(page, /待办事项/); assert.match(page, /重点关注学生/); assert.match(page, /数据不足/);
+  assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
+  assert.match(layout, /知师研室｜初高中教师教学工作台/);
 });
 
-test("keeps the loading skeleton scoped and disposable", async () => {
-  const [preview, css, page, layout, packageJson, files] = await Promise.all([
-    readFile(new URL("SkeletonPreview.tsx", previewRoot), "utf8"),
-    readFile(new URL("preview.css", previewRoot), "utf8"),
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readdir(previewRoot),
-  ]);
+test("stage one exposes lesson and student persistence surfaces", async () => {
+  const [schema, lessonApi, lessonPage, classPage, studentPage, hosting] = await Promise.all([read("db/schema.ts"),read("app/api/lessons/route.ts"),read("app/lessons/page.tsx"),read("app/classes/page.tsx"),read("app/students/page.tsx"),read(".openai/hosting.json")]);
+  for (const table of ["users","roles","classes","students","enrollments","courses","lessons","attendance","studentLessonRecords","assignments","questions","papers","feedback","reflections","resources","auditLogs"]) assert.match(schema,new RegExp(`export const ${table}`));
+  assert.match(hosting,/"d1": "DB"/); assert.match(lessonApi,/export async function POST/); assert.match(lessonPage,/确认删除/); assert.match(lessonPage,/window\.print/); assert.match(classPage,/新建班级/); assert.match(studentPage,/监护人联系方式/);
+});
 
-  assert.deepEqual(files.sort(), ["SkeletonPreview.tsx", "preview.css"]);
-  assert.match(preview, /from "react-loading-skeleton"/);
-  assert.match(preview, /baseColor="#eceae7"/);
-  assert.match(preview, /highlightColor="#f9f8f6"/);
-  assert.match(preview, /duration=\{2\.8\}/);
-  assert.match(preview, /sites-skeleton-search-placeholder/);
-  assert.match(packageJson, /"react-loading-skeleton": "3\.5\.0"/);
-
-  const shellIndex = preview.indexOf('className="sites-skeleton-shell"');
-  const statusIndex = preview.indexOf('className="sites-skeleton-status"');
-  assert.ok(shellIndex >= 0 && statusIndex > shellIndex);
-  assert.match(css, /position:\s*fixed/);
-  assert.match(css, /inset:\s*0/);
-  assert.match(css, /opacity:\s*0\.52/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(css, /#020617|canvas|pets|progress/i);
-  assert.doesNotMatch(
-    preview,
-    /loading-spinner|status-mark|status-progress|canvas|cookie|random/i,
-  );
-
-  assert.match(page, /export const metadata:\s*Metadata/);
-  assert.match(page, /"codex-preview": "development"/);
-  assert.match(page, /<SkeletonPreview \/>/);
-  assert.match(layout, /title:\s*"Starter Project"/);
-  assert.doesNotMatch(layout, /codex-preview|_sites-preview|themeColor|\bViewport\b/);
-  assert.doesNotMatch(css, /(^|\s)(html|body)\s*\{/m);
-
-  await assert.rejects(
-    access(new URL("public/_sites-preview", templateRoot)),
-  );
+test("original brand experience remains available as resource center", async () => {
+  const resource = await read("app/resources/page.tsx");
+  assert.match(resource,/让教学准备/); assert.match(resource,/备课灵感库/); assert.match(resource,/题库导入/);
 });
