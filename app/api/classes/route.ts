@@ -1,5 +1,5 @@
-import { desc } from "drizzle-orm";
+import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { classes } from "../../../db/schema";
-export async function GET(){return Response.json({ classes: await getDb().select().from(classes).orderBy(desc(classes.createdAt)) });}
-export async function POST(request: Request){const p=await request.json() as Record<string,string>; if(!p.name||!p.stage||!p.grade)return Response.json({error:"班级名称、学段、年级为必填项"},{status:400}); const [row]=await getDb().insert(classes).values({name:p.name,stage:p.stage,grade:p.grade,courseType:p.courseType||"一对多",startDate:p.startDate||null,schedule:p.schedule||"",notes:p.notes||""}).returning(); return Response.json({class:row},{status:201});}
+export async function GET(){const r=await env.DB.prepare("SELECT c.*, (SELECT COUNT(*) FROM enrollments e WHERE e.class_id=c.id AND e.status='active') AS studentCount, (SELECT COUNT(*) FROM lessons l WHERE l.class_id=c.id) AS lessonCount, (SELECT COUNT(DISTINCT slr.student_id) FROM student_lesson_records slr JOIN lessons l ON l.id=slr.lesson_id WHERE l.class_id=c.id AND slr.risk_confirmed=1) AS riskCount FROM classes c ORDER BY c.created_at DESC").all();return Response.json({classes:r.results});}
+export async function POST(request: Request){const p=await request.json() as Record<string,string>;if(!p.name||!p.stage||!p.grade)return Response.json({error:"班级名称、学段、年级为必填项"},{status:400});const [row]=await getDb().insert(classes).values({name:p.name,stage:p.stage,grade:p.grade,courseType:p.courseType||"一对多",startDate:p.startDate||null,schedule:p.schedule||"",notes:p.notes||""}).returning();return Response.json({class:row},{status:201});}

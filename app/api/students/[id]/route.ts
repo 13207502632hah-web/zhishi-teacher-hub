@@ -1,0 +1,4 @@
+import { eq } from "drizzle-orm";
+import { getDb } from "../../../../db";
+import { assessmentResults, assignmentSubmissions, feedback, studentLessonRecords, students } from "../../../../db/schema";
+export async function GET(_:Request,context:{params:Promise<{id:string}>}){const {id}=await context.params,n=Number(id),db=getDb();const [student]=await db.select().from(students).where(eq(students.id,n)).limit(1);if(!student)return Response.json({error:"学生不存在"},{status:404});const [lessonRecords,submissions,feedbackRows,results]=await Promise.all([db.select().from(studentLessonRecords).where(eq(studentLessonRecords.studentId,n)),db.select().from(assignmentSubmissions).where(eq(assignmentSubmissions.studentId,n)),db.select().from(feedback).where(eq(feedback.studentId,n)),db.select().from(assessmentResults).where(eq(assessmentResults.studentId,n))]);return Response.json({student,lessonRecords,submissions,feedback:feedbackRows,results});}

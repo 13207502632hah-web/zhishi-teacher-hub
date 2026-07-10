@@ -8,6 +8,13 @@
       "when": 1783690709899,
       "tag": "0000_thankful_steve_rogers",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783691285817,
+      "tag": "0001_daily_sphinx",
+      "breakpoints": true
     }
   ]
 }
