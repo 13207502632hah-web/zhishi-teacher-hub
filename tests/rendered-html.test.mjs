@@ -8,6 +8,7 @@ test("dashboard uses the political-teaching workspace navigation", async () => {
   const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
   for (const label of ["工作台","课时记录","学生与班级","题库与组卷","课程反馈","教学反思","数据中心","资源中心","设置"]) assert.match(shell, new RegExp(label));
   assert.match(page, /今日课程/); assert.match(page, /待办事项/); assert.match(page, /重点关注学生/); assert.match(page, /数据不足/);
+  assert.match(page,/r\.ok\?r\.json\(\):empty/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
 });
