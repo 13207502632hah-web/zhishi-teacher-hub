@@ -1,5 +1,4 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../chatgpt-auth";
 import { getTeacherAdminSession } from "./teacher-auth";
 
 export type RoleCode = "teacher" | "assistant" | "student" | "parent";
@@ -11,7 +10,6 @@ const permissions: Record<RoleCode, string[]> = {
   student: ["portal:read", "resources:read"],
   parent: ["portal:read", "resources:read"],
 };
-const rank: RoleCode[] = ["teacher", "assistant", "parent", "student"];
 
 async function seedRoles() {
   const db = env.DB;
@@ -25,26 +23,7 @@ async function seedRoles() {
 
 export async function getAccess(): Promise<AccessContext | null> {
   if (await getTeacherAdminSession()) return getTeacherAdminAccess();
-  const identity = await getChatGPTUser();
-  if (!identity) return null;
-  await seedRoles();
-  const email = identity.email.trim().toLowerCase(), db = env.DB;
-  let user = await db.prepare("SELECT id,name,email,status FROM users WHERE lower(email)=?").bind(email).first<Record<string, unknown>>();
-  if (!user) {
-    const count = await db.prepare("SELECT COUNT(*) AS total FROM users").first<{ total: number }>();
-    if (Number(count?.total || 0) > 0) return null;
-    await db.prepare("INSERT INTO users(name,email,status) SELECT ?,?,'active' WHERE NOT EXISTS (SELECT 1 FROM users)").bind(identity.fullName || identity.displayName, email).run();
-    user = await db.prepare("SELECT id,name,email,status FROM users WHERE lower(email)=?").bind(email).first<Record<string, unknown>>();
-    if (!user) return null;
-    const teacher = await db.prepare("SELECT id FROM roles WHERE code='teacher'").first<{ id: number }>();
-    await db.prepare("INSERT OR IGNORE INTO user_roles(user_id,role_id) VALUES(?,?)").bind(user?.id, teacher?.id).run();
-  }
-  if (user?.status !== "active") return null;
-  const result = await db.prepare("SELECT r.code FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=?").bind(user.id).all<{ code: RoleCode }>();
-  const roles = result.results.map((row) => row.code).filter((code): code is RoleCode => rank.includes(code));
-  if (!roles.length) return null;
-  const role = rank.find((code) => roles.includes(code)) || "student";
-  return { id: Number(user.id), name: String(user.name), email: String(user.email), roles, role };
+  return null;
 }
 
 async function getTeacherAdminAccess(): Promise<AccessContext | null> {
