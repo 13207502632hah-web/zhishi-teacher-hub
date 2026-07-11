@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell, EmptyState } from "../../components/AppShell";
 
 type Row = Record<string, unknown>;
@@ -10,8 +10,8 @@ type Data = { class: Row; members: Row[]; lessons: Row[]; attendanceRate: number
 
 export default function ClassDetail() {
   const { id } = useParams<{ id: string }>(), [data, setData] = useState<Data | null>(null), [all, setAll] = useState<Row[]>([]), [pick, setPick] = useState("");
-  const load = () => Promise.all([fetch(`/api/classes/${id}`).then((r) => r.json()), fetch("/api/students").then((r) => r.json())]).then(([classData, studentData]) => { setData(classData); setAll(studentData.students || []); });
-  useEffect(() => { load(); }, [id]);
+  const load = useCallback(() => Promise.all([fetch(`/api/classes/${id}`).then((r) => r.json()), fetch("/api/students").then((r) => r.json())]).then(([classData, studentData]) => { setData(classData); setAll(studentData.students || []); }), [id]);
+  useEffect(() => { void load(); }, [load]);
   if (!data?.class) return <AppShell title="班级详情"><EmptyState title="正在读取班级" description="请稍候…" /></AppShell>;
   const add = async () => { if (!pick) return; await fetch(`/api/classes/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ studentId: Number(pick) }) }); setPick(""); load(); };
   const remove = async (studentId: unknown) => { if (!confirm("确认将该学生移出班级？学生档案与历史记录不会删除。")) return; await fetch(`/api/classes/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ studentId }) }); load(); };

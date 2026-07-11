@@ -65,7 +65,7 @@ export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuest
   return output;
 }
 
-export function summarizeImport(questions: ImportedQuestion[]) {
+export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis" | "importNotes">>) {
   const typeCounts = questions.reduce<Record<string, number>>((counts, question) => {
     counts[question.questionType] = (counts[question.questionType] || 0) + 1;
     return counts;

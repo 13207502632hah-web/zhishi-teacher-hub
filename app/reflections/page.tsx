@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell, EmptyState } from "../components/AppShell";
 
 type Row = Record<string, any> & { id: number };
@@ -12,17 +12,17 @@ export default function ReflectionsPage() {
   const [q, setQ] = useState(""), [tag, setTag] = useState(""), [month, setMonth] = useState(""), [topic, setTopic] = useState(""), [problemType, setProblemType] = useState(""), [classId, setClassId] = useState("");
   const [form, setForm] = useState<any>(blank()), [open, setOpen] = useState(false), [editing, setEditing] = useState<number | null>(null), [message, setMessage] = useState(""), [view, setView] = useState<"list" | "calendar">("list");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const query = new URLSearchParams({ q, tag, month, topic, problemType, classId });
     const result = await fetch(`/api/reflections?${query}`).then((r) => r.json()); setRows(result.reflections || []);
-  };
+  }, [q, tag, month, topic, problemType, classId]);
   useEffect(() => {
     Promise.all([fetch("/api/lessons").then((r) => r.json()), fetch("/api/classes").then((r) => r.json())]).then(([l, c]) => { setLessons(l.lessons || []); setClasses(c.classes || []); });
-    load();
+    void load();
     const params = new URLSearchParams(location.search);
     if (params.get("lesson")) { setForm({ ...blank(), lessonId: params.get("lesson") }); setOpen(true); }
     else if (params.get("new") === "1") setOpen(true);
-  }, []);
+  }, [load]);
 
   const save = async () => {
     const response = await fetch(editing ? `/api/reflections/${editing}` : "/api/reflections", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });

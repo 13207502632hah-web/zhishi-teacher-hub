@@ -5,12 +5,14 @@ const allowedRoles: RoleCode[] = ["teacher", "assistant", "student", "parent"];
 
 export async function GET() {
   const access = await requirePermission("settings:read"); if (isDenied(access)) return access;
-  const [users, students, logs] = await Promise.all([
+  const [users, students, classes, staffClassAccess, logs] = await Promise.all([
     env.DB.prepare("SELECT u.id,u.name,u.email,u.status,GROUP_CONCAT(r.code) AS roles,GROUP_CONCAT(r.name) AS roleNames FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id ORDER BY u.created_at").all(),
     env.DB.prepare("SELECT id,name,grade,user_id AS userId,guardian_user_id AS guardianUserId FROM students ORDER BY name").all(),
+    env.DB.prepare("SELECT id,name,stage,grade FROM classes WHERE status='active' ORDER BY grade,name").all(),
+    env.DB.prepare("SELECT user_id AS userId,class_id AS classId FROM staff_class_access").all(),
     env.DB.prepare("SELECT a.id,a.action,a.entity_type AS entityType,a.entity_id AS entityId,a.detail,a.created_at AS createdAt,u.name AS userName,u.email AS userEmail FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 120").all(),
   ]);
-  return Response.json({ current: { id: access.id, name: access.name, email: access.email, role: access.role, roleName: roleName[access.role] }, users: users.results, students: students.results, logs: logs.results });
+  return Response.json({ current: { id: access.id, name: access.name, email: access.email, role: access.role, roleName: roleName[access.role] }, users: users.results, students: students.results, classes: classes.results, staffClassAccess: staffClassAccess.results, logs: logs.results });
 }
 
 export async function POST(request: Request) {
@@ -34,6 +36,17 @@ export async function POST(request: Request) {
     const userId = Number(body.userId || 0); if (!userId || userId === access.id) return Response.json({ error: "不能停用当前登录账号" }, { status: 400 });
     await env.DB.prepare("UPDATE users SET status='disabled',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(userId).run();
     await audit(access, "disable", "user", userId); return Response.json({ ok: true });
+  }
+  if (action === "setClassAccess") {
+    const userId = Number(body.userId || 0), classIds = [...new Set((Array.isArray(body.classIds) ? body.classIds : []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    const target = await env.DB.prepare("SELECT r.code FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=?").bind(userId).first<{ code: string }>();
+    if (!userId || target?.code !== "assistant") return Response.json({ error: "只能为已启用的助教分配班级" }, { status: 400 });
+    const available = await env.DB.prepare(`SELECT COUNT(*) AS total FROM classes WHERE status='active' AND id IN (${classIds.map(() => "?").join(",") || "NULL"})`).bind(...classIds).first<{ total: number }>();
+    if (Number(available?.total || 0) !== classIds.length) return Response.json({ error: "包含不存在或已归档的班级" }, { status: 400 });
+    const statements = [env.DB.prepare("DELETE FROM staff_class_access WHERE user_id=?").bind(userId), ...classIds.map((classId) => env.DB.prepare("INSERT INTO staff_class_access(user_id,class_id) VALUES(?,?)").bind(userId, classId))];
+    await env.DB.batch(statements);
+    await audit(access, "assign_class_scope", "user", userId, { classIds });
+    return Response.json({ ok: true });
   }
   return Response.json({ error: "不支持的设置操作" }, { status: 400 });
 }

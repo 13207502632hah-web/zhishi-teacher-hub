@@ -43,6 +43,20 @@
       "when": 1783695844568,
       "tag": "0005_misty_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783850000000,
+      "tag": "0006_teacher_workbench_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1783851000000,
+      "tag": "0007_demo_records",
+      "breakpoints": true
     }
   ]
 }

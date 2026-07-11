@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell, EmptyState } from "../components/AppShell";
 
 type Row = Record<string, any> & { id: number; type: string; status: string };
@@ -42,7 +42,7 @@ export default function FeedbackPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [f, l, s, c] = await Promise.all([
       fetch(`/api/feedback${filter ? `?type=${filter}` : ""}`).then((r) => r.json()),
       fetch("/api/lessons").then((r) => r.json()),
@@ -50,9 +50,9 @@ export default function FeedbackPage() {
       fetch("/api/classes").then((r) => r.json()),
     ]);
     setRows(f.feedback || []); setLessons(l.lessons || []); setStudents(s.students || []); setClasses(c.classes || []);
-  };
+  }, [filter]);
 
-  useEffect(() => { load(); }, [filter]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const params = new URLSearchParams(location.search), lesson = params.get("lesson");
     if (lesson) fetch(`/api/lessons/${lesson}`).then((r) => r.json()).then((data) => {

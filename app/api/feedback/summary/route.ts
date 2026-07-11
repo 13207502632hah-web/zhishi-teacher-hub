@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { isDenied, requirePermission } from "../../../lib/access";
+import { isDenied, requireClassAccess, requirePermission, requireStudentAccess } from "../../../lib/access";
 
 type Row = Record<string, unknown>;
 
@@ -16,6 +16,8 @@ export async function GET(request: Request) {
   const end = params.get("end") || new Date().toISOString().slice(0, 10);
   const start = params.get("start") || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
   if (!classId && !studentId) return Response.json({ error: "请先选择班级或学生" }, { status: 400 });
+  if (classId) { const denied = await requireClassAccess(access, classId); if (denied) return denied; }
+  if (studentId) { const denied = await requireStudentAccess(access, studentId); if (denied) return denied; }
 
   const lessonWhere = ["l.date BETWEEN ? AND ?"];
   const lessonBind: unknown[] = [start, end];
