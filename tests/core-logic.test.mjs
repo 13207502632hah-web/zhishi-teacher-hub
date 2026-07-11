@@ -54,3 +54,25 @@ test("sensitive child routes enforce server-side class, student and lesson acces
   assert.match(feedback, /requireFeedbackAccess/);
   assert.match(confirm, /questions\.reviewed/);
 });
+
+test("student wrong-question records and feedback delivery stay reviewable", async () => {
+  const [schema, route, studentRoute, studentPage, demo, batch, feedbackPage, sentRoute] = await Promise.all(["db/schema.ts", "app/api/students/[id]/wrong-questions/route.ts", "app/api/students/[id]/route.ts", "app/students/[id]/page.tsx", "app/api/settings/demo/route.ts", "app/api/questions/batch/route.ts", "app/feedback/page.tsx", "app/api/feedback/[id]/sent/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  assert.match(schema, /export const wrongQuestions/);
+  assert.match(route, /requireStudentAccess/);
+  assert.match(route, /requireLessonAccess/);
+  assert.match(route, /wrong_questions/);
+  assert.match(route, /mastered/);
+  assert.match(studentRoute, /wrongQuestions/);
+  assert.match(studentPage, /登记错题/);
+  assert.match(studentPage, /标记已掌握/);
+  assert.match(demo, /wrong_questions/);
+  assert.match(demo, /assessment_results/);
+  assert.match(demo, /question_sets/);
+  assert.match(batch, /action === "delete"/);
+  assert.match(batch, /paper_questions/);
+  assert.match(schema, /sentAt/);
+  assert.match(feedbackPage, /使用.*反馈模板/);
+  assert.match(feedbackPage, /标记已发送/);
+  assert.match(sentRoute, /requireFeedbackAccess/);
+  assert.match(sentRoute, /sent_at/);
+});

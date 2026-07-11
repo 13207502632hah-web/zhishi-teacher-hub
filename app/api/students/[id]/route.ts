@@ -12,13 +12,14 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const id = await idFrom(context), denied = await requireStudentAccess(access, id); if (denied) return denied;
   const db = getDb(), [student] = await db.select({ id: students.id, name: students.name, nickname: students.nickname, grade: students.grade, school: students.school, textbookVersion: students.textbookVersion, subjectChoice: students.subjectChoice, examGoal: students.examGoal, foundationLevel: students.foundationLevel, strengths: students.strengths, weakKnowledge: students.weakKnowledge, learningHabits: students.learningHabits, stageGoal: students.stageGoal, riskTags: students.riskTags, riskConfirmed: students.riskConfirmed, status: students.status, notes: students.notes, createdAt: students.createdAt, updatedAt: students.updatedAt }).from(students).where(eq(students.id, id)).limit(1);
   if (!student) return Response.json({ error: "学生不存在" }, { status: 404 });
-  const [lessonRecords, submissions, feedbackRows, results] = await Promise.all([
+  const [lessonRecords, submissions, feedbackRows, results, wrongQuestions] = await Promise.all([
     env.DB.prepare("SELECT r.*,l.date,l.course_name AS courseName,l.topic FROM student_lesson_records r JOIN lessons l ON l.id=r.lesson_id WHERE r.student_id=? ORDER BY l.date DESC").bind(id).all(),
     env.DB.prepare("SELECT s.*,a.title,a.due_at AS dueAt,l.date AS lessonDate FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id LEFT JOIN lessons l ON l.id=a.lesson_id WHERE s.student_id=? ORDER BY a.created_at DESC").bind(id).all(),
     env.DB.prepare("SELECT f.*,l.date AS lessonDate,l.topic FROM feedback f LEFT JOIN lessons l ON l.id=f.lesson_id WHERE f.student_id=? ORDER BY f.created_at DESC").bind(id).all(),
     env.DB.prepare("SELECT r.*,a.title,a.date FROM assessment_results r JOIN assessments a ON a.id=r.assessment_id WHERE r.student_id=? ORDER BY a.date DESC").bind(id).all(),
+    env.DB.prepare("SELECT w.id,w.question_id AS questionId,w.lesson_id AS lessonId,w.incorrect_answer AS incorrectAnswer,w.reason,w.status,w.occurred_at AS occurredAt,w.mastered_at AS masteredAt,q.stem,q.answer,q.knowledge_points AS knowledgePoints,l.date AS lessonDate,l.topic AS lessonTopic FROM wrong_questions w JOIN questions q ON q.id=w.question_id LEFT JOIN lessons l ON l.id=w.lesson_id WHERE w.student_id=? ORDER BY CASE w.status WHEN 'active' THEN 0 ELSE 1 END,w.occurred_at DESC").bind(id).all(),
   ]);
-  return Response.json({ student, lessonRecords: lessonRecords.results, submissions: submissions.results, feedback: feedbackRows.results, results: results.results });
+  return Response.json({ student, lessonRecords: lessonRecords.results, submissions: submissions.results, feedback: feedbackRows.results, results: results.results, wrongQuestions: wrongQuestions.results });
 }
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {

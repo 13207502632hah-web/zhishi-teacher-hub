@@ -4,7 +4,15 @@ import { getDb } from "../../../db";
 import { feedback } from "../../../db/schema";
 import { audit, isDenied, requireClassAccess, requireLessonAccess, requirePermission } from "../../lib/access";
 
-const values = (payload: Record<string, unknown>) => ({ lessonId: payload.lessonId ? Number(payload.lessonId) : null, studentId: payload.studentId ? Number(payload.studentId) : null, classId: payload.classId ? Number(payload.classId) : null, type: String(payload.type || "lesson"), tone: String(payload.tone || "专业简洁"), content: String(payload.content || ""), learningContent: String(payload.learningContent || ""), highlights: String(payload.highlights || ""), consolidate: String(payload.consolidate || ""), homeworkRequirements: String(payload.homeworkRequirements || ""), parentAdvice: String(payload.parentAdvice || ""), nextFocus: String(payload.nextFocus || ""), periodStart: String(payload.periodStart || ""), periodEnd: String(payload.periodEnd || ""), periodSummary: String(payload.periodSummary || ""), progress: String(payload.progress || ""), problems: String(payload.problems || ""), goals: String(payload.goals || ""), suggestions: String(payload.suggestions || ""), status: String(payload.status || "draft"), confirmedAt: payload.status === "confirmed" ? new Date().toISOString() : null });
+const values = (payload: Record<string, unknown>) => ({ lessonId: payload.lessonId ? Number(payload.lessonId) : null, studentId: payload.studentId ? Number(payload.studentId) : null, classId: payload.classId ? Number(payload.classId) : null, type: String(payload.type || "lesson"), tone: String(payload.tone || "专业简洁"), content: String(payload.content || ""), learningContent: String(payload.learningContent || ""), highlights: String(payload.highlights || ""), consolidate: String(payload.consolidate || ""), homeworkRequirements: String(payload.homeworkRequirements || ""), parentAdvice: String(payload.parentAdvice || ""), nextFocus: String(payload.nextFocus || ""), periodStart: String(payload.periodStart || ""), periodEnd: String(payload.periodEnd || ""), periodSummary: String(payload.periodSummary || ""), progress: String(payload.progress || ""), problems: String(payload.problems || ""), goals: String(payload.goals || ""), suggestions: String(payload.suggestions || ""), status: String(payload.status || "draft"), confirmedAt: payload.status === "confirmed" ? new Date().toISOString() : null, sentAt: payload.sentAt ? String(payload.sentAt) : null });
+
+async function validateStudentClass(studentId: number | null, classId: number | null, lessonId: number | null) {
+  if (!studentId || (!classId && !lessonId)) return null;
+  const lesson = lessonId ? await env.DB.prepare("SELECT class_id AS classId FROM lessons WHERE id=?").bind(lessonId).first<{ classId: number | null }>() : null, scopedClassId = lesson?.classId ?? classId;
+  if (!scopedClassId) return null;
+  const enrolled = await env.DB.prepare("SELECT 1 AS enrolled FROM enrollments WHERE student_id=? AND class_id=? AND status='active'").bind(studentId, scopedClassId).first();
+  return enrolled ? null : Response.json({ error: "所选学生不属于关联班级，无法建立反馈" }, { status: 400 });
+}
 
 export async function GET(request: Request) {
   const access = await requirePermission("feedback:read"); if (isDenied(access)) return access;
@@ -20,6 +28,7 @@ export async function POST(request: Request) {
   const payload = await request.json() as Record<string, unknown>, data = values(payload);
   if (!data.content.trim()) return Response.json({ error: "反馈内容不能为空" }, { status: 400 });
   if (access.role === "assistant") { if (data.lessonId) { const denied = await requireLessonAccess(access, data.lessonId); if (denied) return denied; } else if (data.classId) { const denied = await requireClassAccess(access, data.classId); if (denied) return denied; } else return Response.json({ error: "助教创建反馈必须关联已授权班级或课时" }, { status: 400 }); }
+  const membershipError = await validateStudentClass(data.studentId, data.classId, data.lessonId); if (membershipError) return membershipError;
   const [row] = await getDb().insert(feedback).values(data).returning();
   await audit(access, "create", "feedback", row.id, { status: row.status, type: row.type });
   return Response.json({ feedback: row }, { status: 201 });

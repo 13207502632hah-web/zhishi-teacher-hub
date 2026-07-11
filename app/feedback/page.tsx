@@ -71,6 +71,9 @@ export default function FeedbackPage() {
     if (!response.ok) { setMessage("保存失败，请检查必填信息后重试"); return; }
     setOpen(false); setEditing(null); setForm(blank()); setMessage(status === "confirmed" ? "反馈已确认，可复制或打印" : "反馈草稿已保存"); load();
   };
+  const applyTemplate = () => { if (form.type === "lesson") setForm({ ...form, learningContent: form.learningContent || "本节课围绕教材重点开展学习。", highlights: form.highlights || "能结合材料表达自己的理解。", consolidate: form.consolidate || "请结合错题继续巩固规范表述。", homeworkRequirements: form.homeworkRequirements || "按要求完成练习并整理疑问。", parentAdvice: form.parentAdvice || "可提醒孩子按时完成巩固任务。", nextFocus: form.nextFocus || "下节课继续进行材料分析与答题训练。" }); else setForm({ ...form, periodSummary: form.periodSummary || "本阶段已完成既定学习内容。", progress: form.progress || "能逐步运用教材观点分析材料。", problems: form.problems || "规范表述与知识点整合仍需巩固。", goals: form.goals || "提升材料分析的完整性与准确性。", suggestions: form.suggestions || "坚持错题复盘，并完成针对性练习。" }); setMessage("已填入可编辑模板，请按真实学习记录调整"); };
+  const copyAsTemplate = (item: Row) => { setForm({ ...blank(), ...item, lessonId: "", studentId: "", classId: "", status: "draft", confirmedAt: null, sentAt: null }); setEditing(null); setOpen(true); setMessage("已复制为新草稿，请核对关联对象与具体内容"); };
+  const markSent = async (id: number) => { if (!confirm("确认已通过您选择的渠道发送这条反馈？系统只记录状态，不会代发消息。")) return; const response = await fetch(`/api/feedback/${id}/sent`, { method: "POST" }), payload = await response.json(); setMessage(response.ok ? "已记录为发送完成" : payload.error || "标记发送失败"); if (response.ok) load(); };
 
   const buildSummary = async () => {
     if (!form.classId && !form.studentId) { setMessage("阶段汇总前，请先选择班级或学生"); return; }
@@ -95,13 +98,14 @@ export default function FeedbackPage() {
       <div><span>{item.type === "lesson" ? "单节课" : "阶段"}</span><em className={`statusBadge ${item.status}`}>{item.status === "confirmed" ? "已确认" : "草稿"}</em></div>
       <h3>{item.studentId ? students.find((s) => s.id === item.studentId)?.name || "学生反馈" : item.classId ? classes.find((c) => c.id === item.classId)?.name || "班级反馈" : "通用反馈"}</h3>
       <pre>{String(item.content || feedbackText(item)).slice(0, 280)}</pre>
-      <small>创建：{String(item.createdAt || "").slice(0, 16)}　修改：{String(item.updatedAt || "").slice(0, 16)}</small>
-      <div className="cardActions"><button onClick={() => edit(item)}>编辑</button><button onClick={() => copy(item)}>复制文本</button><button onClick={() => print(item.id)}>打印</button><button onClick={() => remove(item.id)}>删除</button></div>
+      <small>创建：{String(item.createdAt || "").slice(0, 16)}　修改：{String(item.updatedAt || "").slice(0, 16)}{item.sentAt ? "　已标记发送" : ""}</small>
+      <div className="cardActions"><button onClick={() => edit(item)}>编辑</button><button onClick={() => copyAsTemplate(item)}>用作模板</button><button onClick={() => copy(item)}>复制文本</button>{item.status === "confirmed" && <button disabled={Boolean(item.sentAt)} onClick={() => markSent(item.id)}>{item.sentAt ? "已标记发送" : "标记已发送"}</button>}<button onClick={() => print(item.id)}>打印</button><button onClick={() => remove(item.id)}>删除</button></div>
     </article>)}</section>
 
     {open && <div className="modalBackdrop" role="presentation"><div className="lessonModal feedbackModal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
       <div className="modalTitle"><div><p>{editing ? "编辑反馈" : "新建反馈"}</p><h2 id="feedback-title">{form.type === "lesson" ? "单节课反馈" : "阶段反馈"}</h2></div><button aria-label="关闭" onClick={() => setOpen(false)}>×</button></div>
       <div className="formGrid">
+        <div className="wide summaryAction"><button type="button" className="secondaryButton" onClick={applyTemplate}>使用{form.type === "lesson" ? "单节课" : "阶段"}反馈模板</button><span>模板只填入可编辑的初稿，不替代真实课堂记录。</span></div>
         <label>反馈类型<select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="lesson">单节课反馈</option><option value="stage">阶段反馈</option></select></label>
         <label>语气<select value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })}><option>专业简洁</option><option>温和鼓励</option><option>重点提醒</option></select></label>
         <label>关联课时<select value={form.lessonId} onChange={(e) => { const lesson = lessons.find((x) => x.id === Number(e.target.value)); setForm({ ...form, lessonId: e.target.value, classId: String(lesson?.classId || form.classId), learningContent: lesson?.actualContent || lesson?.topic || form.learningContent, homeworkRequirements: lesson?.homework || form.homeworkRequirements, nextFocus: lesson?.nextPlan || form.nextFocus }); }}><option value="">暂不关联</option>{lessons.map((x) => <option key={x.id} value={x.id}>{x.date} · {x.topic || x.courseName}</option>)}</select></label>
