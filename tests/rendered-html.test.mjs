@@ -49,7 +49,7 @@ test("stage three uses real records for feedback, reflection and analytics", asy
   for (const label of ["全文搜索","全部班级","全部问题类型","日历","沉淀为策略","完整内容默认私密"]) assert.match(reflectionPage,new RegExp(label));
   assert.match(reflectionApi,/lessonTopic/); assert.match(reflectionApi,/className/);
   for (const label of ["周","月","学期","口径说明","数据不足","反馈及时率","知识点覆盖率","常用题目"]) assert.match(analyticsPage,new RegExp(label));
-  assert.match(analyticsApi,/julianday/); assert.match(analyticsApi,/use_count/); assert.match(resourcePage,/这里不会填充虚构资源/);
+  assert.match(analyticsApi,/julianday/); assert.match(analyticsApi,/f\.status='confirmed'/); assert.match(analyticsApi,/use_count/); assert.match(resourcePage,/这里不会填充虚构资源/);
 });
 
 test("stage four enforces roles, logs sensitive actions and requires destructive confirmations", async () => {
