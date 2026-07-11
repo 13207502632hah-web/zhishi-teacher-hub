@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "../chatgpt-auth";
+import { getTeacherAdminSession } from "./teacher-auth";
 
 export type RoleCode = "teacher" | "assistant" | "student" | "parent";
 export type AccessContext = { id: number; name: string; email: string; roles: RoleCode[]; role: RoleCode };
@@ -23,6 +24,7 @@ async function seedRoles() {
 }
 
 export async function getAccess(): Promise<AccessContext | null> {
+  if (await getTeacherAdminSession()) return getTeacherAdminAccess();
   const identity = await getChatGPTUser();
   if (!identity) return null;
   await seedRoles();
@@ -45,13 +47,29 @@ export async function getAccess(): Promise<AccessContext | null> {
   return { id: Number(user.id), name: String(user.name), email: String(user.email), roles, role };
 }
 
+async function getTeacherAdminAccess(): Promise<AccessContext | null> {
+  await seedRoles();
+  const db = env.DB;
+  // Reuse the earliest active teacher when the site already contains data, so
+  // the new login method keeps existing class ownership and audit history.
+  let user = await db.prepare("SELECT u.id,u.name,u.email FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE r.code='teacher' AND u.status='active' ORDER BY u.created_at ASC LIMIT 1").first<{ id: number; name: string; email: string }>();
+  if (!user) {
+    await db.prepare("INSERT OR IGNORE INTO users(name,email,status) VALUES('教师管理员','teacher-admin@local.invalid','active')").run();
+    user = await db.prepare("SELECT id,name,email FROM users WHERE email='teacher-admin@local.invalid'").first<{ id: number; name: string; email: string }>();
+    const teacher = await db.prepare("SELECT id FROM roles WHERE code='teacher'").first<{ id: number }>();
+    if (user && teacher) await db.prepare("INSERT OR IGNORE INTO user_roles(user_id,role_id) VALUES(?,?)").bind(user.id, teacher.id).run();
+  }
+  if (!user) return null;
+  return { id: Number(user.id), name: String(user.name), email: String(user.email), roles: ["teacher"], role: "teacher" };
+}
+
 export function can(access: AccessContext, permission: string) {
   return permissions[access.role].includes("*") || permissions[access.role].includes(permission);
 }
 
 export async function requirePermission(permission: string): Promise<AccessContext | Response> {
   const access = await getAccess();
-  if (!access) return Response.json({ error: "请先登录，或请教师在设置中添加您的账号", signIn: "/signin-with-chatgpt" }, { status: 401 });
+  if (!access) return Response.json({ error: "请先使用教师管理员账号登录", signIn: "/teacher-login" }, { status: 401 });
   if (!can(access, permission)) return Response.json({ error: "当前角色没有执行此操作的权限" }, { status: 403 });
   return access;
 }

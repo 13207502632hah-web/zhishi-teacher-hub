@@ -21,5 +21,10 @@ interface Fetcher {
 }
 
 declare module "cloudflare:workers" {
-  export const env: { DB: D1Database };
+  export const env: {
+    DB: D1Database;
+    TEACHER_ADMIN_ACCOUNT?: string;
+    TEACHER_ADMIN_PASSWORD?: string;
+    TEACHER_ADMIN_SESSION_SECRET?: string;
+  };
 }

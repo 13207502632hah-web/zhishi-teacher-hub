@@ -53,9 +53,9 @@ test("stage three uses real records for feedback, reflection and analytics", asy
 });
 
 test("stage four enforces roles, logs sensitive actions and requires destructive confirmations", async () => {
-  const [access, shell, settings, settingsApi, exportApi, deleteApi, portalApi, privateStudent, css, schema] = await Promise.all([read("app/lib/access.ts"),read("app/components/AppShell.tsx"),read("app/settings/page.tsx"),read("app/api/settings/route.ts"),read("app/api/settings/export/route.ts"),read("app/api/settings/data/route.ts"),read("app/api/portal/route.ts"),read("app/api/students/[id]/private/route.ts"),read("app/globals.css"),read("db/schema.ts")]);
+  const [access, shell, settings, settingsApi, exportApi, deleteApi, portalApi, privateStudent, css, schema, teacherAuth, teacherLogin] = await Promise.all([read("app/lib/access.ts"),read("app/components/AppShell.tsx"),read("app/settings/page.tsx"),read("app/api/settings/route.ts"),read("app/api/settings/export/route.ts"),read("app/api/settings/data/route.ts"),read("app/api/portal/route.ts"),read("app/api/students/[id]/private/route.ts"),read("app/globals.css"),read("db/schema.ts"),read("app/lib/teacher-auth.ts"),read("app/teacher-login/page.tsx")]);
   for (const role of ["teacher","assistant","student","parent"]) assert.match(access,new RegExp(role));
-  assert.match(access,/requirePermission/); assert.match(shell,/signin-with-chatgpt/); assert.match(shell,/资源中心仍可公开浏览/); assert.match(shell,/aria-current/); assert.match(shell,/跳到主要内容/);
+  assert.match(access,/requirePermission/); assert.match(shell,/teacher-login/); assert.match(shell,/资源中心仍可公开浏览/); assert.match(shell,/aria-current/); assert.match(shell,/跳到主要内容/); assert.match(teacherAuth,/HttpOnly/); assert.match(teacherAuth,/SameSite=Lax/); assert.match(teacherAuth,/crypto\.subtle/); assert.match(teacherLogin,/教师管理员登录/);
   for (const label of ["账号与角色","助教","学生","家长","操作日志","二次确认后导出","删除全部教学数据"]) assert.match(settings,new RegExp(label));
   assert.match(settingsApi,/assign_role/); assert.match(exportApi,/Content-Disposition/); assert.match(exportApi,/audit\(access,\s*"export"/); assert.match(deleteApi,/confirmation !== "删除全部教学数据"/); assert.match(deleteApi,/delete_all/);
   assert.match(portalApi,/status='confirmed'/); assert.match(portalApi,/guardian_user_id/); assert.match(privateStudent,/view_sensitive/);

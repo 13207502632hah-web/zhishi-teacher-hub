@@ -1,12 +1,11 @@
-import { requireChatGPTUser } from "../chatgpt-auth";
+import { requireTeacherAdmin } from "../lib/teacher-auth";
 import { Dashboard } from "../page";
 
-// This page is the secure entry point for the personal workspace.  Keeping the
-// sign-in redirect on the server lets Sites preserve `/workspace` through the
-// ChatGPT sign-in flow instead of relying on a client-side handoff.
+// This page is the secure entry point for the personal workspace. Keeping the
+// redirect on the server preserves `/workspace` through administrator login.
 export const dynamic = "force-dynamic";
 
 export default async function WorkspacePage() {
-  await requireChatGPTUser("/workspace");
+  await requireTeacherAdmin("/workspace");
   return <Dashboard />;
 }
