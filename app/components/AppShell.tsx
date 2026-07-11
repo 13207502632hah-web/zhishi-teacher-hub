@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 const items = [
   ["/", "⌂", "工作台"], ["/lessons", "◷", "课时记录"], ["/classes", "♙", "学生与班级"],
@@ -10,19 +10,29 @@ const items = [
   ["/analytics", "▥", "数据中心"], ["/resources", "▦", "资源中心"], ["/settings", "⚙", "设置"],
 ];
 
+type Session = { authenticated: boolean; user?: { name: string; email: string }; role?: string; roleName?: string };
+
 export function AppShell({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
   const pathname = usePathname();
-  return <div className="appShell">
+  const [session, setSession] = useState<Session | null>(null);
+  const publicPage = pathname === "/resources";
+  useEffect(() => { fetch("/api/session").then(async (response) => response.ok ? response.json() : { authenticated: false }).then(setSession); }, []);
+  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key !== "Escape") return; const button = document.querySelector<HTMLButtonElement>(".modalBackdrop .modalTitle button"); if (button) { event.preventDefault(); button.click(); } }; document.addEventListener("keydown", close); return () => document.removeEventListener("keydown", close); }, []);
+  if (!publicPage && session === null) return <div className="authGate"><span>知</span><h1>正在确认工作区身份</h1><p>个人教学记录属于敏感数据，请稍候。</p></div>;
+  if (!publicPage && !session?.authenticated) return <div className="authGate"><span>知</span><h1>登录后进入个人教学工作台</h1><p>资源中心仍可公开浏览；学生姓名、评价和反馈必须确认身份后才能读取。</p><Link className="primaryButton" href={`/signin-with-chatgpt?return_to=${encodeURIComponent(pathname)}`}>使用 ChatGPT 安全登录</Link><Link className="gateLink" href="/resources">先浏览公开资源</Link></div>;
+  if (!publicPage && ["student", "parent"].includes(session?.role || "") && pathname !== "/portal") return <div className="authGate"><span>知</span><h1>当前为{session?.roleName || "受限"}视图</h1><p>只能查看与本人或孩子关联且经教师确认的内容。</p><Link className="primaryButton" href="/portal">进入我的学习</Link></div>;
+  const visibleItems = session?.role === "assistant" ? items.filter(([href]) => !["/reflections", "/analytics", "/settings"].includes(href)) : ["student", "parent"].includes(session?.role || "") ? [["/portal", "◎", "我的学习"], ["/resources", "▦", "资源中心"]] : items;
+  return <><a className="skipLink" href="#main-content">跳到主要内容</a><div className="appShell">
     <aside className="sideNav">
       <Link href="/" className="appBrand"><span>知</span><div><b>知师研室</b><small>政治教学工作台</small></div></Link>
-      <nav>{items.map(([href, icon, label]) => <Link key={href} href={href} className={pathname === href || (href !== "/" && pathname.startsWith(href)) ? "active" : ""}><i>{icon}</i>{label}</Link>)}</nav>
-      <div className="sideUser"><span>莫</span><div><b>莫老师</b><small>教师 · 个人工作区</small></div></div>
+      <nav aria-label="主导航">{visibleItems.map(([href, icon, label]) => { const active = pathname === href || (href !== "/" && pathname.startsWith(href)); return <Link key={href} href={href} aria-current={active ? "page" : undefined} className={active ? "active" : ""}><i aria-hidden="true">{icon}</i>{label}</Link>; })}</nav>
+      <div className="sideUser"><span>{session?.user?.name?.slice(0, 1) || "访"}</span><div><b>{session?.user?.name || "公开访客"}</b><small>{session?.roleName || "公开资源"} · {session?.authenticated ? "个人工作区" : "只读"}</small></div>{session?.authenticated && <Link aria-label="退出登录" href="/signout-with-chatgpt?return_to=%2Fresources">退出</Link>}</div>
     </aside>
     <div className="appMain">
-      <header className="appHeader"><div><p>知师研室 / {title}</p><h1>{title}</h1>{subtitle && <span>{subtitle}</span>}</div><div className="headerActions">{actions}<button className="iconButton" aria-label="通知">◌</button></div></header>
-      <div className="appContent">{children}</div>
+      <header className="appHeader"><div><p>知师研室 / {title}</p><h1>{title}</h1>{subtitle && <span>{subtitle}</span>}</div><div className="headerActions">{(!publicPage || session?.authenticated) && actions}<button className="iconButton" aria-label="通知">◌</button></div></header>
+      <main className="appContent" id="main-content">{children}</main>
     </div>
-  </div>;
+  </div></>;
 }
 
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {

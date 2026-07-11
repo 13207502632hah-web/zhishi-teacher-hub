@@ -11,13 +11,13 @@ const fields=["date","startTime","endTime","courseName","stage","grade","mode","
 export default function LessonsPage(){
  const [items,setItems]=useState<Lesson[]>([]),[classes,setClasses]=useState<ClassRow[]>([]),[form,setForm]=useState<Record<string,string>>(blank()),[open,setOpen]=useState(false),[editing,setEditing]=useState<number|null>(null),[q,setQ]=useState(""),[status,setStatus]=useState("all"),[stage,setStage]=useState("all"),[error,setError]=useState("");
  const load=async()=>{try{const [lr,cr]=await Promise.all([fetch(`/api/lessons?q=${encodeURIComponent(q)}`),fetch("/api/classes")]);const ld=await lr.json(),cd=await cr.json();setItems(ld.lessons||[]);setClasses(cd.classes||[])}catch{setError("暂时无法读取课时，请稍后重试")}};
+ const edit=(row?:Lesson)=>{setEditing(row?.id||null);const next:Record<string,string>=blank();if(row)for(const k of fields)next[k]=row[k]==null?"":String(row[k]);setForm(next);setOpen(true)};
  useEffect(()=>{load()},[]);
  useEffect(()=>{const s=new URLSearchParams(location.search),editId=s.get("edit"),classId=s.get("class");if(editId)fetch(`/api/lessons/${editId}`).then(r=>r.json()).then(d=>d.lesson&&edit(d.lesson));else if(s.get("new")==="1"){const next=blank();if(classId)next.classId=classId;setForm(next);setOpen(true)}},[]);
  const shown=useMemo(()=>items.filter(x=>(status==="all"||x.status===status)&&(stage==="all"||x.stage===stage)),[items,status,stage]);
- const edit=(row?:Lesson)=>{setEditing(row?.id||null);const next=blank();if(row)for(const k of fields)next[k]=row[k]==null?"":String(row[k]);setForm(next);setOpen(true)};
  const save=async(nextStatus:string)=>{setError("");const url=editing?`/api/lessons/${editing}`:"/api/lessons",method=editing?"PUT":"POST";const r=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:JSON.stringify({...form,status:nextStatus})});if(!r.ok){setError((await r.json()).error||"保存失败");return}setOpen(false);setEditing(null);setForm(blank());load()};
  const remove=async(id:number)=>{if(!confirm("确认删除这条课时记录？删除后不可恢复。"))return;await fetch(`/api/lessons/${id}`,{method:"DELETE"});load()};
- const duplicate=(row:Lesson)=>{const copy={...row,id:undefined,date:new Date().toISOString().slice(0,10),status:"draft"} as Lesson;edit(copy)};
+ const duplicate=(row:Lesson)=>{const copy={...row,id:0,date:new Date().toISOString().slice(0,10),status:"draft"} as Lesson;edit(copy)};
  const set=(key:string,value:string)=>setForm({...form,[key]:value});
  return <AppShell title="课时记录" subtitle="课程—课时—学生表现—反馈闭环" actions={<button className="primaryButton" onClick={()=>edit()}>＋ 新建课时</button>}>
   <div className="toolbar"><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&load()} placeholder="搜索课程或课题"/><button onClick={load}>搜索</button><select value={status} onChange={e=>setStatus(e.target.value)}><option value="all">全部状态</option><option value="draft">草稿</option><option value="completed">已完成</option></select><select value={stage} onChange={e=>setStage(e.target.value)}><option value="all">全部学段</option><option>初中</option><option>高中</option></select></div>

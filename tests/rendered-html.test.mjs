@@ -29,3 +29,33 @@ test("lesson closure persists attendance, performance, homework and feedback", a
   for (const label of ["出勤与课堂记录","布置作业","保存反馈草稿","教师确认关注"]) assert.match(detail,new RegExp(label));
   assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(classDetail,/平均出勤/); assert.match(students,/全部班级/);
 });
+
+test("stage two covers political question review, paper drafting and lesson links", async () => {
+  const [schema, page, importApi, confirmApi, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/questions/page.tsx"),read("app/api/question-sets/import/route.ts"),read("app/api/question-sets/[id]/confirm/route.ts"),read("app/papers/page.tsx"),read("app/api/papers/route.ts"),read("app/api/lessons/[id]/questions/route.ts")]);
+  for (const field of ["factBasis","textbookView","valueJudgment","answerLogic","standardExpression","coreCompetencies","isFavorite","isWrong","isFrequent"]) assert.match(schema,new RegExp(field));
+  for (const label of ["正式题库","待校对","Word 导入","事实依据","教材观点","价值判断","答题逻辑","规范表述"]) assert.match(page,new RegExp(label));
+  assert.match(importApi,/status:\s*"review"/); assert.match(confirmApi,/status:\s*"active"/); assert.match(page,/逐题标记为已校对/);
+  for (const label of ["自动推荐题目","手动添加","保存试卷草稿","练习","周测","阶段测","讲义题组"]) assert.match(paperPage,new RegExp(label));
+  assert.match(paperApi,/paperQuestions/); assert.match(lessonQuestions,/lessonQuestions/);
+});
+
+test("stage three uses real records for feedback, reflection and analytics", async () => {
+  const [schema, feedbackPage, feedbackSummary, reflectionPage, reflectionApi, analyticsPage, analyticsApi, resourcePage] = await Promise.all([read("db/schema.ts"),read("app/feedback/page.tsx"),read("app/api/feedback/summary/route.ts"),read("app/reflections/page.tsx"),read("app/api/reflections/route.ts"),read("app/analytics/page.tsx"),read("app/api/analytics/route.ts"),read("app/resources/page.tsx")]);
+  for (const field of ["learningContent","periodStart","periodSummary","problemType","actionCompleted","sourceRef"]) assert.match(schema,new RegExp(field));
+  for (const label of ["单节课反馈","阶段反馈","专业简洁","温和鼓励","重点提醒","汇总真实课时、出勤、作业与测验","尚未发送"]) assert.match(feedbackPage,new RegExp(label));
+  for (const table of ["lessons","attendance","assignment_submissions","assessment_results","student_lesson_records"]) assert.match(feedbackSummary,new RegExp(table));
+  for (const label of ["全文搜索","全部班级","全部问题类型","日历","沉淀为策略","完整内容默认私密"]) assert.match(reflectionPage,new RegExp(label));
+  assert.match(reflectionApi,/lessonTopic/); assert.match(reflectionApi,/className/);
+  for (const label of ["周","月","学期","口径说明","数据不足","反馈及时率","知识点覆盖率","常用题目"]) assert.match(analyticsPage,new RegExp(label));
+  assert.match(analyticsApi,/julianday/); assert.match(analyticsApi,/use_count/); assert.match(resourcePage,/这里不会填充虚构资源/);
+});
+
+test("stage four enforces roles, logs sensitive actions and requires destructive confirmations", async () => {
+  const [access, shell, settings, settingsApi, exportApi, deleteApi, portalApi, privateStudent, css, schema] = await Promise.all([read("app/lib/access.ts"),read("app/components/AppShell.tsx"),read("app/settings/page.tsx"),read("app/api/settings/route.ts"),read("app/api/settings/export/route.ts"),read("app/api/settings/data/route.ts"),read("app/api/portal/route.ts"),read("app/api/students/[id]/private/route.ts"),read("app/globals.css"),read("db/schema.ts")]);
+  for (const role of ["teacher","assistant","student","parent"]) assert.match(access,new RegExp(role));
+  assert.match(access,/requirePermission/); assert.match(shell,/signin-with-chatgpt/); assert.match(shell,/资源中心仍可公开浏览/); assert.match(shell,/aria-current/); assert.match(shell,/跳到主要内容/);
+  for (const label of ["账号与角色","助教","学生","家长","操作日志","二次确认后导出","删除全部教学数据"]) assert.match(settings,new RegExp(label));
+  assert.match(settingsApi,/assign_role/); assert.match(exportApi,/Content-Disposition/); assert.match(exportApi,/audit\(access,\s*"export"/); assert.match(deleteApi,/confirmation !== "删除全部教学数据"/); assert.match(deleteApi,/delete_all/);
+  assert.match(portalApi,/status='confirmed'/); assert.match(portalApi,/guardian_user_id/); assert.match(privateStudent,/view_sensitive/);
+  assert.match(css,/prefers-reduced-motion/); assert.match(css,/:focus-visible/); assert.match(schema,/visibility/); assert.match(schema,/guardianUserId/);
+});

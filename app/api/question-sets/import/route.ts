@@ -1,0 +1,6 @@
+import { getDb } from "../../../../db";
+import { questions, questionSets } from "../../../../db/schema";
+import { audit, isDenied, requirePermission } from "../../../lib/access";
+import { questionValues } from "../../questions/values";
+
+export async function POST(request: Request) { const access = await requirePermission("questions:write"); if (isDenied(access)) return access; const body = await request.json() as { name: string; sourceFile?: string; questions: Array<Record<string, unknown>> }; if (!body.questions?.length) return Response.json({ error: "没有可导入的题目" }, { status: 400 }); const db = getDb(), [set] = await db.insert(questionSets).values({ name: body.name || "Word 试卷导入", sourceFile: body.sourceFile || "", status: "review" }).returning(); for (let i = 0; i < body.questions.length; i += 15) await db.insert(questions).values(body.questions.slice(i, i + 15).map((question) => ({ ...questionValues({ ...question, status: "review", recordedBy: access.name }), questionSetId: set.id }))); await audit(access, "import", "question_set", set.id, { questionCount: body.questions.length, status: "review" }); return Response.json({ questionSet: set, questionCount: body.questions.length }, { status: 201 }); }

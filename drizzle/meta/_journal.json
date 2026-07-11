@@ -22,6 +22,27 @@
       "when": 1783691747831,
       "tag": "0002_faithful_ghost_rider",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783692358732,
+      "tag": "0003_flashy_spiral",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783693745918,
+      "tag": "0004_curvy_yellowjacket",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783695844568,
+      "tag": "0005_misty_butterfly",
+      "breakpoints": true
     }
   ]
 }
