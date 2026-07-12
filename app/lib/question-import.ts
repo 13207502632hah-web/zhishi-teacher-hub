@@ -24,7 +24,8 @@ function questionTypeFromHeading(heading: string, hasOptions: boolean) {
 
 /** 将常见组卷 Word 的文字内容整理为“待校对”题目；不对题目作自动判定。 */
 export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuestion[] {
-  const normalized = text.replace(/\r/g, "").replace(/[\u00a0\u3000]/g, " ").replace(/\t/g, " ");
+  const normalized = text.replace(/\r/g, "").replace(/[\u00a0\u3000]/g, " ").replace(/\t/g, " ")
+    .split("\n").filter((line) => !/^\s*(第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|—?\s*\d+\s*—?|仅供测试使用)\s*$/.test(line)).join("\n");
   const sections = normalized.split(/(?=^\s*[一二三四五六七八九十]+、)/m);
   const output: ImportedQuestion[] = [];
 
@@ -35,12 +36,14 @@ export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuest
       const number = chunk.match(/^\s*(\d{1,3})[．.、]\s*/m)?.[1];
       if (!number) continue;
       const beforeAnswer = chunk.split(/【答案】/)[0].replace(/^\s*\d{1,3}[．.、]\s*/, "").trim();
-      const optionStart = beforeAnswer.match(/(?:^|\n)\s*A[．.、][\s\S]*$/m)?.[0]?.trim() || "";
-      const stem = (optionStart ? beforeAnswer.slice(0, beforeAnswer.lastIndexOf(optionStart)) : beforeAnswer).trim();
-      const options = optionStart;
+      const material = marker(chunk, "材料");
+      const questionBody = material ? beforeAnswer.replace(/【材料】\s*[\s\S]*?(?=\n\s*【设问】|\n\s*[（(]\d+[）)]|$)/, "").replace(/【设问】\s*/, "").trim() : beforeAnswer;
+      const optionStart = questionBody.match(/(?:^|\n)\s*A[．.、][\s\S]*$/m)?.[0]?.trim() || "";
+      const stem = (optionStart ? questionBody.slice(0, questionBody.lastIndexOf(optionStart)) : questionBody).trim();
+      const options = optionStart.replace(/([^\n])([B-H][．.、])/g, "$1\n$2");
       const rawDifficulty = Number(marker(chunk, "难度"));
       // 常见题库的难度系数越高代表越容易，转成 1（容易）到 5（较难）的教学标记。
-      const difficulty = rawDifficulty >= .9 ? 1 : rawDifficulty >= .8 ? 2 : rawDifficulty >= .7 ? 3 : rawDifficulty >= .6 ? 4 : rawDifficulty > 0 ? 5 : 3;
+      const difficulty = Number.isInteger(rawDifficulty) && rawDifficulty >= 1 && rawDifficulty <= 5 ? rawDifficulty : rawDifficulty >= .9 ? 1 : rawDifficulty >= .8 ? 2 : rawDifficulty >= .7 ? 3 : rawDifficulty >= .6 ? 4 : rawDifficulty > 0 ? 5 : 3;
       const answer = marker(chunk, "答案");
       const analysis = marker(chunk, "详解") || marker(chunk, "解析");
       const knowledgePoints = marker(chunk, "知识点");
@@ -49,10 +52,17 @@ export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuest
       output.push({
         ...meta,
         stem,
+        material,
         options,
         answer,
+        answerPoints: marker(chunk, "采分点"),
         analysis,
+        factBasis: marker(chunk, "事实依据"),
+        textbookView: marker(chunk, "教材依据") || marker(chunk, "教材观点"),
+        answerLogic: marker(chunk, "答题逻辑"),
+        standardExpression: marker(chunk, "规范表述"),
         knowledgePoints,
+        score: Number(marker(chunk, "分值")) || meta.score || null,
         questionType: questionTypeFromHeading(heading, Boolean(options)),
         difficulty,
         status: "review",
@@ -75,7 +85,7 @@ export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questio
     answered: questions.filter((question) => Boolean(question.answer)).length,
     tagged: questions.filter((question) => Boolean(question.knowledgePoints)).length,
     explained: questions.filter((question) => Boolean(question.analysis)).length,
-    incomplete: questions.filter((question) => question.importNotes.length > 0).length,
+    incomplete: questions.filter((question) => (question.importNotes?.length || 0) > 0).length,
     typeCounts,
   };
 }

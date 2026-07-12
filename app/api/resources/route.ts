@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const access = await getAccess(), search = q ? or(like(resources.title, `%${q}%`), like(resources.tags, `%${q}%`), like(resources.content, `%${q}%`)) : undefined;
   const visibility = access?.role === "teacher" ? undefined : access && can(access, "resources:private") ? inArray(resources.visibility, ["public", "private"]) : eq(resources.visibility, "public");
   const rows = await getDb().select().from(resources).where(visibility && search ? and(visibility, search) : visibility || search).orderBy(desc(resources.updatedAt));
-  return Response.json({ resources: rows });
+  return Response.json({ resources: rows, canWrite: Boolean(access && can(access, "resources:write")) });
 }
 
 export async function POST(request: Request) {

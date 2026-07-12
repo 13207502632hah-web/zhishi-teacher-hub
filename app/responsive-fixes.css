@@ -1,0 +1,53 @@
+@media (max-width: 1200px) {
+  .settingsColumns { grid-template-columns: minmax(0, 1fr); }
+  .settingsForm { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .settingsForm .primaryButton { grid-column: 1 / -1; }
+  .securityBanner { align-items: flex-start; flex-direction: column; }
+  .securityBanner p { margin: 0; }
+  .auditTable article { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .roleLegend { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .appShell { grid-template-columns: minmax(0, 1fr); }
+  .sideNav { position: static; width: 100%; min-width: 0; height: auto; overflow: hidden; }
+  .sideNav nav { display: flex; width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+  .sideNav nav a { flex: 0 0 auto; white-space: nowrap; }
+  .appMain, .appHeader, .appContent { width: 100%; min-width: 0; }
+  .paperDocument { width: 100%; max-width: 100%; padding: 32px 24px; overflow-wrap: anywhere; }
+  .questionCard, .panel { min-width: 0; }
+}
+
+@media (max-width: 768px) {
+  .paperBuilder { grid-template-columns: minmax(0, 1fr); }
+  .filterPanel, .candidatePanel, .selectedPanel { grid-column: auto; min-width: 0; }
+  .filterPanel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .filterPanel .panelTitle { grid-column: 1 / -1; }
+  .toolbar, .questionFilters { flex-wrap: wrap; max-width: 100%; }
+  .toolbar input, .toolbar select, .toolbar button { min-width: 0; max-width: 100%; }
+  .questionFilters input:first-child, .questionFilters input:not(:first-child) { min-width: 0; max-width: none; flex: 1 1 150px; }
+  .importMetaGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; }
+  .wizardSummary { margin: 28px auto; }
+  .wizardSummary > div { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .selectedList article { grid-template-columns: 24px minmax(0, 1fr) 46px repeat(3, 32px); }
+  .paperSave { grid-template-columns: minmax(0, 1fr); }
+  .paperList article, .recordList article { flex-wrap: wrap; }
+  .paperList a, .recordInfo { min-width: 0; flex-basis: calc(100% - 90px); }
+  .rowActions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .summaryCounts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .appHeader { height: auto; min-height: 104px; align-items: flex-start; flex-direction: column; }
+  .headerActions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
+
+@media (max-width: 600px) {
+  .settingsForm, .auditTable article, .formGrid, .filterPanel, .importMetaGrid { grid-template-columns: minmax(0, 1fr) !important; }
+  .accountList article { grid-template-columns: minmax(0, 1fr) auto; }
+  .accountList article > div { grid-column: 1 / -1; }
+  .paperDocument { padding: 20px 12px; }
+  .paperDocument article h3 span { float: none; display: block; }
+  .selectedList article { grid-template-columns: 24px minmax(0, 1fr) 42px; }
+  .selectedList article button { min-height: 36px; }
+  .selectedList article button:nth-last-child(-n + 3) { grid-row: 2; }
+  .summaryCounts { grid-template-columns: minmax(0, 1fr); }
+  .viewSwitch, .rangeTabs { flex-wrap: wrap; }
+}

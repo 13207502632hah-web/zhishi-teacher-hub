@@ -12,7 +12,9 @@ export async function GET() {
     env.DB.prepare("SELECT user_id AS userId,class_id AS classId FROM staff_class_access").all(),
     env.DB.prepare("SELECT a.id,a.action,a.entity_type AS entityType,a.entity_id AS entityId,a.detail,a.created_at AS createdAt,u.name AS userName,u.email AS userEmail FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 120").all(),
   ]);
-  return Response.json({ current: { id: access.id, name: access.name, email: access.email, role: access.role, roleName: roleName[access.role] }, users: users.results, students: students.results, classes: classes.results, staffClassAccess: staffClassAccess.results, logs: logs.results });
+  const configuredAccount = String(env.TEACHER_ADMIN_ACCOUNT || "");
+  const accountLabel = configuredAccount.length > 7 ? `${configuredAccount.slice(0, 3)}****${configuredAccount.slice(-4)}` : "已配置";
+  return Response.json({ current: { id: access.id, name: "教师管理员", accountLabel, role: access.role, roleName: roleName[access.role] }, users: users.results, students: students.results, classes: classes.results, staffClassAccess: staffClassAccess.results, logs: logs.results });
 }
 
 export async function POST(request: Request) {

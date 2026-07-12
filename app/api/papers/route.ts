@@ -5,9 +5,14 @@ import { audit, isDenied, requirePermission } from "../../lib/access";
 
 const value = (input: unknown) => String(input || "").trim();
 
-export async function GET() {
+export async function GET(request: Request) {
   const access = await requirePermission("papers:read"); if (isDenied(access)) return access;
-  const result = await env.DB.prepare("SELECT p.*,COUNT(pq.id) AS questionCount,COALESCE(SUM(pq.score),0) AS calculatedScore FROM papers p LEFT JOIN paper_questions pq ON pq.paper_id=p.id GROUP BY p.id ORDER BY p.updated_at DESC").all();
+  const params = new URL(request.url).searchParams, q = value(params.get("q")), status = value(params.get("status")), stage = value(params.get("stage")), grade = value(params.get("grade")), conditions: string[] = [], bindings: string[] = [];
+  if (q) { conditions.push("p.title LIKE ?"); bindings.push(`%${q}%`); }
+  if (status) { conditions.push("p.status=?"); bindings.push(status); }
+  if (stage) { conditions.push("p.stage=?"); bindings.push(stage); }
+  if (grade) { conditions.push("p.grade=?"); bindings.push(grade); }
+  const result = await env.DB.prepare(`SELECT p.*,COUNT(pq.id) AS questionCount,COALESCE(SUM(pq.score),0) AS calculatedScore FROM papers p LEFT JOIN paper_questions pq ON pq.paper_id=p.id ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} GROUP BY p.id ORDER BY p.updated_at DESC`).bind(...bindings).all();
   return Response.json({ papers: result.results });
 }
 
@@ -20,7 +25,7 @@ export async function POST(request: Request) {
   const actual = await env.DB.prepare(`SELECT id FROM questions WHERE status='active' AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
   if (actual.results.length !== ids.length) return Response.json({ error: "所选题目中包含不存在或未正式入库的题目" }, { status: 400 });
   const total = selected.reduce((sum, item) => sum + item.score, 0), db = getDb(), [paper] = await db.insert(papers).values({ title, type: value(body.type) || "练习", stage: value(body.stage), grade: value(body.grade), textbookVersion: value(body.textbookVersion), durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null, instructions: value(body.instructions), totalScore: total, status: "draft" }).returning();
-  await db.insert(paperQuestions).values(selected.map((item, index) => ({ paperId: paper.id, questionId: item.id, position: index + 1, score: item.score })));
+  for (let index = 0; index < selected.length; index += 20) await db.insert(paperQuestions).values(selected.slice(index, index + 20).map((item, offset) => ({ paperId: paper.id, questionId: item.id, position: index + offset + 1, score: item.score })));
   await env.DB.batch(selected.map((item) => env.DB.prepare("UPDATE questions SET use_count=use_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(item.id)));
   await audit(access, "create", "paper", paper.id, { questionCount: selected.length, totalScore: total });
   return Response.json({ paper }, { status: 201 });

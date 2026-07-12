@@ -29,9 +29,9 @@ export async function getAccess(): Promise<AccessContext | null> {
 async function getTeacherAdminAccess(): Promise<AccessContext | null> {
   await seedRoles();
   const db = env.DB;
-  // Reuse the earliest active teacher when the site already contains data, so
-  // the new login method keeps existing class ownership and audit history.
-  let user = await db.prepare("SELECT u.id,u.name,u.email FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE r.code='teacher' AND u.status='active' ORDER BY u.created_at ASC LIMIT 1").first<{ id: number; name: string; email: string }>();
+  // The app-owned teacher administrator must never inherit a hosting service
+  // identity merely because that record happened to be created first.
+  let user = await db.prepare("SELECT id,name,email FROM users WHERE email='teacher-admin@local.invalid' AND status='active'").first<{ id: number; name: string; email: string }>();
   if (!user) {
     await db.prepare("INSERT OR IGNORE INTO users(name,email,status) VALUES('教师管理员','teacher-admin@local.invalid','active')").run();
     user = await db.prepare("SELECT id,name,email FROM users WHERE email='teacher-admin@local.invalid'").first<{ id: number; name: string; email: string }>();

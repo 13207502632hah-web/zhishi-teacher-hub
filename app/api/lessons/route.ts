@@ -29,8 +29,8 @@ export async function GET(request: Request) {
   if (from) { where.push("l.date>=?"); bind.push(from); }
   if (to) { where.push("l.date<=?"); bind.push(to); }
   const sql = `SELECT l.*,c.name AS className FROM lessons l LEFT JOIN classes c ON c.id=l.class_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY l.date DESC,l.start_time DESC,l.updated_at DESC`;
-  const rows = await env.DB.prepare(sql).bind(...bind).all();
-  return Response.json({ lessons: rows.results });
+  const rows = await env.DB.prepare(sql).bind(...bind).all(), lessonRows = (rows.results as Array<Record<string, unknown>>).map((row) => ({ ...row, classId: row.class_id, startTime: row.start_time, endTime: row.end_time, onlineLink: row.online_link, courseName: row.course_name, textbookVersion: row.textbook_version, teachingGoals: row.teaching_goals, keyPoints: row.key_points, difficultPoints: row.difficult_points, actualContent: row.actual_content, nextPlan: row.next_plan, feeStatus: row.fee_status, cancellationReason: row.cancellation_reason, createdAt: row.created_at, updatedAt: row.updated_at }));
+  return Response.json({ lessons: lessonRows });
 }
 
 export async function POST(request: Request) {

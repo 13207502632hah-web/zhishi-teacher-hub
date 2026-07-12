@@ -18,7 +18,17 @@ export async function POST(request: Request) {
   if (!unique.length) return Response.json({ error: "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length }, { status: 409 });
   const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length };
   const [set] = await db.insert(questionSets).values({ name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceFingerprint, importReport: JSON.stringify(report), status: "review" }).returning();
-  for (let index = 0; index < unique.length; index += 15) await db.insert(questions).values(unique.slice(index, index + 15).map((question) => ({ ...question, questionSetId: set.id })));
+  const insertedQuestions = [];
+  try {
+    for (let index = 0; index < unique.length; index += 2) {
+      const inserted = await db.insert(questions).values(unique.slice(index, index + 2).map((question) => ({ ...question, questionSetId: set.id }))).returning();
+      insertedQuestions.push(...inserted);
+    }
+  } catch (error) {
+    await db.delete(questions).where(eq(questions.questionSetId, set.id));
+    await db.delete(questionSets).where(eq(questionSets.id, set.id));
+    throw error;
+  }
   await audit(access, "import", "question_set", set.id, report);
-  return Response.json({ questionSet: set, questionCount: unique.length, report }, { status: 201 });
+  return Response.json({ questionSet: set, questions: insertedQuestions, questionCount: unique.length, report }, { status: 201 });
 }
