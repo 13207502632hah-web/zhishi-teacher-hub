@@ -12,14 +12,17 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const id = await idFrom(context), denied = await requireClassAccess(access, id); if (denied) return denied;
   const db = getDb(), [row] = await db.select().from(classes).where(eq(classes.id, id)).limit(1);
   if (!row) return Response.json({ error: "班级不存在" }, { status: 404 });
-  const [members, lessonRows, attendance, homework] = await Promise.all([
+  const [members, lessonRows, attendance, homework, assessmentRows, weakRows] = await Promise.all([
     db.select({ id: students.id, name: students.name, nickname: students.nickname, grade: students.grade, weakKnowledge: students.weakKnowledge, riskTags: students.riskTags, riskConfirmed: students.riskConfirmed }).from(enrollments).innerJoin(students, eq(students.id, enrollments.studentId)).where(and(eq(enrollments.classId, id), eq(enrollments.status, "active"))),
     db.select().from(lessons).where(eq(lessons.classId, id)),
     env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END) AS done FROM attendance a JOIN lessons l ON l.id=a.lesson_id WHERE l.class_id=?").bind(id).first<Record<string, number>>(),
     env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN s.status='completed' THEN 1 ELSE 0 END) AS done FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id JOIN lessons l ON l.id=a.lesson_id WHERE l.class_id=?").bind(id).first<Record<string, number>>(),
+    env.DB.prepare("SELECT a.id,a.title,a.date,a.total_score AS totalScore,a.status,COUNT(r.id) AS resultCount,ROUND(AVG(r.score),1) AS averageScore FROM assessments a LEFT JOIN assessment_results r ON r.assessment_id=a.id WHERE a.class_id=? GROUP BY a.id ORDER BY a.date DESC LIMIT 6").bind(id).all(),
+    env.DB.prepare("SELECT r.weak_knowledge AS weakKnowledge FROM assessment_results r JOIN assessments a ON a.id=r.assessment_id WHERE a.class_id=? AND COALESCE(r.weak_knowledge,'')<>''").bind(id).all(),
   ]);
   const rate = (source: Record<string, number> | null) => source && source.total ? Math.round(Number(source.done || 0) / Number(source.total) * 100) : null;
-  return Response.json({ class: row, members, lessons: lessonRows, attendanceRate: rate(attendance), homeworkRate: rate(homework) });
+  const weak = new Map<string, number>(); for (const source of weakRows.results as Array<Record<string, unknown>>) for (const item of String(source.weakKnowledge || "").split(/[,，、;；\n]/).map((value) => value.trim()).filter(Boolean)) weak.set(item, (weak.get(item) || 0) + 1);
+  return Response.json({ class: row, members, lessons: lessonRows, assessments: assessmentRows.results, weakKnowledge: [...weak.entries()].sort((a,b) => b[1]-a[1]).slice(0,6).map(([name,count]) => ({ name,count })), attendanceRate: rate(attendance), homeworkRate: rate(homework) });
 }
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {

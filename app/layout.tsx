@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { SessionProvider } from "./components/SessionProvider";
 import "./globals.css";
 import "./responsive-fixes.css";
 
@@ -30,7 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body><SessionProvider>{children}</SessionProvider></body>
     </html>
   );
 }

@@ -87,6 +87,23 @@ test("mastery calculation is explainable and reweights only available evidence",
   assert.match(partial.explanation, /缺失项不会按零分处理/);
 });
 
+test("assessment validation and statistics stay explainable", async () => {
+  const { validateAssessmentResult, assessmentStats } = await loadTsModule("app/lib/assessment.ts");
+  assert.equal(validateAssessmentResult({ score: 82, objectiveScore: 42, subjectiveScore: 40 }, 100), null);
+  assert.match(validateAssessmentResult({ score: 108 }, 100), /0 到 100/);
+  assert.match(validateAssessmentResult({ score: 82, objectiveScore: 50, subjectiveScore: 40 }, 100), /之和应等于总分/);
+  const stats = assessmentStats([{ score: 90, weakKnowledge: "法治意识、人民民主" }, { score: 70, weakKnowledge: "法治意识" }, { score: null, weakKnowledge: "" }], 100);
+  assert.equal(stats.count, 2); assert.equal(stats.average, 80); assert.equal(stats.rate, 80); assert.deepEqual(stats.weakKnowledge[0], { name: "法治意识", count: 2 });
+});
+
+test("teacher daily loop exposes assessment, completion and CSV contracts", async () => {
+  const paths = ["app/api/assessments/route.ts", "app/api/assessments/[id]/route.ts", "app/api/lessons/[id]/activity/route.ts", "app/api/exports/[type]/route.ts", "app/assessments/page.tsx", "app/assessments/[id]/page.tsx"];
+  const [listApi, detailApi, activity, exportsApi, listPage, detailPage] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  assert.match(listApi, /INSERT INTO assessments/); assert.match(detailApi, /ON CONFLICT\(assessment_id,student_id\)/); assert.match(detailApi, /requireAssessmentAccess/);
+  assert.match(activity, /completeLesson/); assert.match(activity, /NOT EXISTS/); assert.match(exportsApi, /\\uFEFF/); assert.match(exportsApi, /Content-Disposition/); assert.match(exportsApi, /safeCell/);
+  assert.match(listPage, /新建测验/); assert.match(detailPage, /批量录入/); assert.match(detailPage, /薄弱知识点/);
+});
+
 test("teacher administrator password policy rejects weak passwords", async () => {
   const { passwordStrengthError, safeReturnPath } = await loadTsModule("app/lib/teacher-auth-policy.ts");
   assert.match(passwordStrengthError("weak-pass"), /至少需要 12 位|过于简单/);

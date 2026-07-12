@@ -85,6 +85,13 @@
       "when": 1783817723544,
       "tag": "0011_loud_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1783862194000,
+      "tag": "0012_teacher_daily_loop",
+      "breakpoints": true
     }
   ]
 }

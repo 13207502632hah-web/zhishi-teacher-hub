@@ -115,6 +115,14 @@ export async function requireFeedbackAccess(access: AccessContext, feedbackId: n
   return Response.json({ error: "当前账号未获授权访问该反馈" }, { status: 403 });
 }
 
+export async function requireAssessmentAccess(access: AccessContext, assessmentId: number) {
+  const row = await env.DB.prepare("SELECT class_id AS classId FROM assessments WHERE id=?").bind(assessmentId).first<{ classId: number | null }>();
+  if (!row) return Response.json({ error: "测验不存在" }, { status: 404 });
+  if (access.role === "teacher") return null;
+  if (row.classId != null && await hasClassAccess(access, Number(row.classId))) return null;
+  return Response.json({ error: "当前账号未获授权访问该测验" }, { status: 403 });
+}
+
 export async function audit(access: AccessContext, action: string, entityType: string, entityId?: string | number | null, detail?: Record<string, unknown>) {
   await env.DB.prepare("INSERT INTO audit_logs(user_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?)").bind(access.id, action, entityType, entityId == null ? null : String(entityId), detail ? JSON.stringify(detail) : null).run();
 }

@@ -22,7 +22,8 @@ export async function GET() {
     db.prepare("SELECT COUNT(*) AS count FROM questions WHERE status='review'"),
     assistant ? scoped("SELECT COUNT(DISTINCT class_id) AS count FROM staff_class_access WHERE user_id=?") : db.prepare("SELECT COUNT(*) AS count FROM classes WHERE status='active'"),
     assistant ? scoped("SELECT COUNT(DISTINCT e.student_id) AS count FROM enrollments e JOIN staff_class_access sca ON sca.class_id=e.class_id WHERE sca.user_id=? AND e.status='active'") : db.prepare("SELECT COUNT(*) AS count FROM students WHERE status='active'"),
+    db.prepare("SELECT COUNT(*) AS count FROM assessments WHERE status='draft'"),
   ]);
   const number = (index: number, key = "count") => Number((results[index].results[0] as Record<string, unknown> | undefined)?.[key] || 0), rate = (index: number) => { const total = number(index, "total"); return total ? Math.round(number(index, "done") / total * 100) : null; };
-  return Response.json({ weekLessons: number(0), draftLessons: number(1), confirmedFeedback: number(2), pendingFeedback: number(3), attendanceRate: rate(4), homeworkRate: rate(5), todayLessons: results[6].results, pendingHomework: number(7), riskCount: number(8), riskStudents: results[9].results, recentReflections: access.role === "teacher" ? results[10].results : [], recentQuestions: results[11].results, pendingReview: number(12), activeClasses: number(13), activeStudents: number(14) });
+  return Response.json({ weekLessons: number(0), draftLessons: number(1), confirmedFeedback: number(2), pendingFeedback: number(3), attendanceRate: rate(4), homeworkRate: rate(5), todayLessons: results[6].results, pendingHomework: number(7), riskCount: number(8), riskStudents: results[9].results, recentReflections: access.role === "teacher" ? results[10].results : [], recentQuestions: results[11].results, pendingReview: number(12), activeClasses: number(13), activeStudents: number(14), pendingAssessments: number(15) });
 }
