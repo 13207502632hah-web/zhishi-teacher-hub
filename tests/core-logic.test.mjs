@@ -159,8 +159,9 @@ test("Word review tasks resume from D1 and demo data covers the teaching loop", 
 });
 
 test("paper, lesson and public-resource regressions remain covered", async () => {
-  const [questionPage, paperPage, paperDetail, printCss, lessonRoute, resourceApi, resourcePage] = await Promise.all([
+  const [questionPage, questionApi, paperPage, paperDetail, printCss, lessonRoute, resourceApi, resourcePage] = await Promise.all([
     "app/questions/page.tsx",
+    "app/api/questions/route.ts",
     "app/papers/page.tsx",
     "app/papers/[id]/page.tsx",
     "app/content-guide.css",
@@ -169,6 +170,13 @@ test("paper, lesson and public-resource regressions remain covered", async () =>
     "app/resources/page.tsx",
   ].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(questionPage, /value=\{String\(item\)\}>\{item\}级/);
+  for (const field of ["textbookVersion", "volume", "unit", "topic"]) {
+    assert.match(questionPage, new RegExp(field));
+    assert.match(questionApi, new RegExp(field));
+    assert.match(paperPage, new RegExp(field));
+  }
+  assert.match(questionPage, /history\.replaceState/);
+  assert.match(questionPage, /清空全部筛选/);
   assert.match(paperPage, /value=\{String\(item\)\}>\{item\}级/);
   assert.match(paperDetail, /window\.print\(\)/);
   assert.match(paperDetail, /updateStatus/);
