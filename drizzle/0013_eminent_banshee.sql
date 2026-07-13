@@ -1,21 +1,8 @@
-CREATE TABLE `export_jobs` (
-	`id` text PRIMARY KEY NOT NULL,
-	`paper_id` integer NOT NULL,
-	`format` text NOT NULL,
-	`mode` text NOT NULL,
-	`status` text DEFAULT 'queued' NOT NULL,
-	`result_key` text,
-	`error` text,
-	`created_by` integer,
-	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	FOREIGN KEY (`paper_id`) REFERENCES `papers`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-ALTER TABLE `paper_questions` ADD `group_title` text;--> statement-breakpoint
-ALTER TABLE `paper_questions` ADD `answer_space` integer DEFAULT 2 NOT NULL;--> statement-breakpoint
-ALTER TABLE `question_sets` ADD `source_document` text;--> statement-breakpoint
+-- The first production attempt applied export_jobs, paper_questions.group_title,
+-- paper_questions.answer_space and question_sets.source_document before the
+-- deployment worker retried the migration. Keep the remaining statements here
+-- so the partially applied production migration can finish safely. Fresh
+-- databases receive those four fields from migration 0000.
 ALTER TABLE `question_sets` ADD `parse_stage` text DEFAULT 'review' NOT NULL;--> statement-breakpoint
 ALTER TABLE `question_sets` ADD `failure_reason` text;--> statement-breakpoint
 ALTER TABLE `question_sets` ADD `review_progress` integer DEFAULT 0 NOT NULL;--> statement-breakpoint

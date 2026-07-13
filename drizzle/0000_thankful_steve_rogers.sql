@@ -166,6 +166,8 @@ CREATE TABLE `paper_questions` (
 	`question_id` integer NOT NULL,
 	`position` integer NOT NULL,
 	`score` real,
+	`group_title` text,
+	`answer_space` integer DEFAULT 2 NOT NULL,
 	FOREIGN KEY (`paper_id`) REFERENCES `papers`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`question_id`) REFERENCES `questions`(`id`) ON UPDATE no action ON DELETE no action
 );
@@ -184,6 +186,7 @@ CREATE TABLE `question_sets` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
 	`source_file` text,
+	`source_document` text,
 	`status` text DEFAULT 'review' NOT NULL,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -309,4 +312,19 @@ CREATE TABLE `users` (
 	`email` text,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `export_jobs` (
+	`id` text PRIMARY KEY NOT NULL,
+	`paper_id` integer NOT NULL,
+	`format` text NOT NULL,
+	`mode` text NOT NULL,
+	`status` text DEFAULT 'queued' NOT NULL,
+	`result_key` text,
+	`error` text,
+	`created_by` integer,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`paper_id`) REFERENCES `papers`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
