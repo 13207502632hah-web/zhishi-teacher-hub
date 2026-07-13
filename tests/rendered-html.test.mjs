@@ -71,6 +71,12 @@ test("reviewed questions can enter the formal bank without one blocked item stop
   assert.match(readiness,/主观题缺少采分点或解析/); assert.match(readiness,/缺少选项/); assert.match(readiness,/识别置信度低/);
 });
 
+test("Word imports accept the advertised size and explain non-JSON upload failures", async () => {
+  const [config, page, source] = await Promise.all([read("next.config.ts"), read("app/questions/page.tsx"), read("app/api/question-sets/source/route.ts")]);
+  assert.match(config, /bodySizeLimit:\s*"20mb"/); assert.match(page, /response\.text\(\)/); assert.match(page, /超过服务器接收上限/);
+  assert.match(page, /15 \* 1024 \* 1024/); assert.match(source, /15 \* 1024 \* 1024/); assert.match(source, /status: 413/);
+});
+
 test("lesson closure persists attendance, performance, homework and feedback", async () => {
   const [activity, detail, dashboard, classDetail, students] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx")]);
   assert.match(activity,/studentRecord/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/);
