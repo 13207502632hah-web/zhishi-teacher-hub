@@ -7,7 +7,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 test("dashboard uses the political-teaching workspace navigation", async () => {
   const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
   for (const label of ["工作台","课时记录","学生与班级","测验与成绩","题库与组卷","课程反馈","教学反思","数据中心","资源中心","设置"]) assert.match(shell, new RegExp(label));
-  assert.match(page, /今日课程/); assert.match(page, /待办事项/); assert.match(page, /重点关注学生/); assert.match(page, /数据不足/); assert.match(page,/三步建立政治教学工作台/); assert.match(page,/导入第一份试卷/);
+  assert.match(page, /今日课程/); assert.match(page, /待办事项/); assert.match(page, /重点关注学生/); assert.match(page, /数据不足/); assert.match(page,/建立您的日常教学闭环/); assert.match(page,/创建第一份试卷/);
   assert.match(page,/r\.ok\?r\.json\(\):empty/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
@@ -31,8 +31,22 @@ test("stage one exposes lesson and student persistence surfaces", async () => {
 });
 
 test("original brand experience remains available as resource center", async () => {
-  const resource = await read("app/resources/page.tsx");
+  const [resource,shell,design] = await Promise.all([read("app/resources/page.tsx"),read("app/components/AppShell.tsx"),read("app/design-system.css")]);
   assert.match(resource,/让教学准备/); assert.match(resource,/备课灵感库/); assert.match(resource,/题库导入/);
+  assert.match(resource,/登录后使用/); assert.match(shell,/publicShell/); assert.match(shell,/公开导航/); assert.match(design,/\.publicHeader/); assert.match(design,/\.navGroup/);
+});
+
+test("question review URLs, counts and pagination share one contract", async () => {
+  const [page,api,dashboard,summary] = await Promise.all([read("app/questions/page.tsx"),read("app/api/questions/route.ts"),read("app/api/dashboard/route.ts"),read("app/lib/question-review.ts")]);
+  assert.match(page,/setStatus\(params\.get\("status"\)/); assert.match(page,/setReady\(true\)/); assert.match(page,/选择全部结果/); assert.match(page,/pageCount/); assert.match(page,/reviewIssues\.total/);
+  for(const field of ["total","pageCount","allIds","filters","issues"]) assert.match(api,new RegExp(field));
+  assert.match(api,/questionReviewSummary/); assert.match(dashboard,/questionReviewSummary/); assert.match(summary,/WHERE status=\?/);
+});
+
+test("daily-use design keeps lesson and assessment states explicit", async () => {
+  const [lesson,assessment,design] = await Promise.all([read("app/lessons/[id]/page.tsx"),read("app/assessments/[id]/page.tsx"),read("app/design-system.css")]);
+  for(const label of ["签到","教学内容","课堂表现","作业","反馈","下节计划","带入反馈草稿"]) assert.match(lesson,new RegExp(label));
+  assert.match(assessment,/样本不足/); assert.match(assessment,/有未保存修改/); assert.match(design,/position:sticky/); assert.match(design,/min-height:44px/);
 });
 
 test("lesson closure persists attendance, performance, homework and feedback", async () => {

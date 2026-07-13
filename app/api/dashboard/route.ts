@@ -1,12 +1,13 @@
 import { env } from "cloudflare:workers";
 import { isDenied, requirePermission } from "../../lib/access";
+import { questionReviewSummary } from "../../lib/question-review";
 
 export async function GET() {
   const access = await requirePermission("dashboard:read"); if (isDenied(access)) return access;
   const db = env.DB, today = new Date().toISOString().slice(0, 10), monday = new Date(); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); const week = monday.toISOString().slice(0, 10), assistant = access.role === "assistant";
   const scoped = (sql: string, bind: unknown[] = []) => db.prepare(sql).bind(...bind, ...(assistant ? [access.id] : []));
   const lessonScope = assistant ? " AND class_id IN (SELECT class_id FROM staff_class_access WHERE user_id=?)" : "", joinedScope = assistant ? " AND l.class_id IN (SELECT class_id FROM staff_class_access WHERE user_id=?)" : "";
-  const results = await db.batch([
+  const [results, reviewSummary] = await Promise.all([db.batch([
     scoped(`SELECT COUNT(*) AS count FROM lessons WHERE date >= ?${lessonScope}`, [week]),
     scoped(`SELECT COUNT(*) AS count FROM lessons WHERE status IN ('draft','scheduled','makeup','rescheduled')${lessonScope}`),
     scoped(`SELECT COUNT(*) AS count FROM feedback f LEFT JOIN lessons l ON l.id=f.lesson_id WHERE f.status='confirmed' AND f.confirmed_at >= ?${assistant ? " AND COALESCE(f.class_id,l.class_id) IN (SELECT class_id FROM staff_class_access WHERE user_id=?)" : ""}`, [week]),
@@ -19,12 +20,10 @@ export async function GET() {
     scoped(`SELECT s.id,s.name,s.grade,r.risk_tags AS riskTags FROM student_lesson_records r JOIN students s ON s.id=r.student_id JOIN lessons l ON l.id=r.lesson_id WHERE r.risk_confirmed=1${joinedScope} ORDER BY r.updated_at DESC LIMIT 5`),
     scoped(`SELECT r.id,r.date,substr(COALESCE(NULLIF(r.effective_practices,''),r.next_action),1,90) AS summary,l.topic FROM reflections r LEFT JOIN lessons l ON l.id=r.lesson_id WHERE 1=1${joinedScope} ORDER BY r.updated_at DESC LIMIT 3`),
     db.prepare("SELECT id,substr(stem,1,90) AS stem,status,updated_at AS updatedAt FROM questions ORDER BY updated_at DESC LIMIT 4"),
-    db.prepare("SELECT COUNT(*) AS count,SUM(CASE WHEN answer='' THEN 1 ELSE 0 END) AS missingAnswer,SUM(CASE WHEN analysis='' THEN 1 ELSE 0 END) AS missingAnalysis,SUM(CASE WHEN knowledge_points='' THEN 1 ELSE 0 END) AS missingClassification,SUM(CASE WHEN COALESCE(parse_confidence,1)<0.7 THEN 1 ELSE 0 END) AS lowConfidence FROM questions WHERE status='review'"),
     assistant ? scoped("SELECT COUNT(DISTINCT class_id) AS count FROM staff_class_access WHERE user_id=?") : db.prepare("SELECT COUNT(*) AS count FROM classes WHERE status='active'"),
     assistant ? scoped("SELECT COUNT(DISTINCT e.student_id) AS count FROM enrollments e JOIN staff_class_access sca ON sca.class_id=e.class_id WHERE sca.user_id=? AND e.status='active'") : db.prepare("SELECT COUNT(*) AS count FROM students WHERE status='active'"),
     db.prepare("SELECT COUNT(*) AS count FROM assessments WHERE status='draft'"),
-  ]);
+  ]), questionReviewSummary(db)]);
   const number = (index: number, key = "count") => Number((results[index].results[0] as Record<string, unknown> | undefined)?.[key] || 0), rate = (index: number) => { const total = number(index, "total"); return total ? Math.round(number(index, "done") / total * 100) : null; };
-  const reviewIssues = (results[12].results[0] || {}) as Record<string, unknown>;
-  return Response.json({ weekLessons: number(0), draftLessons: number(1), confirmedFeedback: number(2), pendingFeedback: number(3), attendanceRate: rate(4), homeworkRate: rate(5), todayLessons: results[6].results, pendingHomework: number(7), riskCount: number(8), riskStudents: results[9].results, recentReflections: access.role === "teacher" ? results[10].results : [], recentQuestions: results[11].results, pendingReview: number(12), reviewIssues: { missingAnswer: Number(reviewIssues.missingAnswer || 0), missingAnalysis: Number(reviewIssues.missingAnalysis || 0), missingClassification: Number(reviewIssues.missingClassification || 0), lowConfidence: Number(reviewIssues.lowConfidence || 0) }, activeClasses: number(13), activeStudents: number(14), pendingAssessments: number(15) });
+  return Response.json({ weekLessons: number(0), draftLessons: number(1), confirmedFeedback: number(2), pendingFeedback: number(3), attendanceRate: rate(4), homeworkRate: rate(5), todayLessons: results[6].results, pendingHomework: number(7), riskCount: number(8), riskStudents: results[9].results, recentReflections: access.role === "teacher" ? results[10].results : [], recentQuestions: results[11].results, pendingReview: reviewSummary.total, reviewIssues: reviewSummary, activeClasses: number(12), activeStudents: number(13), pendingAssessments: number(14) });
 }
