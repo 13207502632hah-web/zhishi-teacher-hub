@@ -18,6 +18,7 @@ export async function GET(request: Request) {
   if (issue === "classification") conditions.push(or(eq(questions.stage, ""), eq(questions.grade, ""), eq(questions.knowledgePoints, "")));
   if (issue === "low_confidence") conditions.push(lt(questions.parseConfidence, .7));
   if (issue === "duplicate") conditions.push(sql`${questions.fingerprint} IN (SELECT fingerprint FROM questions WHERE fingerprint IS NOT NULL AND fingerprint != '' GROUP BY fingerprint HAVING COUNT(*) > 1)`);
+  if (issue === "ready") conditions.push(sql`COALESCE(${questions.stem},'')!='' AND COALESCE(${questions.answer},'')!='' AND COALESCE(${questions.knowledgePoints},'')!='' AND COALESCE(${questions.parseConfidence},1)>=0.7 AND NOT (${questions.fingerprint} IN (SELECT fingerprint FROM questions WHERE fingerprint IS NOT NULL AND fingerprint!='' GROUP BY fingerprint HAVING COUNT(*)>1)) AND (CASE WHEN ${questions.questionType} IN ('单选题','多选题','判断题') THEN COALESCE(${questions.options},'')!='' ELSE COALESCE(${questions.scoringPoints},${questions.answerPoints},${questions.analysis},'')!='' END)`);
   const where = conditions.length ? and(...conditions) : undefined;
   const order = sort === "updated_asc" ? questions.updatedAt : sort === "difficulty_desc" ? desc(questions.difficulty) : desc(questions.updatedAt);
   const [rows, countRows, idRows, issues] = await Promise.all([

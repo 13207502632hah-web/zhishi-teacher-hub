@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 
-const tables = ["classes", "students", "enrollments", "staff_class_access", "courses", "lessons", "attendance", "student_lesson_records", "assignments", "assignment_submissions", "question_sets", "questions", "wrong_questions", "papers", "paper_questions", "lesson_questions", "assessments", "assessment_results", "student_mastery_adjustments", "feedback", "reflections", "resources", "demo_records", "audit_logs"];
+const tables = ["classes", "students", "enrollments", "staff_class_access", "courses", "lessons", "attendance", "student_lesson_records", "assignments", "assignment_submissions", "question_sets", "questions", "wrong_questions", "papers", "paper_files", "paper_questions", "lesson_questions", "assessments", "assessment_results", "student_mastery_adjustments", "feedback", "feedback_templates", "reflections", "resources", "demo_records", "audit_logs"];
 
 export async function GET() {
   const access = await requirePermission("settings:export"); if (isDenied(access)) return access;

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   if (status) { conditions.push("p.status=?"); bindings.push(status); }
   if (stage) { conditions.push("p.stage=?"); bindings.push(stage); }
   if (grade) { conditions.push("p.grade=?"); bindings.push(grade); }
-  const result = await env.DB.prepare(`SELECT p.*,COUNT(pq.id) AS questionCount,COALESCE(SUM(pq.score),0) AS calculatedScore FROM papers p LEFT JOIN paper_questions pq ON pq.paper_id=p.id ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} GROUP BY p.id ORDER BY p.updated_at DESC`).bind(...bindings).all();
+  const result = await env.DB.prepare(`SELECT p.*,(SELECT COUNT(*) FROM paper_questions pq WHERE pq.paper_id=p.id) AS questionCount,COALESCE((SELECT SUM(pq.score) FROM paper_questions pq WHERE pq.paper_id=p.id),0) AS calculatedScore,(SELECT COUNT(*) FROM paper_files pf WHERE pf.paper_id=p.id) AS fileCount FROM papers p ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} ORDER BY p.updated_at DESC`).bind(...bindings).all();
   return Response.json({ papers: result.results });
 }
 
