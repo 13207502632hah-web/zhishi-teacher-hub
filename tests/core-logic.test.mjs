@@ -137,7 +137,7 @@ test("sensitive child routes enforce server-side class, student and lesson acces
   assert.match(activity, /requireLessonAccess/);
   assert.match(lessonQuestions, /requireLessonAccess/);
   assert.match(feedback, /requireFeedbackAccess/);
-  assert.match(confirm, /questions\.reviewed/);
+  assert.match(confirm, /item\.reviewed/);
 });
 
 test("student wrong-question records and feedback delivery stay reviewable", async () => {
@@ -203,4 +203,27 @@ test("paper, lesson and public-resource regressions remain covered", async () =>
   assert.match(resourceApi, /canWrite/);
   assert.match(resourcePage, /还没有公开资源/);
   assert.match(resourcePage, /canWrite && open/);
+});
+
+test("professional political question import preserves review structure", async () => {
+  const { parsePoliticsDocx, summarizeImport } = await loadTsModule("app/lib/question-import.ts");
+  const [question] = parsePoliticsDocx(`二、材料分析题\n8．【材料】某地开展基层协商。\n【设问】（1）说明协商民主的意义。（2）分析如何保障人民当家作主。\n【答案】坚持党的领导、人民当家作主、依法治国有机统一。\n【采分点】党的领导；人民当家作主；依法治国\n【解析】材料信息与教材观点一一对应。\n【知识点】全过程人民民主\n【难度】4`, { stage: "高中", grade: "高一" });
+  assert.equal(question.questionGroup, "二、材料分析题");
+  assert.equal(question.subQuestions.length, 2);
+  assert.deepEqual(question.scoringPoints, ["党的领导", "人民当家作主", "依法治国"]);
+  assert.equal(question.reviewStatus, "pending");
+  assert.ok(question.parseConfidence > 0 && question.parseConfidence <= 1);
+  assert.equal(summarizeImport([question]).lowConfidence, 0);
+});
+
+test("question portability, batch review and document export contracts exist", async () => {
+  const paths = ["app/api/questions/portable/route.ts", "app/api/questions/batch/route.ts", "app/api/papers/[id]/export/route.ts", "app/papers/[id]/page.tsx", "drizzle/0013_eminent_banshee.sql"];
+  const [portable, batch, docxExport, paperDetail, migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  for (const format of ["csv", "markdown", "json"]) assert.match(portable, new RegExp(format));
+  assert.match(portable, /answerIncluded/); assert.match(portable, /import_questions/); assert.match(portable, /status:\s*"review"/);
+  for (const action of ["confirm", "return", "ignore", "difficulty", "questionType"]) assert.match(batch, new RegExp(action));
+  assert.match(batch, /识别置信度低/); assert.match(batch, /paper_questions/);
+  assert.match(docxExport, /Packer\.toBlob/); assert.match(docxExport, /STHeiti/); assert.match(docxExport, /学生版/); assert.match(docxExport, /解析版/); assert.match(docxExport, /export_jobs/); assert.match(docxExport, /ImageRun/);
+  assert.match(paperDetail, /jspdf/); assert.match(paperDetail, /html2canvas/); assert.match(paperDetail, /导出 Word/); assert.match(paperDetail, /导出 PDF/);
+  for (const field of ["question_group", "sub_questions", "scoring_points", "attachments", "tables", "parse_confidence", "review_status", "source_document_id", "export_jobs"]) assert.match(migration, new RegExp(field));
 });

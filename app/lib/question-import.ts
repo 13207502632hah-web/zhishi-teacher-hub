@@ -5,6 +5,8 @@ export type ImportedQuestion = Record<string, unknown> & {
   status: "review";
   reviewed: boolean;
   importNotes: string[];
+  parseConfidence: number;
+  reviewStatus: "pending";
 };
 
 type ImportMeta = Record<string, unknown>;
@@ -49,6 +51,8 @@ export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuest
       const knowledgePoints = marker(chunk, "知识点");
       if (!stem) continue;
       const importNotes = [!answer && "缺少答案", !knowledgePoints && "缺少知识点", !analysis && "缺少解析"].filter(Boolean) as string[];
+      const subQuestions = [...questionBody.matchAll(/[（(](\d+)[）)]\s*([^（(]+?)(?=[（(]\d+[）)]|$)/g)].map((match) => ({ number: match[1], prompt: match[2].trim(), answer: "", scoringPoints: [] }));
+      const parseConfidence = Math.max(.35, 1 - importNotes.length * .15 - (subQuestions.length > 1 && !marker(chunk, "采分点") ? .1 : 0));
       output.push({
         ...meta,
         stem,
@@ -56,6 +60,13 @@ export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuest
         options,
         answer,
         answerPoints: marker(chunk, "采分点"),
+        scoringPoints: marker(chunk, "采分点").split(/[；;\n]/).map((item) => item.trim()).filter(Boolean),
+        subQuestions,
+        questionGroup: heading,
+        attachments: [],
+        tables: [],
+        parseConfidence,
+        reviewStatus: "pending",
         analysis,
         factBasis: marker(chunk, "事实依据"),
         textbookView: marker(chunk, "教材依据") || marker(chunk, "教材观点"),
@@ -75,7 +86,17 @@ export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuest
   return output;
 }
 
-export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis" | "importNotes">>) {
+/** 将 Mammoth 生成的安全 HTML 中的图片和表格，按出现顺序关联到识别题目。 */
+export function enrichQuestionsFromHtml(html: string, input: ImportedQuestion[]) {
+  if (typeof DOMParser === "undefined") return input;
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const attachments = [...document.querySelectorAll("img")].map((image, index) => ({ id: `image-${index + 1}`, src: image.getAttribute("src") || "", alt: image.getAttribute("alt") || `原试卷图片 ${index + 1}`, needsReview: true }));
+  const tables = [...document.querySelectorAll("table")].map((table, index) => ({ id: `table-${index + 1}`, rows: [...table.querySelectorAll("tr")].map((row) => [...row.querySelectorAll("th,td")].map((cell) => cell.textContent?.trim() || "")), needsReview: true }));
+  if (!attachments.length && !tables.length) return input;
+  return input.map((question, index) => index === 0 ? { ...question, attachments, tables, parseConfidence: Math.min(question.parseConfidence, .75), importNotes: [...question.importNotes, attachments.length ? `含 ${attachments.length} 张图片，需核对位置` : "", tables.length ? `含 ${tables.length} 个表格，需核对结构` : ""].filter(Boolean) } : question);
+}
+
+export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis" | "importNotes"> & { parseConfidence?: number }>) {
   const typeCounts = questions.reduce<Record<string, number>>((counts, question) => {
     counts[question.questionType] = (counts[question.questionType] || 0) + 1;
     return counts;
@@ -86,6 +107,7 @@ export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questio
     tagged: questions.filter((question) => Boolean(question.knowledgePoints)).length,
     explained: questions.filter((question) => Boolean(question.analysis)).length,
     incomplete: questions.filter((question) => (question.importNotes?.length || 0) > 0).length,
+    lowConfidence: questions.filter((question) => Number(question.parseConfidence || 0) < .7).length,
     typeCounts,
   };
 }

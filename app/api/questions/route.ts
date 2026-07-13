@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, like, lt, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { questions } from "../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../lib/access";
@@ -6,11 +6,16 @@ import { questionValues } from "./values";
 
 export async function GET(request: Request) {
   const access = await requirePermission("questions:read"); if (isDenied(access)) return access;
-  const params = new URL(request.url).searchParams, q = params.get("q") || "", stage = params.get("stage") || "", grade = params.get("grade") || "", textbookVersion = params.get("textbookVersion") || "", volume = params.get("volume") || "", unit = params.get("unit") || "", topic = params.get("topic") || "", type = params.get("type") || "", difficulty = params.get("difficulty") || "", status = params.get("status") || "active", knowledge = params.get("knowledge") || "", source = params.get("source") || "", region = params.get("region") || "", year = params.get("year") || "", flag = params.get("flag") || "";
+  const params = new URL(request.url).searchParams, q = params.get("q") || "", stage = params.get("stage") || "", grade = params.get("grade") || "", textbookVersion = params.get("textbookVersion") || "", volume = params.get("volume") || "", unit = params.get("unit") || "", topic = params.get("topic") || "", type = params.get("type") || "", difficulty = params.get("difficulty") || "", status = params.get("status") || "active", knowledge = params.get("knowledge") || "", source = params.get("source") || "", region = params.get("region") || "", year = params.get("year") || "", flag = params.get("flag") || "", issue = params.get("issue") || "";
   const conditions = [];
   if (q) conditions.push(or(like(questions.stem, `%${q}%`), like(questions.material, `%${q}%`), like(questions.analysis, `%${q}%`), like(questions.knowledgePoints, `%${q}%`), like(questions.tags, `%${q}%`)));
   if (stage) conditions.push(eq(questions.stage, stage)); if (grade) conditions.push(eq(questions.grade, grade)); if (textbookVersion) conditions.push(like(questions.textbookVersion, `%${textbookVersion}%`)); if (volume) conditions.push(like(questions.volume, `%${volume}%`)); if (unit) conditions.push(like(questions.unit, `%${unit}%`)); if (topic) conditions.push(like(questions.topic, `%${topic}%`)); if (type) conditions.push(eq(questions.questionType, type)); if (difficulty) conditions.push(eq(questions.difficulty, Number(difficulty))); if (status) conditions.push(eq(questions.status, status)); if (knowledge) conditions.push(or(like(questions.knowledgePoints, `%${knowledge}%`), like(questions.secondaryKnowledge, `%${knowledge}%`))); if (source) conditions.push(like(questions.source, `%${source}%`)); if (region) conditions.push(like(questions.region, `%${region}%`)); if (year) conditions.push(eq(questions.year, Number(year)));
   if (flag === "favorite") conditions.push(eq(questions.isFavorite, true)); if (flag === "wrong") conditions.push(eq(questions.isWrong, true)); if (flag === "frequent") conditions.push(eq(questions.isFrequent, true));
+  if (issue === "missing_answer") conditions.push(eq(questions.answer, ""));
+  if (issue === "missing_analysis") conditions.push(eq(questions.analysis, ""));
+  if (issue === "classification") conditions.push(or(eq(questions.stage, ""), eq(questions.grade, ""), eq(questions.knowledgePoints, "")));
+  if (issue === "low_confidence") conditions.push(lt(questions.parseConfidence, .7));
+  if (issue === "duplicate") conditions.push(sql`${questions.fingerprint} IN (SELECT fingerprint FROM questions WHERE fingerprint IS NOT NULL AND fingerprint != '' GROUP BY fingerprint HAVING COUNT(*) > 1)`);
   const rows = await getDb().select().from(questions).where(conditions.length ? and(...conditions) : undefined).orderBy(desc(questions.updatedAt)).limit(300);
   return Response.json({ questions: rows });
 }

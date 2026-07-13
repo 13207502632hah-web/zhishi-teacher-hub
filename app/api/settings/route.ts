@@ -6,7 +6,7 @@ const allowedRoles: RoleCode[] = ["teacher", "assistant", "student", "parent"];
 export async function GET() {
   const access = await requirePermission("settings:read"); if (isDenied(access)) return access;
   const [users, students, classes, staffClassAccess, logs] = await Promise.all([
-    env.DB.prepare("SELECT u.id,u.name,u.email,u.status,GROUP_CONCAT(r.code) AS roles,GROUP_CONCAT(r.name) AS roleNames FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id ORDER BY u.created_at").all(),
+    env.DB.prepare("SELECT u.id,u.name,u.email,u.status,GROUP_CONCAT(r.code) AS roles,GROUP_CONCAT(r.name) AS roleNames FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE COALESCE(u.email,'') NOT LIKE '%@chatgpt.com' AND COALESCE(u.email,'') NOT LIKE '%@local.invalid' GROUP BY u.id ORDER BY u.created_at").all(),
     env.DB.prepare("SELECT id,name,grade,user_id AS userId,guardian_user_id AS guardianUserId FROM students ORDER BY name").all(),
     env.DB.prepare("SELECT id,name,stage,grade FROM classes WHERE status='active' ORDER BY grade,name").all(),
     env.DB.prepare("SELECT user_id AS userId,class_id AS classId FROM staff_class_access").all(),
@@ -36,6 +36,8 @@ export async function POST(request: Request) {
   }
   if (action === "disableUser") {
     const userId = Number(body.userId || 0); if (!userId || userId === access.id) return Response.json({ error: "不能停用当前登录账号" }, { status: 400 });
+    const target = await env.DB.prepare("SELECT email FROM users WHERE id=?").bind(userId).first<{ email: string }>();
+    if (!target || /@(chatgpt\.com|local\.invalid)$/i.test(String(target.email || ""))) return Response.json({ error: "系统服务身份不能在成员管理中停用" }, { status: 403 });
     await env.DB.prepare("UPDATE users SET status='disabled',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(userId).run();
     await audit(access, "disable", "user", userId); return Response.json({ ok: true });
   }

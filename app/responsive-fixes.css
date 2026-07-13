@@ -104,3 +104,18 @@
   .assessmentNumbers { justify-content: start; }
   .assessmentSummary { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+
+.reviewTools { position: sticky; top: 0; z-index: 4; padding: 10px 12px; background: rgba(248,247,241,.96); border: 1px solid #dfe3dc; border-radius: 8px; backdrop-filter: blur(10px); }
+.reviewProgress { display: flex; align-items: baseline; gap: 8px; margin: 12px 0; }
+.reviewProgress b { color: #21483c; font-size: 2rem; }
+.paperLayoutTools .toolbar label { display: flex; align-items: center; gap: 8px; }
+.paperLayoutTools input[type="number"] { width: 88px; }
+.paperGroupTitle { break-after: avoid; page-break-after: avoid; margin: 26px 0 12px; font-size: 1.08rem; }
+.paperDocument article { break-inside: avoid; page-break-inside: avoid; }
+.paperDocument .answerSpace p { margin: 8px 0; }
+
+@media (max-width: 600px) {
+  .reviewTools { position: static; }
+  .paperLayoutTools::before { content: "复杂组卷与文件排版建议使用电脑完成"; display: block; margin-bottom: 10px; color: #718078; font-size: .86rem; }
+  .paperDocument { min-width: 720px; }
+}

@@ -18,14 +18,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const access = await requirePermission("papers:write"); if (isDenied(access)) return access;
-  const body = await request.json() as Record<string, unknown>, title = value(body.title), input = Array.isArray(body.questions) ? body.questions : [], selected = input.map((item) => ({ id: Number((item as Record<string, unknown>).id), score: Number((item as Record<string, unknown>).score || 0) })).filter((item) => Number.isFinite(item.id) && item.id > 0), ids = [...new Set(selected.map((item) => item.id))];
+  const body = await request.json() as Record<string, unknown>, title = value(body.title), input = Array.isArray(body.questions) ? body.questions : [], selected = input.map((item) => ({ id: Number((item as Record<string, unknown>).id), score: Number((item as Record<string, unknown>).score || 0), groupTitle: value((item as Record<string, unknown>).groupTitle), answerSpace: Math.max(1, Math.min(12, Number((item as Record<string, unknown>).answerSpace || 2))) })).filter((item) => Number.isFinite(item.id) && item.id > 0), ids = [...new Set(selected.map((item) => item.id))];
   if (!title || !selected.length) return Response.json({ error: "试卷名称和题目不能为空" }, { status: 400 });
   if (ids.length !== selected.length) return Response.json({ error: "同一道题不能重复加入同一份试卷" }, { status: 400 });
   if (selected.some((item) => !Number.isFinite(item.score) || item.score < 0)) return Response.json({ error: "分值必须是非负数字" }, { status: 400 });
   const actual = await env.DB.prepare(`SELECT id FROM questions WHERE status='active' AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
   if (actual.results.length !== ids.length) return Response.json({ error: "所选题目中包含不存在或未正式入库的题目" }, { status: 400 });
   const total = selected.reduce((sum, item) => sum + item.score, 0), db = getDb(), [paper] = await db.insert(papers).values({ title, type: value(body.type) || "练习", stage: value(body.stage), grade: value(body.grade), textbookVersion: value(body.textbookVersion), durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null, instructions: value(body.instructions), totalScore: total, status: "draft" }).returning();
-  for (let index = 0; index < selected.length; index += 20) await db.insert(paperQuestions).values(selected.slice(index, index + 20).map((item, offset) => ({ paperId: paper.id, questionId: item.id, position: index + offset + 1, score: item.score })));
+  for (let index = 0; index < selected.length; index += 20) await db.insert(paperQuestions).values(selected.slice(index, index + 20).map((item, offset) => ({ paperId: paper.id, questionId: item.id, position: index + offset + 1, score: item.score, groupTitle: item.groupTitle, answerSpace: item.answerSpace })));
   await env.DB.batch(selected.map((item) => env.DB.prepare("UPDATE questions SET use_count=use_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(item.id)));
   await audit(access, "create", "paper", paper.id, { questionCount: selected.length, totalScore: total });
   return Response.json({ paper }, { status: 201 });

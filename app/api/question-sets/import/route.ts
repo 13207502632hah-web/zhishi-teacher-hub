@@ -7,7 +7,7 @@ import { questionValues } from "../../questions/values";
 
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
-  const body = await request.json() as { name?: string; sourceFile?: string; questions?: Array<Record<string, unknown>> }, input = (body.questions || []).filter((question) => String(question.stem || "").trim()).slice(0, 300);
+  const body = await request.json() as { name?: string; sourceFile?: string; sourceDocument?: string; questions?: Array<Record<string, unknown>> }, input = (body.questions || []).filter((question) => String(question.stem || "").trim()).slice(0, 300);
   if (!input.length) return Response.json({ error: "没有可导入的题目；请确认 Word 中包含文字版题号与题干" }, { status: 400 });
   const sourceFingerprint = questionFingerprint({ stem: body.sourceFile || body.name || "Word 导入", material: input.map((question) => questionFingerprint(question)).join("|") }), db = getDb();
   const [previous] = await db.select({ id: questionSets.id, name: questionSets.name, status: questionSets.status }).from(questionSets).where(eq(questionSets.sourceFingerprint, sourceFingerprint)).limit(1);
@@ -16,12 +16,13 @@ export async function POST(request: Request) {
   const fingerprints = [...new Set(prepared.map((question) => question.fingerprint))], existingRows = fingerprints.length ? await db.select({ fingerprint: questions.fingerprint }).from(questions).where(inArray(questions.fingerprint, fingerprints)) : [], existing = new Set(existingRows.map((question) => question.fingerprint));
   const unique = prepared.filter((question) => !existing.has(question.fingerprint));
   if (!unique.length) return Response.json({ error: "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length }, { status: 409 });
-  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length };
-  const [set] = await db.insert(questionSets).values({ name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceFingerprint, importReport: JSON.stringify(report), status: "review" }).returning();
+  const duplicateRows = prepared.filter((question) => existing.has(question.fingerprint)).map((question) => ({ fingerprint: question.fingerprint, stem: question.stem.slice(0, 80) }));
+  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length, lowConfidence: unique.filter((question) => Number(question.parseConfidence ?? 1) < .7).length };
+  const [set] = await db.insert(questionSets).values({ name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateRows), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
   const insertedQuestions = [];
   try {
     for (let index = 0; index < unique.length; index += 2) {
-      const inserted = await db.insert(questions).values(unique.slice(index, index + 2).map((question) => ({ ...question, questionSetId: set.id }))).returning();
+      const inserted = await db.insert(questions).values(unique.slice(index, index + 2).map((question) => ({ ...question, questionSetId: set.id, sourceDocumentId: set.id }))).returning();
       insertedQuestions.push(...inserted);
     }
   } catch (error) {
