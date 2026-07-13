@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "../../../../db";
 import { questions, questionSets } from "../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
+import { questionReadinessIssues } from "../../../lib/question-readiness";
 
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     const selected = await getDb().select().from(questions).where(inArray(questions.id, ids));
     const fingerprints = selected.map((item) => item.fingerprint).filter(Boolean) as string[], duplicateIds = new Set<number>();
     if (fingerprints.length) { const marks = fingerprints.map(() => "?").join(","), duplicates = await env.DB.prepare(`SELECT id FROM questions WHERE fingerprint IN (${marks}) AND fingerprint IN (SELECT fingerprint FROM questions WHERE fingerprint IN (${marks}) GROUP BY fingerprint HAVING COUNT(*)>1)`).bind(...fingerprints, ...fingerprints).all<{ id: number }>(); duplicates.results.forEach((item) => duplicateIds.add(item.id)); }
-    const blocked = selected.filter((item) => { const objective = ["单选题", "多选题", "判断题"].includes(item.questionType); return !item.stem || !item.answer || !item.knowledgePoints || (objective ? !item.options : !(item.scoringPoints || item.answerPoints || item.analysis)) || Number(item.parseConfidence ?? 1) < .7 || duplicateIds.has(item.id); }).map((item) => { const objective = ["单选题", "多选题", "判断题"].includes(item.questionType); return { id: item.id, issues: [!item.stem && "缺少题干", !item.answer && "缺少答案", !item.knowledgePoints && "缺少知识点", objective && !item.options && "缺少选项", !objective && !(item.scoringPoints || item.answerPoints || item.analysis) && "主观题缺少采分点或解析", Number(item.parseConfidence ?? 1) < .7 && "识别置信度低", duplicateIds.has(item.id) && "疑似重复"].filter(Boolean) }; });
+    const blocked = selected.map((item) => ({ id: item.id, issues: questionReadinessIssues(item, { duplicate: duplicateIds.has(item.id) }) })).filter((item) => item.issues.length);
     if (blocked.length) return Response.json({ error: `有 ${blocked.length} 道题仍需人工确认，未执行批量入库`, blocked, report: { selected: ids.length, ready: ids.length - blocked.length, blocked: blocked.length } }, { status: 409 });
     updates.status = "active"; updates.reviewed = true; updates.reviewStatus = "confirmed";
   }

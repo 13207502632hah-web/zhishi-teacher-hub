@@ -66,6 +66,13 @@ test("question fingerprints ignore whitespace-only differences", async () => {
   assert.equal(first, second);
 });
 
+test("question readiness allows valid reviewed items to enter the formal bank independently", async () => {
+  const { questionReadinessIssues } = await loadTsModule("app/lib/question-readiness.ts");
+  assert.deepEqual(questionReadinessIssues({ reviewed: true, questionType: "单选题", stem: "题干", options: "A．选项", answer: "A", knowledgePoints: "法治", parseConfidence: .9 }, { requireReviewed: true }), []);
+  assert.deepEqual(questionReadinessIssues({ reviewed: true, questionType: "材料分析题", stem: "题干", answer: "答案", knowledgePoints: "民主", answerPoints: "采分点", scoringPoints: "[]", parseConfidence: .9 }, { requireReviewed: true }), []);
+  assert.deepEqual(questionReadinessIssues({ reviewed: true, questionType: "判断题", stem: "题干", answer: "正确", knowledgePoints: "宪法", parseConfidence: .5 }, { requireReviewed: true }), ["识别置信度低"]);
+});
+
 test("lesson time validation catches inverted time and cancellation without reason", async () => {
   const { validateLessonTime, usesTeachingSlot } = await loadTsModule("app/lib/lesson-validation.ts");
   assert.equal(validateLessonTime({ startTime: "15:00", endTime: "14:00", status: "scheduled" }), "结束时间必须晚于开始时间");
@@ -217,12 +224,12 @@ test("professional political question import preserves review structure", async 
 });
 
 test("question portability, batch review and document export contracts exist", async () => {
-  const paths = ["app/api/questions/portable/route.ts", "app/api/questions/batch/route.ts", "app/api/papers/[id]/export/route.ts", "app/papers/[id]/page.tsx", "drizzle/0013_eminent_banshee.sql"];
-  const [portable, batch, docxExport, paperDetail, migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const paths = ["app/api/questions/portable/route.ts", "app/api/questions/batch/route.ts", "app/lib/question-readiness.ts", "app/api/papers/[id]/export/route.ts", "app/papers/[id]/page.tsx", "drizzle/0013_eminent_banshee.sql"];
+  const [portable, batch, readiness, docxExport, paperDetail, migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   for (const format of ["csv", "markdown", "json"]) assert.match(portable, new RegExp(format));
   assert.match(portable, /answerIncluded/); assert.match(portable, /import_questions/); assert.match(portable, /status:\s*"review"/);
   for (const action of ["confirm", "return", "ignore", "difficulty", "questionType"]) assert.match(batch, new RegExp(action));
-  assert.match(batch, /识别置信度低/); assert.match(batch, /paper_questions/);
+  assert.match(batch, /questionReadinessIssues/); assert.match(readiness, /识别置信度低/); assert.match(batch, /paper_questions/);
   assert.match(docxExport, /Packer\.toBlob/); assert.match(docxExport, /STHeiti/); assert.match(docxExport, /学生版/); assert.match(docxExport, /解析版/); assert.match(docxExport, /export_jobs/); assert.match(docxExport, /ImageRun/);
   assert.match(paperDetail, /jspdf/); assert.match(paperDetail, /html2canvas/); assert.match(paperDetail, /导出 Word/); assert.match(paperDetail, /导出 PDF/);
   for (const field of ["question_group", "sub_questions", "scoring_points", "attachments", "tables", "parse_confidence", "review_status", "source_document_id", "export_jobs"]) assert.match(migration, new RegExp(field));
