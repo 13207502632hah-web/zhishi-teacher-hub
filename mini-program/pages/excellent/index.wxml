@@ -1,0 +1,1 @@
+<view class="page"><view class="card"><view class="title">优秀作业</view><view class="muted">仅绑定学生和家长可见，发布前必须完成姓名、学校、考号和签名遮罩。</view></view><view wx:if="{{!items.length}}" class="empty">暂无已确认发布的优秀作业</view><view wx:for="{{items}}" wx:key="id" class="card"><view class="title">{{item.title}}</view><view>{{item.textContent}}</view><view class="muted">已完成隐私处理</view></view></view>

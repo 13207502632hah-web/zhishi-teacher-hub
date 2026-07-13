@@ -234,3 +234,37 @@ test("question portability, batch review and document export contracts exist", a
   assert.match(paperDetail, /jspdf/); assert.match(paperDetail, /html2canvas/); assert.match(paperDetail, /导出 Word/); assert.match(paperDetail, /导出 PDF/);
   for (const field of ["question_group", "sub_questions", "scoring_points", "attachments", "tables", "parse_confidence", "review_status", "source_document_id", "export_jobs"]) assert.match(migration, new RegExp(field));
 });
+
+test("lesson finance keeps attendance factors and settlement differences explicit", async () => {
+  const { calculateLessonFinance, defaultBillingFactor, settlementStatus } = await loadTsModule("app/lib/finance.ts");
+  assert.equal(defaultBillingFactor("present"), 1); assert.equal(defaultBillingFactor("half"), .5); assert.equal(defaultBillingFactor("leave"), 0); assert.equal(defaultBillingFactor("absent"), 0);
+  const result = calculateLessonFinance(100, -10, [{ studentId: 1, status: "present", unitFee: 20 }, { studentId: 2, status: "half", unitFee: 20 }, { studentId: 3, status: "leave", unitFee: 20 }]);
+  assert.equal(result.expectedAmount, 120); assert.deepEqual(result.items.map((item) => item.amount), [20, 10, 0]);
+  assert.equal(settlementStatus(120, 0), "pending"); assert.equal(settlementStatus(120, 100), "underpaid"); assert.equal(settlementStatus(120, 130), "overpaid"); assert.equal(settlementStatus(120, 120), "settled");
+});
+
+test("schedule import recognizes Chinese headers, Excel dates and half-hour slots", async () => {
+  const { detectScheduleMapping, normalizeScheduleRow, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
+  const mapping = detectScheduleMapping(["上课日期", "上课时间", "时长", "学生姓名", "课程名称", "上课地点", "底薪", "学生提成"]);
+  const row = normalizeScheduleRow({ 上课日期: "2026年7月20日", 上课时间: "8:30", 时长: 1.5, 学生姓名: "小明、小华", 课程名称: "高中政治", 上课地点: "襄阳", 底薪: "100元", 学生提成: "20元" }, mapping);
+  assert.equal(row.date, "2026-07-20"); assert.equal(row.startTime, "08:30"); assert.equal(row.endTime, "10:00"); assert.deepEqual(row.studentNames, ["小明", "小华"]); assert.deepEqual(validateNormalizedSchedule(row), []);
+});
+
+test("calendar subscription keeps stable lesson UID and a 30 minute reminder", async () => {
+  const { createCalendar } = await loadTsModule("app/lib/calendar.ts");
+  const ics = createCalendar([{ id: 12, date: "2026-07-20", startTime: "08:00", endTime: "10:00", courseName: "政治课", location: "教室A" }], 30);
+  assert.match(ics, /UID:lesson-12@zhishi-teacher-hub/); assert.match(ics, /TRIGGER:-PT30M/); assert.match(ics, /LOCATION:教室A/); assert.doesNotMatch(ics, /课时费|家长联系方式/);
+});
+
+test("recognition blocks uncertain scores and uses four explainable mastery levels", async () => {
+  const { canConfirmRecognition, masteryLevel } = await loadTsModule("app/lib/recognition.ts");
+  assert.equal(canConfirmRecognition({ confidence: .6, teacherScore: 5, maxScore: 10 }), false); assert.equal(canConfirmRecognition({ confidence: .9, teacherScore: 5, maxScore: 10 }), true); assert.equal(canConfirmRecognition({ reviewStatus: "confirmed", teacherScore: 5, maxScore: 10 }), true); assert.equal(canConfirmRecognition({ confidence: .9, teacherScore: 11, maxScore: 10 }), false);
+  assert.equal(masteryLevel(null, 0), "未接触"); assert.equal(masteryLevel(.4, 1), "初步了解"); assert.equal(masteryLevel(.7, 3), "基本掌握"); assert.equal(masteryLevel(.9, 3), "熟练运用");
+});
+
+test("new teacher workflows keep private files, mini binding and audit boundaries", async () => {
+  const paths = ["db/schema.ts","app/api/files/[id]/route.ts","app/api/schedule-imports/[id]/confirm/route.ts","app/api/finance/route.ts","app/api/recognition/route.ts","app/api/mini/bind/route.ts","app/api/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
+  const [schema,files,schedule,finance,recognition,bind,excellent,miniReadme,migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  for (const entity of ["scheduleImports","lessonFinance","packageLedger","recognitionJobs","assessmentQuestionResults","parentStudentLinks","submissionVersions","excellentSubmissions"]) assert.match(schema,new RegExp(entity));
+  assert.match(files,/requirePermission/); assert.match(files,/private, no-store/); assert.match(schedule,/同名档案/); assert.match(finance,/preview/); assert.match(finance,/confirm/); assert.match(recognition,/仍有.*题存疑/); assert.match(bind,/邀请码无效或已过期/); assert.match(excellent,/masking_status='confirmed'/); assert.match(miniReadme,/生产环境禁止开启/); assert.match(migration,/lesson_finance/);
+});

@@ -9,14 +9,19 @@ type NavItem = { href: string; icon: string; label: string; group: string };
 const items: NavItem[] = [
   { href: "/workspace", icon: "首", label: "工作台", group: "总览" },
   { href: "/lessons", icon: "课", label: "课时记录", group: "教学管理" },
+  { href: "/schedule-imports", icon: "表", label: "课表导入", group: "教学管理" },
+  { href: "/finance", icon: "账", label: "课时结算", group: "教学管理" },
+  { href: "/calendar", icon: "历", label: "Apple 日历", group: "教学管理" },
   { href: "/feedback", icon: "馈", label: "课程反馈", group: "教学管理" },
   { href: "/classes", icon: "班", label: "学生与班级", group: "学生学情" },
   { href: "/assessments", icon: "测", label: "测验与成绩", group: "学生学情" },
+  { href: "/recognition", icon: "校", label: "答题卡校对", group: "学生学情" },
   { href: "/questions", icon: "题", label: "题库与组卷", group: "题库组卷" },
   { href: "/reflections", icon: "思", label: "教学反思", group: "教研沉淀" },
   { href: "/analytics", icon: "数", label: "数据中心", group: "教研沉淀" },
   { href: "/resources", icon: "资", label: "资源中心", group: "教研沉淀" },
   { href: "/settings", icon: "设", label: "设置", group: "系统" },
+  { href: "/mini-settings", icon: "微", label: "微信小程序", group: "系统" },
 ];
 
 export function AppShell({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {

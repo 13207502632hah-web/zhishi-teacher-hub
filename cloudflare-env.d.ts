@@ -34,5 +34,10 @@ declare module "cloudflare:workers" {
     TEACHER_ADMIN_ACCOUNT?: string;
     TEACHER_ADMIN_PASSWORD?: string;
     TEACHER_ADMIN_SESSION_SECRET?: string;
+    WECHAT_APP_ID?: string;
+    WECHAT_APP_SECRET?: string;
+    WECHAT_TEST_MODE?: string;
+    RECOGNITION_PROVIDER?: string;
+    RECOGNITION_API_KEY?: string;
   };
 }

@@ -16,6 +16,7 @@
   "dependencies": {
     "docx": "^9.7.1",
     "drizzle-orm": "0.45.2",
+    "exceljs": "4.4.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "mammoth": "^1.12.0",
