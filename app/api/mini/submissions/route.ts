@@ -1,4 +1,19 @@
-import { env } from "cloudflare:workers";import { miniDenied,requireMini } from "../../../lib/mini-auth";
-export async function GET(request:Request){const access=await requireMini(request);if(miniDenied(access))return access;const assignmentId=Number(new URL(request.url).searchParams.get("assignmentId")||0);let sql="SELECT s.*,st.name AS studentName FROM assignment_submissions s JOIN students st ON st.id=s.student_id WHERE s.assignment_id=?";const bind:unknown[]=[assignmentId];if(access.role==="student"){sql+=" AND s.student_id=?";bind.push(access.studentId)}if(access.role==="parent"){sql+=" AND EXISTS(SELECT 1 FROM parent_student_links p WHERE p.student_id=s.student_id AND p.parent_account_id=? AND p.status='active')";bind.push(access.accountId)}const rows=await env.DB.prepare(sql+" ORDER BY s.id").bind(...bind).all();return Response.json({submissions:rows.results})}
-export async function POST(request:Request){const access=await requireMini(request);if(miniDenied(access))return access;const b=await request.json() as Record<string,any>,action=String(b.action||"submit");if(action==="review"){if(access.role!=="teacher")return Response.json({error:"仅教师可以批改"},{status:403});const allowed=["excellent","completed","revision","incomplete"];if(!allowed.includes(b.status))return Response.json({error:"批改状态不正确"},{status:400});await env.DB.prepare("UPDATE assignment_submissions SET status=?,score=?,review_tags=?,teacher_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(b.status,b.score??null,(b.reviewTags||[]).join("、"),b.teacherNote||null,Number(b.submissionId)).run();return Response.json({ok:true})}
-  let studentId=access.studentId;if(access.role==="parent"){const allowed=await env.DB.prepare("SELECT 1 FROM parent_student_links WHERE parent_account_id=? AND student_id=? AND status='active'").bind(access.accountId,Number(b.studentId)).first();if(!allowed)return Response.json({error:"不能代其他学生提交"},{status:403});studentId=Number(b.studentId)}if(!studentId)return Response.json({error:"尚未绑定学生"},{status:400});let submission=await env.DB.prepare("SELECT id FROM assignment_submissions WHERE assignment_id=? AND student_id=?").bind(Number(b.assignmentId),studentId).first<{id:number}>();if(!submission)submission=await env.DB.prepare("INSERT INTO assignment_submissions(assignment_id,student_id,status,submitted_at) VALUES(?,?,?,CURRENT_TIMESTAMP) RETURNING id").bind(Number(b.assignmentId),studentId,"submitted").first<{id:number}>();const current=await env.DB.prepare("SELECT COALESCE(MAX(version),0) AS version FROM submission_versions WHERE submission_id=?").bind(submission?.id).first<{version:number}>(),version=Number(current?.version||0)+1,row=await env.DB.prepare("INSERT INTO submission_versions(submission_id,version,text_content,status,submitted_by_role) VALUES(?,?,?,?,?) RETURNING id").bind(submission?.id,version,b.textContent||null,"submitted",access.role).first<{id:number}>();for(const [index,assetId] of (b.assetIds||[]).entries())await env.DB.prepare("INSERT INTO submission_assets(submission_version_id,asset_id,position,precheck_status,precheck_notes) VALUES(?,?,?,?,?)").bind(row?.id,Number(assetId),index,"needs_review","自动预检仅提供提示，请教师确认清晰度、缺页和错传情况").run();await env.DB.prepare("UPDATE assignment_submissions SET status='submitted',submitted_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(submission?.id).run();return Response.json({id:submission?.id,version},{status:201})}
+import { miniDenied, requireMini } from "../../../lib/mini-auth";
+import { saveReview } from "../../../lib/services/review-service";
+import { listSubmissions, submitAssignment } from "../../../lib/services/submission-service";
+
+export async function GET(request: Request) {
+  const access = await requireMini(request); if (miniDenied(access)) return access;
+  const assignmentId = Number(new URL(request.url).searchParams.get("assignmentId") || 0);
+  return Response.json({ submissions: await listSubmissions(access, assignmentId) });
+}
+
+export async function POST(request: Request) {
+  const access = await requireMini(request); if (miniDenied(access)) return access;
+  const body = await request.json() as Record<string, any>;
+  if (body.action === "save-review" || body.action === "confirm-review") {
+    if (access.role !== "teacher" || !access.userId) return Response.json({ error: "教师账号尚未关联网站用户，不能确认批改" }, { status: 403 });
+    return saveReview(body, { actor: { type: "mini_account", id: access.accountId }, userId: access.userId });
+  }
+  return submitAssignment(access, body);
+}

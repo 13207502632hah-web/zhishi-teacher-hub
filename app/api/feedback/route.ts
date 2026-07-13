@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { feedback } from "../../../db/schema";
 import { audit, isDenied, requireClassAccess, requireLessonAccess, requirePermission } from "../../lib/access";
+import { recordConfirmedFeedbackEvent } from "../../lib/services/mini-sync-service";
 
 const values = (payload: Record<string, unknown>) => ({ lessonId: payload.lessonId ? Number(payload.lessonId) : null, studentId: payload.studentId ? Number(payload.studentId) : null, classId: payload.classId ? Number(payload.classId) : null, type: String(payload.type || "lesson"), audience: String(payload.audience || "private"), lengthMode: String(payload.lengthMode || "short"), tone: String(payload.tone || "专业简洁"), customInput: String(payload.customInput || ""), previousHomework: String(payload.previousHomework || ""), classPerformance: String(payload.classPerformance || ""), weakPoints: String(payload.weakPoints || ""), dueAt: String(payload.dueAt || ""), content: String(payload.content || ""), shortContent: String(payload.shortContent || ""), standardContent: String(payload.standardContent || ""), learningContent: String(payload.learningContent || ""), highlights: String(payload.highlights || ""), consolidate: String(payload.consolidate || ""), homeworkRequirements: String(payload.homeworkRequirements || ""), parentAdvice: String(payload.parentAdvice || ""), nextFocus: String(payload.nextFocus || ""), periodStart: String(payload.periodStart || ""), periodEnd: String(payload.periodEnd || ""), periodSummary: String(payload.periodSummary || ""), progress: String(payload.progress || ""), problems: String(payload.problems || ""), goals: String(payload.goals || ""), suggestions: String(payload.suggestions || ""), status: String(payload.status || "draft"), copiedAt: payload.copiedAt ? String(payload.copiedAt) : null, confirmedAt: payload.status === "confirmed" ? new Date().toISOString() : null, sentAt: payload.sentAt ? String(payload.sentAt) : null });
 
@@ -31,5 +32,6 @@ export async function POST(request: Request) {
   const membershipError = await validateStudentClass(data.studentId, data.classId, data.lessonId); if (membershipError) return membershipError;
   const [row] = await getDb().insert(feedback).values(data).returning();
   await audit(access, "create", "feedback", row.id, { status: row.status, type: row.type });
+  await recordConfirmedFeedbackEvent(row as unknown as Record<string, unknown>);
   return Response.json({ feedback: row }, { status: 201 });
 }

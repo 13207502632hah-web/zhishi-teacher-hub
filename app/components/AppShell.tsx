@@ -13,6 +13,7 @@ const items: NavItem[] = [
   { href: "/finance", icon: "账", label: "课时结算", group: "教学管理" },
   { href: "/calendar", icon: "历", label: "Apple 日历", group: "教学管理" },
   { href: "/feedback", icon: "馈", label: "课程反馈", group: "教学管理" },
+  { href: "/assignments", icon: "业", label: "作业中心", group: "教学管理" },
   { href: "/classes", icon: "班", label: "学生与班级", group: "学生学情" },
   { href: "/assessments", icon: "测", label: "测验与成绩", group: "学生学情" },
   { href: "/recognition", icon: "校", label: "答题卡校对", group: "学生学情" },
@@ -52,7 +53,7 @@ export function AppShell({ title, subtitle, actions, children }: { title: string
       <div className="sideUser"><span>{session?.user?.name?.slice(0, 1) || "访"}</span><div><b>{session?.user?.name || "公开访客"}</b><small>{session?.roleName || "公开资源"} · {session?.authenticated ? "个人工作区" : "只读"}</small></div>{session?.authenticated && <Link aria-label="退出登录" href="/api/auth/logout?return_to=%2Fresources">退出</Link>}</div>
     </aside>
     <div className="appMain">
-      <header className="appHeader"><div><p>知师研室 / {title}</p><h1>{title}</h1>{subtitle && <span>{subtitle}</span>}</div><div className="headerActions">{(!publicPage || session?.authenticated) && actions}{session?.authenticated && <button className="iconButton" aria-label="教学待办" aria-expanded={todoOpen} onClick={toggleTodos}>◌</button>}{todoOpen && <section className="todoPopover" aria-label="教学待办列表"><div><b>教学待办</b><button aria-label="关闭待办" onClick={() => setTodoOpen(false)}>×</button></div>{!todos ? <p>正在读取…</p> : <ul><li><Link href="/lessons">待处理课时</Link><b>{todos.draftLessons || 0}</b></li><li><Link href="/feedback">待确认反馈</Link><b>{todos.pendingFeedback || 0}</b></li><li><Link href="/questions?status=review">待校对题目</Link><b>{todos.pendingReview || 0}</b></li><li><Link href="/settings">未完成作业登记</Link><b>{todos.pendingHomework || 0}</b></li></ul>}</section>}</div></header>
+      <header className="appHeader"><div><p>知师研室 / {title}</p><h1>{title}</h1>{subtitle && <span>{subtitle}</span>}</div><div className="headerActions">{(!publicPage || session?.authenticated) && actions}{session?.authenticated && <button className="iconButton" aria-label="教学待办" aria-expanded={todoOpen} onClick={toggleTodos}>◌</button>}{todoOpen && <section className="todoPopover" aria-label="教学待办列表"><div><b>教学待办</b><button aria-label="关闭待办" onClick={() => setTodoOpen(false)}>×</button></div>{!todos ? <p>正在读取…</p> : <ul><li><Link href="/lessons">待处理课时</Link><b>{todos.draftLessons || 0}</b></li><li><Link href="/feedback">待确认反馈</Link><b>{todos.pendingFeedback || 0}</b></li><li><Link href="/questions?status=review">待校对题目</Link><b>{todos.pendingReview || 0}</b></li><li><Link href="/assignments">作业待批改</Link><b>{todos.pendingHomework || 0}</b></li></ul>}</section>}</div></header>
       <main className="appContent" id="main-content">{children}</main>
     </div>
   </div></>;

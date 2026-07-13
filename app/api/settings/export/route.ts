@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 
-const tables = ["classes", "students", "enrollments", "staff_class_access", "courses", "lessons", "attendance", "student_lesson_records", "assignments", "assignment_submissions", "question_sets", "questions", "wrong_questions", "papers", "paper_files", "paper_questions", "lesson_questions", "assessments", "assessment_results", "student_mastery_adjustments", "feedback", "feedback_templates", "reflections", "resources", "demo_records", "audit_logs"];
+// 会话令牌哈希、微信 openid、邀请码哈希和 R2 storage key 不进入下载备份。
+const tables = ["classes", "students", "enrollments", "staff_class_access", "courses", "lessons", "attendance", "student_lesson_records", "assignments", "assignment_targets", "assignment_settings", "assignment_submissions", "submission_versions", "submission_reviews", "question_sets", "questions", "wrong_questions", "papers", "paper_files", "paper_questions", "lesson_questions", "assessments", "assessment_results", "assessment_question_results", "student_mastery_adjustments", "knowledge_evidence", "feedback", "feedback_templates", "reflections", "resources", "demo_records", "audit_logs"];
 
 export async function GET() {
   const access = await requirePermission("settings:export"); if (isDenied(access)) return access;

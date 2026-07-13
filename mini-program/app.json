@@ -1,1 +1,27 @@
-{"pages":["pages/home/index","pages/assignment/index","pages/submit/index","pages/excellent/index"],"window":{"navigationBarTitleText":"知师研室","navigationBarBackgroundColor":"#315d4d","navigationBarTextStyle":"white","backgroundColor":"#f7f4ea"},"tabBar":{"color":"#68736d","selectedColor":"#315d4d","list":[{"pagePath":"pages/home/index","text":"作业"},{"pagePath":"pages/excellent/index","text":"优秀作业"}]}}
+{
+  "pages": [
+    "pages/home/index",
+    "pages/assignment/index",
+    "pages/submit/index",
+    "pages/bind/index",
+    "pages/portal/index",
+    "pages/review/index",
+    "pages/excellent/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "知师研室",
+    "navigationBarBackgroundColor": "#315d4d",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f7f4ea",
+    "enablePullDownRefresh": true
+  },
+  "tabBar": {
+    "color": "#68736d",
+    "selectedColor": "#315d4d",
+    "list": [
+      { "pagePath": "pages/home/index", "text": "作业" },
+      { "pagePath": "pages/portal/index", "text": "学习" },
+      { "pagePath": "pages/excellent/index", "text": "优秀作业" }
+    ]
+  }
+}

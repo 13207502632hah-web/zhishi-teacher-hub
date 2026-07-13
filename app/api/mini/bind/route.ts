@@ -1,2 +1,9 @@
-import { env } from "cloudflare:workers";import { miniDenied,miniTokenHash,requireMini } from "../../../lib/mini-auth";
-export async function POST(request:Request){const access=await requireMini(request);if(miniDenied(access))return access;const b=await request.json() as Record<string,string>,hash=await miniTokenHash(String(b.code||"")),invite=await env.DB.prepare("SELECT id,role,student_id AS studentId FROM mini_invites WHERE code_hash=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP").bind(hash).first<Record<string,any>>();if(!invite)return Response.json({error:"邀请码无效或已过期"},{status:400});await env.DB.prepare("UPDATE wechat_accounts SET role=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(invite.role,access.accountId).run();if(invite.role==="student")await env.DB.prepare("UPDATE wechat_accounts SET student_id=? WHERE id=?").bind(invite.studentId,access.accountId).run();else await env.DB.prepare("INSERT INTO parent_student_links(parent_account_id,student_id,status,confirmed_by) VALUES(?,?,?,?) ON CONFLICT(parent_account_id,student_id) DO UPDATE SET status='active',updated_at=CURRENT_TIMESTAMP").bind(access.accountId,invite.studentId,"active",null).run();await env.DB.prepare("UPDATE mini_invites SET used_at=CURRENT_TIMESTAMP WHERE id=?").bind(invite.id).run();return Response.json({ok:true,role:invite.role,studentId:invite.studentId})}
+import { miniDenied, requireMini } from "../../../lib/mini-auth";
+import { requestMiniBinding } from "../../../lib/services/mini-binding-service";
+
+export async function POST(request: Request) {
+  // 统一服务对无效、已使用或过期的邀请码返回“邀请码无效或已过期”。
+  const access = await requireMini(request); if (miniDenied(access)) return access;
+  const body = await request.json() as Record<string, string>;
+  return requestMiniBinding(access, String(body.code || ""));
+}
