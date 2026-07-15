@@ -330,6 +330,33 @@ test("schedule import recognizes Chinese headers, Excel dates and half-hour slot
   assert.equal(row.date, "2026-07-20"); assert.equal(row.startTime, "08:30"); assert.equal(row.endTime, "10:00"); assert.deepEqual(row.studentNames, ["小明", "小华"]); assert.deepEqual(validateNormalizedSchedule(row), []);
 });
 
+test("schedule import expands a horizontal calendar matrix without inventing empty lessons", async () => {
+  const { detectScheduleMapping, extractCalendarScheduleRows, normalizeScheduleRow, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
+  const table = [
+    ["__e2e__教师", "__e2e__教师", "7月27日", "7月28日", "7月29日"],
+    ["", "道法", "周一", "周二", "周三"],
+    ["", "8–10", "__e2e__初三S班", "", "__e2e__学生"],
+    ["", "10:30–12:00", "", "", ""],
+  ];
+  const rows = extractCalendarScheduleRows(table, "__e2e__课表_2026年7月27日至7月29日.xlsx");
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.sourceCell), ["C3", "E3"]);
+  const mapping = detectScheduleMapping(["上课日期", "上课时间", "结束时间", "学生姓名", "班级", "课程名称"]);
+  const normalized = rows.map((row) => normalizeScheduleRow(row.raw, mapping));
+  assert.deepEqual(normalized.map((row) => [row.date, row.startTime, row.endTime]), [["2026-07-27", "08:00", "10:00"], ["2026-07-29", "08:00", "10:00"]]);
+  assert.equal(normalized[0].className, "__e2e__初三S班");
+  assert.deepEqual(normalized[1].studentNames, ["__e2e__学生"]);
+  assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
+});
+
+test("XLSX compatibility reader handles prefixed worksheet XML and shared strings", async () => {
+  const { worksheetXmlToTable } = await loadTsModule("app/lib/xlsx-compat.ts");
+  const table = worksheetXmlToTable(`<?xml version="1.0"?><x:worksheet xmlns:x="urn:test"><x:sheetData><x:row r="1"><x:c r="A1" t="str"><x:v>上课日期</x:v></x:c><x:c r="C1" t="s"><x:v>0</x:v></x:c></x:row><x:row r="2"><x:c r="B2"><x:v>8</x:v></x:c></x:row></x:sheetData></x:worksheet>`, ["周一"]);
+  assert.equal(table[0][0], "上课日期");
+  assert.equal(table[0][2], "周一");
+  assert.equal(table[1][1], 8);
+});
+
 test("calendar subscription keeps stable lesson UID and a 30 minute reminder", async () => {
   const { createCalendar } = await loadTsModule("app/lib/calendar.ts");
   const ics = createCalendar([{ id: 12, date: "2026-07-20", startTime: "08:00", endTime: "10:00", courseName: "政治课", location: "教室A" }], 30);
