@@ -7,33 +7,31 @@ const columns: Record<string, string> = { questionType: "question_type", stage: 
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access; const denied = requireAiTeacher(access); if (denied) return denied;
   const body = await request.json() as { reviewIds?: unknown[]; mode?: string; fields?: string[]; action?: string }, ids = [...new Set((body.reviewIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100), mode = body.mode === "single" ? "single" : "batch";
-  if (!ids.length) return Response.json({ error: "没有可应用的审核建议" }, { status: 400 });
-  if (mode === "single" && ids.length !== 1) return Response.json({ error: "敏感建议必须逐题确认" }, { status: 400 });
-  if (body.action === "reject") { for (const id of ids) await env.DB.prepare("UPDATE ai_question_reviews SET status='rejected',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run(); await audit(access, "reject", "ai_question_reviews", ids.join(",")); return Response.json({ ok: true, rejected: ids.length }); }
-  const applied: Array<{ reviewId: number; questionId: number; fields: string[] }> = [], stale: number[] = [];
+  if (!ids.length) return Response.json({ error: "没有可处理的审核建议" }, { status: 400 });
+  if (mode === "single" && ids.length !== 1) return Response.json({ error: "新术语、低置信度和敏感建议必须逐题确认" }, { status: 400 });
+  if (mode === "single" && (!Array.isArray(body.fields) || !body.fields.length)) return Response.json({ error: "逐题处理必须明确勾选要应用的字段" }, { status: 400 });
+  if (body.action === "reject") {
+    let rejected = 0;
+    for (const id of ids) { const owned = await env.DB.prepare("SELECT 1 AS owned FROM ai_question_reviews r JOIN ai_runs ar ON ar.id=r.run_id WHERE r.id=? AND ar.user_id=?").bind(id, access.id).first(); if (!owned) continue; await env.DB.prepare("UPDATE ai_question_reviews SET status='rejected',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run(); await audit(access, "reject", "ai_question_review", id); rejected += 1; }
+    return Response.json({ ok: true, rejected });
+  }
+  const applied: Array<{ reviewId: number; questionId: number; changes: Array<{ field: string; before: string; after: string }> }> = [], stale: number[] = [];
   for (const reviewId of ids) {
     const review = await env.DB.prepare("SELECT r.*,ar.user_id AS userId FROM ai_question_reviews r JOIN ai_runs ar ON ar.id=r.run_id WHERE r.id=?").bind(reviewId).first<Record<string, any>>();
     if (!review || Number(review.userId) !== access.id || !["pending", "partially_applied"].includes(String(review.status))) continue;
     const question = await env.DB.prepare("SELECT updated_at AS updatedAt FROM questions WHERE id=?").bind(review.question_id).first<{ updatedAt: string }>();
     if (!question || question.updatedAt !== review.source_updated_at) { stale.push(reviewId); await env.DB.prepare("UPDATE ai_question_reviews SET status='stale',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewId).run(); continue; }
-    const safe = JSON.parse(review.safe_suggestions_json || "{}") as Record<string, string>, sensitive = JSON.parse(review.sensitive_suggestions_json || "{}") as Record<string, string>, confidence = JSON.parse(review.confidence_json || "{}") as Record<string, number>;
-    const source = mode === "single" ? { ...safe, ...sensitive } : safe, requested = new Set(body.fields || Object.keys(source)), allowed = mode === "single" ? [...SAFE_QUESTION_FIELDS, ...SENSITIVE_QUESTION_FIELDS] : [...SAFE_QUESTION_FIELDS], chosen: Array<[string, string]> = [];
-    for (const [field, value] of Object.entries(source)) {
-      if (!requested.has(field) || !allowed.includes(field as any) || !String(value).trim()) continue;
-      if (mode === "batch") {
-        if (Number(confidence[field] || 0) < 0.85) continue;
-        const column = columns[field], exists = await env.DB.prepare(`SELECT 1 AS found FROM questions WHERE ${column}=? LIMIT 1`).bind(value).first();
-        if (!exists) continue;
-      }
-      chosen.push([field, String(value).slice(0, 12000)]);
-    }
+    const currentValues = JSON.parse(review.current_values_json || "{}") as Record<string, string>, safe = JSON.parse(review.safe_suggestions_json || "{}") as Record<string, string>, sensitive = JSON.parse(review.sensitive_suggestions_json || "{}") as Record<string, string>, eligible = new Set<string>(JSON.parse(review.eligible_fields_json || "[]")), previousApplied = new Set<string>(JSON.parse(review.applied_fields_json || "[]"));
+    const source = mode === "single" ? { ...safe, ...sensitive } : safe, requested = new Set(mode === "single" ? body.fields : [...eligible]), allowed = mode === "single" ? [...SAFE_QUESTION_FIELDS, ...SENSITIVE_QUESTION_FIELDS] : [...SAFE_QUESTION_FIELDS], chosen: Array<[string, string]> = [];
+    for (const [field, value] of Object.entries(source)) { if (!requested.has(field) || !allowed.includes(field as any) || previousApplied.has(field) || !String(value).trim()) continue; if (mode === "batch" && !eligible.has(field)) continue; chosen.push([field, String(value).slice(0, 12000)]); }
     if (!chosen.length) continue;
-    for (const [field, value] of chosen) await env.DB.prepare(`UPDATE questions SET ${columns[field]}=? WHERE id=?`).bind(value, review.question_id).run();
-    await env.DB.prepare("UPDATE questions SET updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(review.question_id).run();
-    const sensitiveApplied = chosen.some(([field]) => SENSITIVE_QUESTION_FIELDS.includes(field as any)), status = sensitiveApplied || Object.keys(sensitive).length === 0 ? "applied" : "partially_applied";
-    await env.DB.prepare("UPDATE ai_question_reviews SET status=?,applied_fields_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(status, JSON.stringify(chosen.map(([field]) => field)), reviewId).run();
-    await audit(access, "apply_ai_suggestion", "question", review.question_id, { reviewId, mode, fields: chosen.map(([field]) => field), preservesFormalReview: true });
-    applied.push({ reviewId, questionId: Number(review.question_id), fields: chosen.map(([field]) => field) });
+    const nextUpdatedAt = new Date().toISOString(), allApplied = new Set([...previousApplied, ...chosen.map(([field]) => field)]), allSuggestions = Object.keys({ ...safe, ...sensitive }), status = allSuggestions.every((field) => allApplied.has(field)) ? "applied" : "partially_applied", nextCurrent = { ...currentValues, ...Object.fromEntries(chosen) };
+    const setSql = chosen.map(([field]) => `${columns[field]}=?`).join(","), questionUpdate = env.DB.prepare(`UPDATE questions SET ${setSql},updated_at=? WHERE id=? AND updated_at=?`).bind(...chosen.map(([, value]) => value), nextUpdatedAt, review.question_id, review.source_updated_at), reviewUpdate = env.DB.prepare("UPDATE ai_question_reviews SET source_updated_at=?,current_values_json=?,status=?,applied_fields_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND EXISTS(SELECT 1 FROM questions WHERE id=? AND updated_at=?)").bind(nextUpdatedAt, JSON.stringify(nextCurrent), status, JSON.stringify([...allApplied]), reviewId, review.question_id, nextUpdatedAt);
+    const [questionResult] = await env.DB.batch([questionUpdate, reviewUpdate]);
+    if (!Number(questionResult.meta?.changes || 0)) { stale.push(reviewId); await env.DB.prepare("UPDATE ai_question_reviews SET status='stale',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewId).run(); continue; }
+    const changes = chosen.map(([field, after]) => ({ field, before: String(currentValues[field] || ""), after }));
+    await audit(access, "apply_ai_suggestion", "question", review.question_id, { reviewId, mode, changes, preservesFormalReview: true });
+    applied.push({ reviewId, questionId: Number(review.question_id), changes });
   }
-  return Response.json({ applied, stale, notice: "仅更新已确认字段；题目正式状态与人工复核标记保持不变。" });
+  return Response.json({ applied, stale, notice: "仅更新教师明确确认的字段；题目正式状态与人工复核标记保持不变。" });
 }

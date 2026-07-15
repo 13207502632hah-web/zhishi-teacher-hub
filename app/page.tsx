@@ -30,6 +30,12 @@ type DashboardData = {
   nextLesson: LessonCard | null;
   suggestedActions: Array<{ key: string; type: string; title: string; reason: string; dueAt: string; href: string }>;
   recentQuestions: Array<Record<string, unknown>>;
+  aiAvailable: boolean;
+  aiPendingFeedbackDrafts: number;
+  aiPendingQuestionReviews: number;
+  aiMonthCalls: number;
+  aiMonthTokens: number;
+  aiMonthCost: number;
 };
 
 const empty: DashboardData = {
@@ -37,7 +43,7 @@ const empty: DashboardData = {
   weekLessons: 0, draftLessons: 0, confirmedFeedback: 0, pendingFeedback: 0, attendanceRate: null, homeworkRate: null,
   pendingHomework: 0, riskCount: 0, pendingReview: 0, postLessonTodos: 0, pendingFinance: 0,
   reviewIssues: { missingAnswer: 0, missingAnalysis: 0, missingClassification: 0, lowConfidence: 0 },
-  activeClasses: 0, activeStudents: 0, todayLessons: [], upcomingLessons: [], overdueLessons: [], nextLesson: null, suggestedActions: [], recentQuestions: [],
+  activeClasses: 0, activeStudents: 0, todayLessons: [], upcomingLessons: [], overdueLessons: [], nextLesson: null, suggestedActions: [], recentQuestions: [], aiAvailable: false, aiPendingFeedbackDrafts: 0, aiPendingQuestionReviews: 0, aiMonthCalls: 0, aiMonthTokens: 0, aiMonthCost: 0,
 };
 
 const truthy = (value: unknown) => Number(value || 0) > 0;
@@ -82,7 +88,7 @@ export function Dashboard() {
 
     <section className="questionWorkbenchCompact"><div><p>政治题库与组卷</p><h2>备课需要题目时，从这里继续</h2><span>原文优先、人工校对、教材目录检索；系统不会替您补写答案或知识点。</span></div><div className="questionWorkbenchActions"><Link href="/questions?import=1"><b>01</b><span>导入 Word</span><small>多 DOCX 队列</small></Link><Link href="/questions?status=review"><b>02</b><span>继续校对</span><small>{data.pendingReview} 道待处理</small></Link><Link href="/questions"><b>03</b><span>搜索题目</span><small>目录、关键词、标签</small></Link><Link href="/papers"><b>04</b><span>开始组卷</span><small>{paperCart} 道已加入草稿</small></Link></div></section>
 
-    <section className="aiWorkbenchCompact"><div><p>教师专属辅助</p><h2>DeepSeek：只做草稿和建议</h2><span>服务端密钥、每日额度、隐私确认和紧急停用统一在设置中管理；所有结果先由教师确认。</span></div><div className="cardActions"><Link className="aiButton" href="/feedback?new=1&type=lesson">生成课后反馈草稿</Link><Link className="secondaryButton" href="/questions?status=review">题库辅助审核</Link><Link className="secondaryButton" href="/settings">AI 设置与用量</Link></div></section>
+    {data.aiAvailable && <section className="aiWorkbenchCompact"><div><p>教师专属辅助</p><h2>DeepSeek：只做草稿和建议</h2><span>所有结果先由教师确认；用量为当前教师本月真实服务端统计。</span></div><div className="questionWorkbenchActions"><Link href="/feedback"><b>{data.aiPendingFeedbackDrafts}</b><span>待处理 AI 反馈草稿</span><small>可恢复、逐项核对</small></Link><Link href="/questions?status=review"><b>{data.aiPendingQuestionReviews}</b><span>待确认题库建议</span><small>安全字段与敏感字段分开</small></Link><Link href="/settings"><b>{data.aiMonthCalls}</b><span>本月 AI 用量</span><small>{data.aiMonthTokens.toLocaleString()} Token · ${data.aiMonthCost.toFixed(4)}</small></Link></div></section>}
 
     <div className="metricGrid"><article className="metricCard"><span>本周课时</span><b>{data.weekLessons}</b><small>真实教学安排</small></article><article className="metricCard"><span>出勤率</span><b>{data.attendanceRate == null ? "—" : `${data.attendanceRate}%`}</b><small>仅统计已记录出勤</small></article><article className="metricCard"><span>学生档案</span><b>{data.activeStudents}</b><small>{data.activeClasses} 个进行中班级</small></article><article className="metricCard"><span>组卷篮</span><b>{paperCart}</b><small>刷新后仍可继续组卷</small></article></div>
   </AppShell>;

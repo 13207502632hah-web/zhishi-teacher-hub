@@ -3,6 +3,7 @@ import { isDenied, requirePermission } from "../../lib/access";
 import { questionReviewSummary } from "../../lib/question-review";
 import { lessonDisplay } from "../../lib/lesson-display";
 import { ensurePromotionRun } from "../../lib/services/grade-promotion-service";
+import { loadAiUsage } from "../../lib/ai/usage";
 
 const chinaDate = (value: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
 const chinaTime = (value: Date) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   const feedbackScope = assistant ? " AND COALESCE(f.class_id,l.class_id) IN (SELECT class_id FROM staff_class_access WHERE user_id=?)" : "";
   const studentScope = assistant ? " AND EXISTS (SELECT 1 FROM enrollments se JOIN staff_class_access sca ON sca.class_id=se.class_id WHERE se.student_id=s.id AND se.status='active' AND sca.user_id=?)" : "";
   const scoped = (sql: string, bind: unknown[] = []) => db.prepare(sql).bind(...bind, ...(assistant ? [access.id] : []));
-  const [results, reviewSummary] = await Promise.all([db.batch([
+  const [results, reviewSummary, aiUsage] = await Promise.all([db.batch([
     scoped(`SELECT COUNT(*) AS count FROM lessons l WHERE l.date BETWEEN ? AND ? AND l.status!='cancelled'${lessonScope}`, [monday, sunday]),
     scoped(`SELECT COUNT(*) AS count FROM lessons l WHERE l.status IN ('draft','scheduled','makeup','rescheduled')${lessonScope}`),
     scoped(`SELECT COUNT(*) AS count FROM feedback f LEFT JOIN lessons l ON l.id=f.lesson_id WHERE f.status='confirmed' AND date(f.confirmed_at) BETWEEN ? AND ?${feedbackScope}`, [monday, sunday]),
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
     scoped(`SELECT a.id,a.lesson_id AS lessonId,a.title,a.due_at AS dueAt,a.updated_at AS updatedAt,COUNT(*) AS pendingCount FROM assignments a JOIN assignment_submissions s ON s.assignment_id=a.id LEFT JOIN lessons l ON l.id=a.lesson_id WHERE s.status NOT IN ('completed','corrected')${lessonScope} GROUP BY a.id ORDER BY CASE WHEN a.due_at IS NULL OR a.due_at='' THEN 1 ELSE 0 END,a.due_at,a.updated_at LIMIT 8`),
     scoped(`SELECT f.id,f.lesson_id AS lessonId,COALESCE(s.name,c.name,'课程反馈') AS subject,f.due_at AS dueAt,f.updated_at AS updatedAt FROM feedback f LEFT JOIN lessons l ON l.id=f.lesson_id LEFT JOIN students s ON s.id=f.student_id LEFT JOIN classes c ON c.id=COALESCE(f.class_id,l.class_id) WHERE f.status='draft'${feedbackScope} ORDER BY CASE WHEN f.due_at IS NULL OR f.due_at='' THEN 1 ELSE 0 END,f.due_at,f.updated_at LIMIT 8`),
     scoped(`SELECT lf.id,l.id AS lessonId,l.date AS dueAt,l.course_name AS courseName,l.topic,lf.updated_at AS updatedAt FROM lesson_finance lf JOIN lessons l ON l.id=lf.lesson_id WHERE lf.status='review'${lessonScope} ORDER BY l.date,lf.updated_at LIMIT 8`),
-  ]), questionReviewSummary(db)]);
+  ]), questionReviewSummary(db), access.role === "teacher" ? loadAiUsage(access.id) : Promise.resolve(null)]);
   const rows = (index: number) => results[index].results as Array<Record<string, any>>;
   const number = (index: number, key = "count") => Number(rows(index)[0]?.[key] || 0);
   const rate = (index: number) => { const total = number(index, "total"); return total ? Math.round(number(index, "done") / total * 100) : null; };
@@ -72,5 +73,6 @@ export async function GET(request: Request) {
     weekLessons: number(0), draftLessons: number(1), confirmedFeedback: number(2), pendingFeedback: number(3), attendanceRate: rate(4), homeworkRate: rate(5), todayLessons,
     pendingHomework: number(7), riskCount: number(8), riskStudents: rows(9), recentReflections: access.role === "teacher" ? rows(10) : [], recentQuestions: rows(11), pendingReview: reviewSummary.total, reviewIssues: reviewSummary,
     activeClasses: number(12), activeStudents: number(13), pendingAssessments: number(14), upcomingLessons, overdueLessons, postLessonTodos: number(17), pendingFinance: number(18),
+    aiAvailable: access.role === "teacher", aiPendingFeedbackDrafts: aiUsage?.pendingFeedbackDrafts || 0, aiPendingQuestionReviews: aiUsage?.pendingQuestionReviews || 0, aiMonthCalls: Number((aiUsage?.month as any)?.calls || 0), aiMonthTokens: Number((aiUsage?.month as any)?.tokens || 0), aiMonthCost: Number((aiUsage?.month as any)?.estimatedCostUsd || 0),
   });
 }

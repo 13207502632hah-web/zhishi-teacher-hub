@@ -42,6 +42,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
   const id = await idFrom(context), denied = await requireLessonAccess(access, id); if (denied) return denied;
+  await env.DB.batch([env.DB.prepare("UPDATE feedback SET ai_draft_id=NULL WHERE ai_draft_id IN (SELECT id FROM ai_feedback_drafts WHERE lesson_id=?)").bind(id), env.DB.prepare("DELETE FROM ai_feedback_drafts WHERE lesson_id=?").bind(id)]);
   const [row] = await getDb().delete(lessons).where(eq(lessons.id, id)).returning();
   await audit(access, "delete", "lesson", id);
   return row ? Response.json({ ok: true }) : Response.json({ error: "课时不存在" }, { status: 404 });

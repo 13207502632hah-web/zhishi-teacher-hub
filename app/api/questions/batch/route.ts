@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   if (action === "delete") {
     const marks = ids.map(() => "?").join(","), references = await env.DB.prepare(`SELECT q.id,MAX(CASE WHEN pq.id IS NOT NULL THEN 1 ELSE 0 END) AS paperRef,MAX(CASE WHEN lq.id IS NOT NULL THEN 1 ELSE 0 END) AS lessonRef FROM questions q LEFT JOIN paper_questions pq ON pq.question_id=q.id LEFT JOIN lesson_questions lq ON lq.question_id=q.id WHERE q.id IN (${marks}) GROUP BY q.id HAVING paperRef=1 OR lessonRef=1`).bind(...ids).all<Record<string, unknown>>();
     if (references.results.length) return Response.json({ error: "所选题目中有已被试卷或课时引用的题目，不能批量删除", references: references.results }, { status: 409 });
+    await env.DB.prepare(`DELETE FROM ai_question_reviews WHERE question_id IN (${marks})`).bind(...ids).run();
     await getDb().delete(questions).where(inArray(questions.id, ids));
     await audit(access, "batch_delete", "question", ids.join(","), { count: ids.length });
     return Response.json({ ok: true, count: ids.length, deleted: true });

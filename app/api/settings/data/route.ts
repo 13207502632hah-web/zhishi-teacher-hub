@@ -6,6 +6,10 @@ export async function DELETE(request: Request) {
   const body = await request.json() as { confirmation?: string };
   if (body.confirmation !== "删除全部教学数据") return Response.json({ error: "确认文字不匹配，未执行删除" }, { status: 400 });
   const tables = [
+    // AI 辅助数据必须先于其引用的题目、课时、学生和反馈删除。
+    "ai_question_reviews", "ai_question_review_tasks", "ai_feedback_learning_events", "ai_feedback_drafts", "ai_runs", "ai_settings",
+    "review_assets", "grade_promotion_items", "grade_promotion_runs", "exam_project_students", "exam_projects", "academic_years",
+    "lesson_completion_runs", "lesson_workflow_state", "workflow_templates", "feedback_imports", "feedback_evidence", "saved_question_views",
     "reminder_tasks", "sync_events", "idempotency_operations",
     "submission_reviews", "review_annotations", "excellent_submissions", "submission_assets", "submission_versions",
     "assignment_assets", "assignment_targets", "assignment_settings", "assignment_submissions", "assignments",

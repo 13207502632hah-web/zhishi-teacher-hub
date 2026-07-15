@@ -33,6 +33,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
   const id = await idFrom(context), referenced = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM paper_questions WHERE question_id=?) AS paperCount,(SELECT COUNT(*) FROM lesson_questions WHERE question_id=?) AS lessonCount").bind(id, id).first<{ paperCount: number; lessonCount: number }>();
   if (Number(referenced?.paperCount || 0) || Number(referenced?.lessonCount || 0)) return Response.json({ error: "该题已被试卷或课时引用，不能直接删除；请保留记录或先解除关联", references: referenced }, { status: 409 });
+  await env.DB.prepare("DELETE FROM ai_question_reviews WHERE question_id=?").bind(id).run();
   const [question] = await getDb().delete(questions).where(eq(questions.id, id)).returning();
   await audit(access, "delete", "question", id);
   return question ? Response.json({ ok: true }) : Response.json({ error: "题目不存在" }, { status: 404 });
