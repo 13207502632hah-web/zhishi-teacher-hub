@@ -170,8 +170,30 @@ test("teacher daily loop exposes assessment, completion and CSV contracts", asyn
   const paths = ["app/api/assessments/route.ts", "app/api/assessments/[id]/route.ts", "app/api/lessons/[id]/activity/route.ts", "app/api/exports/[type]/route.ts", "app/assessments/page.tsx", "app/assessments/[id]/page.tsx"];
   const [listApi, detailApi, activity, exportsApi, listPage, detailPage] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(listApi, /INSERT INTO assessments/); assert.match(detailApi, /ON CONFLICT\(assessment_id,student_id\)/); assert.match(detailApi, /requireAssessmentAccess/);
-  assert.match(activity, /completeLesson/); assert.match(activity, /NOT EXISTS/); assert.match(exportsApi, /\\uFEFF/); assert.match(exportsApi, /Content-Disposition/); assert.match(exportsApi, /safeCell/);
+  assert.match(activity, /saveDraft/); assert.match(activity, /completeLesson/); assert.match(activity, /status: 422/); assert.match(activity, /financeLocked/); assert.match(activity, /NOT EXISTS/); assert.match(exportsApi, /\\uFEFF/); assert.match(exportsApi, /Content-Disposition/); assert.match(exportsApi, /safeCell/);
   assert.match(listPage, /新建测验/); assert.match(detailPage, /批量录入/); assert.match(detailPage, /薄弱知识点/);
+});
+
+test("lesson completion requires real content and explicit attendance", async () => {
+  const { validateLessonCompletion, completionTodos } = await loadTsModule("app/lib/lesson-workflow.ts");
+  assert.deepEqual(validateLessonCompletion("", [1], [{ studentId: 1, attendanceStatus: "present" }]), ["请填写实际教学内容"]);
+  assert.deepEqual(validateLessonCompletion("宪法专题复习", [1, 2], [{ studentId: 1, attendanceStatus: "present" }]), ["请确认全部学生出勤（还差 1 人）"]);
+  assert.deepEqual(validateLessonCompletion("宪法专题复习", [], []), []);
+  assert.deepEqual(validateLessonCompletion("宪法专题复习", [1, 2], [{ studentId: 1, attendanceStatus: "late" }, { studentId: 2, attendanceStatus: "leave" }]), []);
+  assert.deepEqual(completionTodos({ assignment: false, feedback: true, nextPlan: "" }), ["补充课后作业", "补充下节课计划"]);
+});
+
+test("lesson finance follows source priority and attendance factors", async () => {
+  const { attendanceFactor, resolveLessonFinance } = await loadTsModule("app/lib/lesson-workflow.ts");
+  assert.equal(attendanceFactor("present"), 1); assert.equal(attendanceFactor("late"), 1); assert.equal(attendanceFactor("absent"), 0); assert.equal(attendanceFactor("leave"), 0);
+  const imported = resolveLessonFinance({ date: "2026-07-15", imported: { baseFee: 100, perStudentFee: 50, institution: "__e2e__" }, lessonFee: 999, rules: [{ id: 1, baseFee: 500 }], members: [{ studentId: 1, attendanceStatus: "present" }, { studentId: 2, attendanceStatus: "leave" }] });
+  assert.equal(imported.source, "schedule_import"); assert.equal(imported.expectedAmount, 150); assert.deepEqual(imported.items.map((item) => item.amount), [50, 0]);
+  const ruled = resolveLessonFinance({ date: "2026-07-15", lessonFee: 999, rules: [{ id: 2, payerType: "parent", baseFee: 20, perStudentFee: 80 }], members: [{ studentId: 1, attendanceStatus: "late" }] });
+  assert.equal(ruled.source, "pricing_rule"); assert.equal(ruled.expectedAmount, 100);
+  const lessonFee = resolveLessonFinance({ date: "2026-07-15", lessonFee: 120, members: [] });
+  assert.equal(lessonFee.source, "lesson_fee"); assert.equal(lessonFee.expectedAmount, 120);
+  const missing = resolveLessonFinance({ date: "2026-07-15", members: [] });
+  assert.equal(missing.source, "missing_rule"); assert.equal(missing.expectedAmount, 0); assert.match(missing.note, /待补/);
 });
 
 test("teacher administrator password policy rejects weak passwords", async () => {

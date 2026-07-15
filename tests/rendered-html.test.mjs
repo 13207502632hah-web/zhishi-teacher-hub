@@ -7,7 +7,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 test("dashboard uses the political-teaching workspace navigation", async () => {
   const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
   for (const label of ["工作台","题库检索","组卷草稿","课时记录","学生与班级","测验与成绩","课程反馈","教学反思","数据中心","资源中心","更多工具"]) assert.match(shell, new RegExp(label));
-  for (const label of ["政治题库工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "其他待办"]) assert.match(page, new RegExp(label));
+  for (const label of ["今日教学工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "未来七天", "集中待办"]) assert.match(page, new RegExp(label));
   assert.match(page,/response\.ok \? response\.json\(\) : empty/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
@@ -84,14 +84,14 @@ test("question-bank-first workflow exposes queue, saved views, indexed search an
   assert.match(questionApi, /use_count_desc/); assert.match(questionApi, /params\.get\("ids"\)/); assert.match(facetsApi, /textbook_version/);
   assert.match(viewsApi, /ownerId/); assert.match(viewsApi, /allowedKeys/); assert.match(schema, /savedQuestionViews/);
   for (const index of ["question_search_textbook_index", "question_search_knowledge_index", "question_search_sort_index"]) assert.match(migration, new RegExp(index));
-  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(shell, /题库检索/); assert.match(shell, /微信小程序（暂停）/); assert.match(dashboard, /政治题库工作台/);
+  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(shell, /题库检索/); assert.match(shell, /微信小程序（暂停）/); assert.match(dashboard, /今日教学工作台/); assert.match(dashboard, /题库与组卷/);
 });
 
-test("lesson closure persists attendance, performance, homework and feedback", async () => {
+test("lesson closure persists attendance, performance, homework, feedback and review finance", async () => {
   const [activity, detail, dashboard, classDetail, students] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx")]);
-  assert.match(activity,/studentRecord/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/);
-  for (const label of ["出勤与课堂记录","布置作业","保存反馈草稿","教师确认关注"]) assert.match(detail,new RegExp(label));
-  assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(classDetail,/平均出勤/); assert.match(students,/全部班级/);
+  assert.match(activity,/studentRecord/); assert.match(activity,/saveDraft/); assert.match(activity,/validateLessonCompletion/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/); assert.match(activity,/lesson_finance/); assert.match(activity,/status!='review'|status !== "review"/);
+  for (const label of ["学生出勤与课堂表现","单独布置作业","单独保存反馈","教师确认关注","保存草稿","一键完成本节课","待核对"]) assert.match(detail,new RegExp(label));
+  assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(dashboard,/pendingFinance/); assert.match(classDetail,/平均出勤/); assert.match(students,/全部班级/);
 });
 
 test("stage two covers political question review, paper drafting and lesson links", async () => {

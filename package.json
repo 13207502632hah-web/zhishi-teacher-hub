@@ -18,7 +18,8 @@
     "mini:check": "node scripts/mini-automation.mjs check",
     "mini:e2e": "node scripts/mini-automation.mjs e2e",
     "mini:verify": "node scripts/mini-automation.mjs verify",
-    "mini:preview": "node scripts/mini-automation.mjs preview"
+    "mini:preview": "node scripts/mini-automation.mjs preview",
+    "teaching:e2e": "node scripts/teaching-loop-e2e.mjs"
   },
   "dependencies": {
     "docx": "^9.7.1",
