@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SessionProvider } from "./components/SessionProvider";
+import { getAccess, roleName } from "./lib/access";
 import "./globals.css";
 import "./responsive-fixes.css";
 import "./question-bank.css";
@@ -25,14 +26,19 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const access = await getAccess();
+  const initialSession = access
+    ? { authenticated: true, user: { name: access.name, email: access.email }, role: access.role, roleName: roleName[access.role] }
+    : { authenticated: false };
+
   return (
     <html lang="zh-CN">
-      <body><SessionProvider>{children}</SessionProvider></body>
+      <body><SessionProvider initialSession={initialSession}>{children}</SessionProvider></body>
     </html>
   );
 }

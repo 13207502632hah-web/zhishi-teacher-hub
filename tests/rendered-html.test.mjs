@@ -27,9 +27,12 @@ test("dashboard uses the political-teaching workspace navigation", async () => {
 
 test("route navigation keeps session state mounted and preserves native link behavior", async () => {
   const [layout, shell, provider, hardLink] = await Promise.all([read("app/layout.tsx"), read("app/components/AppShell.tsx"), read("app/components/SessionProvider.tsx"), read("app/components/HardNavigationLink.tsx")]);
-  assert.match(layout, /<SessionProvider>\{children\}<\/SessionProvider>/);
+  assert.match(layout, /const access = await getAccess\(\)/);
+  assert.match(layout, /<SessionProvider initialSession=\{initialSession\}>\{children\}<\/SessionProvider>/);
   assert.match(provider, /fetch\("\/api\/session"/);
+  assert.match(provider, /useState<Session>\(initialSession\)/);
   assert.doesNotMatch(shell, /fetch\("\/api\/session"/);
+  assert.doesNotMatch(shell, /正在确认工作区身份/);
   assert.doesNotMatch(shell, /onNavigate|preventDefault\(\).*router\.push|useTransition/);
   assert.match(shell, /HardNavigationLink/);
   assert.match(hardLink, /return <a href=\{href\}/);

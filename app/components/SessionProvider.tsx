@@ -9,12 +9,12 @@ export type Session = {
   roleName?: string;
 };
 
-type SessionState = { session: Session | null; sessionError: boolean };
+type SessionState = { session: Session; sessionError: boolean };
 
 const SessionContext = createContext<SessionState | null>(null);
 
-export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+export function SessionProvider({ children, initialSession }: { children: ReactNode; initialSession: Session }) {
+  const [session, setSession] = useState<Session>(initialSession);
   const [sessionError, setSessionError] = useState(false);
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .then((value) => setSession(value))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        setSession({ authenticated: false });
+        setSession((current) => current.authenticated ? current : { authenticated: false });
         setSessionError(true);
       });
     return () => controller.abort();
