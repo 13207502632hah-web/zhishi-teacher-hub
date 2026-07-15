@@ -82,6 +82,8 @@ export function Dashboard() {
 
     <section className="questionWorkbenchCompact"><div><p>政治题库与组卷</p><h2>备课需要题目时，从这里继续</h2><span>原文优先、人工校对、教材目录检索；系统不会替您补写答案或知识点。</span></div><div className="questionWorkbenchActions"><Link href="/questions?import=1"><b>01</b><span>导入 Word</span><small>多 DOCX 队列</small></Link><Link href="/questions?status=review"><b>02</b><span>继续校对</span><small>{data.pendingReview} 道待处理</small></Link><Link href="/questions"><b>03</b><span>搜索题目</span><small>目录、关键词、标签</small></Link><Link href="/papers"><b>04</b><span>开始组卷</span><small>{paperCart} 道已加入草稿</small></Link></div></section>
 
+    <section className="aiWorkbenchCompact"><div><p>教师专属辅助</p><h2>DeepSeek：只做草稿和建议</h2><span>服务端密钥、每日额度、隐私确认和紧急停用统一在设置中管理；所有结果先由教师确认。</span></div><div className="cardActions"><Link className="aiButton" href="/feedback?new=1&type=lesson">生成课后反馈草稿</Link><Link className="secondaryButton" href="/questions?status=review">题库辅助审核</Link><Link className="secondaryButton" href="/settings">AI 设置与用量</Link></div></section>
+
     <div className="metricGrid"><article className="metricCard"><span>本周课时</span><b>{data.weekLessons}</b><small>真实教学安排</small></article><article className="metricCard"><span>出勤率</span><b>{data.attendanceRate == null ? "—" : `${data.attendanceRate}%`}</b><small>仅统计已记录出勤</small></article><article className="metricCard"><span>学生档案</span><b>{data.activeStudents}</b><small>{data.activeClasses} 个进行中班级</small></article><article className="metricCard"><span>组卷篮</span><b>{paperCart}</b><small>刷新后仍可继续组卷</small></article></div>
   </AppShell>;
 }

@@ -39,5 +39,8 @@ declare module "cloudflare:workers" {
     WECHAT_TEST_MODE?: string;
     RECOGNITION_PROVIDER?: string;
     RECOGNITION_API_KEY?: string;
+    DEEPSEEK_API_KEY?: string;
+    DEEPSEEK_API_BASE?: string;
+    DEEPSEEK_AI_ENABLED?: string;
   };
 }
