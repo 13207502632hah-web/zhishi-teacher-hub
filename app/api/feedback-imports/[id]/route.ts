@@ -1,0 +1,6 @@
+import { env } from "cloudflare:workers";
+import { isDenied, requirePermission } from "../../../lib/access";
+
+const idFrom = async (context: { params: Promise<{ id: string }> }) => Number((await context.params).id);
+export async function GET(_: Request, context: { params: Promise<{ id: string }> }) { const access = await requirePermission("lessons:read"); if (isDenied(access)) return access; const row = await env.DB.prepare("SELECT * FROM feedback_imports WHERE id=?").bind(await idFrom(context)).first(); return row ? Response.json({ import: row }) : Response.json({ error: "反馈导入任务不存在" }, { status: 404 }); }
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) { const access = await requirePermission("lessons:write"); if (isDenied(access)) return access; const id = await idFrom(context), body = await request.json() as Record<string, unknown>, payload = body.parsed || body.parsedPayload; if (!payload) return Response.json({ error: "缺少解析草稿" }, { status: 400 }); await env.DB.prepare("UPDATE feedback_imports SET parsed_payload=?,confidence=?,matched_lesson_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='draft'").bind(JSON.stringify(payload), Number(body.confidence ?? (payload as Record<string, unknown>).confidence ?? 0), Number(body.matchedLessonId || 0) || null, id).run(); return Response.json({ ok: true }); }

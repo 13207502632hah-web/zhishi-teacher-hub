@@ -6,6 +6,9 @@
     "pages/bind/index",
     "pages/portal/index",
     "pages/review/index",
+    "pages/publish/index",
+    "pages/inbox/index",
+    "pages/annotate/index",
     "pages/excellent/index"
   ],
   "window": {

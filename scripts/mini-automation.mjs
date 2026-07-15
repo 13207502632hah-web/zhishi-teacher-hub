@@ -75,6 +75,8 @@ function minimalEnv(extra = {}) {
   const env = Object.fromEntries(allowed.filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
   return {
     ...env,
+    CI: "true",
+    PNPM_CONFIRM_MODULES_PURGE: "false",
     NODE_ENV: "development",
     WRANGLER_WRITE_LOGS: "false",
     CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
@@ -567,7 +569,17 @@ async function simulatorRegression(runDir, fixture) {
     page = await miniProgram.reLaunch("/pages/home/index");
     await page.callMethod("login", { currentTarget: { dataset: { role: "teacher" } } });
     await waitForPageData(page, (data) => data.me?.role === "teacher" && data.me?.teacherLinked === true && !data.loading, "教师端模拟器登录超时");
-    const reviewPage = await miniProgram.navigateTo("/pages/review/index");
+    const publishPage = await miniProgram.reLaunch("/pages/publish/index");
+    const publishData = await waitForPageData(publishPage, (data) => Array.isArray(data.classes) && data.classes.length > 0, "布置作业页班级加载超时");
+    assert.ok(publishData.classes.some((item) => Number(item.id) === Number(fixture.classId)));
+    const publishShot = path.join(runDir, "teacher-publish.png");
+    await miniProgram.screenshot({ path: publishShot }); evidence.push(path.basename(publishShot));
+    const inboxPage = await miniProgram.reLaunch("/pages/inbox/index");
+    const inboxData = await waitForPageData(inboxPage, (data) => !data.loading && Array.isArray(data.assignments), "作业收件箱加载超时");
+    assert.ok(inboxData.assignments.some((item) => item.title === `${E2E_PREFIX}自动化作业`));
+    const inboxShot = path.join(runDir, "teacher-inbox.png");
+    await miniProgram.screenshot({ path: inboxShot }); evidence.push(path.basename(inboxShot));
+    const reviewPage = await miniProgram.reLaunch("/pages/review/index");
     const reviewData = await waitForPageData(reviewPage, (data) => !data.loading, "教师批改页加载超时");
     assert.ok(reviewData.assignments.some((item) => item.title === `${E2E_PREFIX}自动化作业`));
     const teacherShot = path.join(runDir, "teacher-review.png");
@@ -575,7 +587,7 @@ async function simulatorRegression(runDir, fixture) {
     evidence.push(path.basename(teacherShot));
 
     if (exceptions.length) throw new Error(`模拟器捕获到异常：${exceptions.join("；")}`);
-    stage("开发者工具模拟器", "passed", { summary: "学生、离线草稿、家长门户和教师批改页通过", evidence });
+    stage("开发者工具模拟器", "passed", { summary: "学生、离线草稿、家长门户、教师布置、收件箱和连续批改页通过", evidence });
     return evidence;
   } finally {
     if (miniProgram && typeof miniProgram.close === "function") {

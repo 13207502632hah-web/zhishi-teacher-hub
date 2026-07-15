@@ -4,6 +4,7 @@ import { getDb } from "../../../../db";
 import { lessons } from "../../../../db/schema";
 import { audit, isDenied, requireClassAccess, requireLessonAccess, requirePermission } from "../../../lib/access";
 import { usesTeachingSlot, validateLessonTime } from "../../../lib/lesson-validation";
+import { lessonDisplay } from "../../../lib/lesson-display";
 
 const value = (input: unknown) => String(input || "").trim();
 const idFrom = async (context: { params: Promise<{ id: string }> }) => Number((await context.params).id);
@@ -18,7 +19,10 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const access = await requirePermission("lessons:read"); if (isDenied(access)) return access;
   const id = await idFrom(context), denied = await requireLessonAccess(access, id); if (denied) return denied;
   const [row] = await getDb().select().from(lessons).where(eq(lessons.id, id)).limit(1);
-  return row ? Response.json({ lesson: row }) : Response.json({ error: "课时不存在" }, { status: 404 });
+  if (!row) return Response.json({ error: "课时不存在" }, { status: 404 });
+  const names = row.classId ? await env.DB.prepare("SELECT GROUP_CONCAT(s.name,'、') AS studentNames,c.name AS className FROM classes c LEFT JOIN enrollments e ON e.class_id=c.id AND e.status='active' LEFT JOIN students s ON s.id=e.student_id AND s.status='active' WHERE c.id=? GROUP BY c.id").bind(row.classId).first<Record<string, unknown>>() : null;
+  const enriched = { ...row, ...(names || {}) };
+  return Response.json({ lesson: { ...enriched, ...lessonDisplay(enriched) } });
 }
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {

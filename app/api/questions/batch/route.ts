@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "../../../../db";
 import { questions, questionSets } from "../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
-import { questionReadinessIssues } from "../../../lib/question-readiness";
+import { reviewQuestions } from "../../../lib/services/question-review-service";
 
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
@@ -17,20 +17,16 @@ export async function POST(request: Request) {
     await audit(access, "batch_delete", "question", ids.join(","), { count: ids.length });
     return Response.json({ ok: true, count: ids.length, deleted: true });
   }
+  if (["confirm", "return", "ignore"].includes(action)) {
+    const result = await reviewQuestions(ids, action as "confirm" | "return" | "ignore");
+    if (!result.updated) return Response.json({ error: action === "confirm" ? `有 ${result.blocked.length} 道题仍需人工确认，未执行批量入库` : "批量审核未执行", blocked: result.blocked, report: { selected: ids.length, ready: 0, blocked: result.blocked.length } }, { status: 409 });
+    await audit(access, `batch_${action}`, "question", ids.join(","), { count: result.updated, blocked: result.blocked.length });
+    return Response.json({ ok: true, count: result.updated, blocked: result.blocked, partial: result.blocked.length > 0 });
+  }
   if (action === "tags") updates.tags = String(body.value || "").trim();
   else if (action === "knowledge") updates.knowledgePoints = String(body.value || "").trim();
   else if (["stage", "grade", "questionType", "textbookVersion", "volume", "unit", "topic"].includes(action)) updates[action] = action === "questionType" ? String(body.value || "单选题") : String(body.value || "").trim();
   else if (action === "difficulty") updates.difficulty = Math.max(1, Math.min(5, Number(body.value || 3)));
-  else if (action === "ignore") { updates.reviewStatus = "ignored"; updates.status = "review"; }
-  else if (action === "return") { updates.reviewStatus = "returned"; updates.reviewed = false; updates.status = "review"; }
-  else if (action === "confirm") {
-    const selected = await getDb().select().from(questions).where(inArray(questions.id, ids));
-    const fingerprints = selected.map((item) => item.fingerprint).filter(Boolean) as string[], duplicateIds = new Set<number>();
-    if (fingerprints.length) { const marks = fingerprints.map(() => "?").join(","), duplicates = await env.DB.prepare(`SELECT id FROM questions WHERE fingerprint IN (${marks}) AND fingerprint IN (SELECT fingerprint FROM questions WHERE fingerprint IN (${marks}) GROUP BY fingerprint HAVING COUNT(*)>1)`).bind(...fingerprints, ...fingerprints).all<{ id: number }>(); duplicates.results.forEach((item) => duplicateIds.add(item.id)); }
-    const blocked = selected.map((item) => ({ id: item.id, issues: questionReadinessIssues(item, { duplicate: duplicateIds.has(item.id) }) })).filter((item) => item.issues.length);
-    if (blocked.length) return Response.json({ error: `有 ${blocked.length} 道题仍需人工确认，未执行批量入库`, blocked, report: { selected: ids.length, ready: ids.length - blocked.length, blocked: blocked.length } }, { status: 409 });
-    updates.status = "active"; updates.reviewed = true; updates.reviewStatus = "confirmed";
-  }
   else if (action === "status" && body.value === "review") { updates.status = "review"; updates.reviewStatus = "pending"; }
   else return Response.json({ error: "不支持的批量操作" }, { status: 400 });
   await getDb().update(questions).set(updates).where(inArray(questions.id, ids));

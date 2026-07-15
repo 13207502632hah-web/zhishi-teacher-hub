@@ -66,7 +66,7 @@ export function Dashboard() {
     {loading && <div className="noticeStrip"><b>正在读取今日教学安排…</b></div>}
 
     <section className="todayTeachingHero">
-      <div><p>{today}</p><h2>{data.todayLessons.length ? `今天有 ${data.todayLessons.length} 节课` : "今天暂未安排课程"}</h2><span>{nextLesson ? `下一项：${String(nextLesson.date || "今天")} ${String(nextLesson.startTime || "待定")} · ${String(nextLesson.topic || nextLesson.courseName || "未填写课题")}` : "可以整理题库、继续校对，或安排新的课时。"}</span></div>
+      <div><p>{today}</p><h2>{data.todayLessons.length ? `今天有 ${data.todayLessons.length} 节课` : "今天暂未安排课程"}</h2><span>{nextLesson ? `下一项：${String(nextLesson.date || "今天")} · ${String(nextLesson.displayTitle || nextLesson.topic || nextLesson.courseName || "未填写课题")}` : "可以整理题库、继续校对，或安排新的课时。"}</span></div>
       <div className="todayTeachingMetrics"><article><b>{data.todayLessons.length}</b><span>今日课程</span></article><article><b>{data.upcomingLessons.length}</b><span>未来{days}天</span></article><article className={data.overdueLessons.length ? "attention" : ""}><b>{data.overdueLessons.length}</b><span>逾期待处理</span></article><article><b>{data.postLessonTodos}</b><span>课后待补</span></article></div>
     </section>
 

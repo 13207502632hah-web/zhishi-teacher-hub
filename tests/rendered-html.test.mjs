@@ -25,6 +25,14 @@ test("route transitions keep session state mounted and expose a subtle pending s
   assert.match(css, /nav\[aria-busy="true"\]/);
 });
 
+test("zero-cost usability optimizations add quick navigation, resilient route states and cheaper question search", async () => {
+  const [shell, questions, loading, error, notFound, design] = await Promise.all(["app/components/AppShell.tsx", "app/questions/page.tsx", "app/loading.tsx", "app/error.tsx", "app/not-found.tsx", "app/design-system.css"].map(read));
+  assert.match(shell, /Command 或 Control 加 K/); assert.match(shell, /quickSwitcher/); assert.match(shell, /搜索工作台入口/);
+  assert.match(questions, /useDebouncedValue/); assert.match(questions, /AbortController/); assert.match(questions, /AbortError/); assert.match(questions, /signal: controller\.signal/);
+  assert.match(loading, /正在整理教学工作台/); assert.match(error, /不会因为本次失败自动重复提交/); assert.match(error, /reset/); assert.match(notFound, /没有找到这个页面/);
+  assert.match(design, /\.quickSwitcher/); assert.match(design, /\.routeState/); assert.match(design, /prefers-reduced-motion/);
+});
+
 test("stage one exposes lesson and student persistence surfaces", async () => {
   const [schema, lessonApi, lessonPage, lessonDetail, classPage, studentPage, hosting] = await Promise.all([read("db/schema.ts"),read("app/api/lessons/route.ts"),read("app/lessons/page.tsx"),read("app/lessons/[id]/page.tsx"),read("app/classes/page.tsx"),read("app/students/page.tsx"),read(".openai/hosting.json")]);
   for (const table of ["users","roles","classes","students","enrollments","courses","lessons","attendance","studentLessonRecords","assignments","questions","papers","feedback","reflections","resources","auditLogs"]) assert.match(schema,new RegExp(`export const ${table}`));
@@ -51,8 +59,8 @@ test("daily-use design keeps lesson and assessment states explicit", async () =>
 });
 
 test("next-stage workflows cover WeChat feedback, whole papers, review and explainable attention", async () => {
-  const [schema, feedbackPage, generator, copied, paperPage, paperDetail, upload, files, questions, batch, readiness, studentRoute, studentPage, migration] = await Promise.all([
-    "db/schema.ts","app/feedback/page.tsx","app/lib/feedback-generator.ts","app/api/feedback/[id]/copied/route.ts","app/papers/page.tsx","app/papers/[id]/page.tsx","app/api/papers/upload/route.ts","app/api/papers/[id]/files/route.ts","app/api/questions/route.ts","app/api/questions/batch/route.ts","app/lib/question-readiness.ts","app/api/students/[id]/route.ts","app/students/[id]/page.tsx","drizzle/0014_teacher_feedback_papers.sql",
+  const [schema, feedbackPage, generator, copied, paperPage, paperDetail, upload, files, questions, batch, readiness, reviewService, studentRoute, studentPage, migration] = await Promise.all([
+    "db/schema.ts","app/feedback/page.tsx","app/lib/feedback-generator.ts","app/api/feedback/[id]/copied/route.ts","app/papers/page.tsx","app/papers/[id]/page.tsx","app/api/papers/upload/route.ts","app/api/papers/[id]/files/route.ts","app/api/questions/route.ts","app/api/questions/batch/route.ts","app/lib/question-readiness.ts","app/lib/services/question-review-service.ts","app/api/students/[id]/route.ts","app/students/[id]/page.tsx","drizzle/0014_teacher_feedback_papers.sql",
   ].map(read));
   for (const entity of ["feedbackTemplates","paperFiles","copiedAt","shortContent","standardContent","useStatus"]) assert.match(schema,new RegExp(entity));
   for (const label of ["微信私聊版","家长群版","复制简短版","复制标准版","预计提交时间","简短补充"]) assert.match(feedbackPage,new RegExp(label));
@@ -60,15 +68,15 @@ test("next-stage workflows cover WeChat feedback, whole papers, review and expla
   for (const label of ["上传整张试卷","上传并保存原卷","原卷优先"]) assert.match(paperPage,new RegExp(label));
   for (const label of ["整张试卷版本","打开并打印原卷","布置为作业"]) assert.match(paperDetail,new RegExp(label));
   assert.match(upload,/env\.FILES\.put/); assert.match(upload,/30 \* 1024 \* 1024/); assert.match(files,/assignment_submissions/);
-  assert.match(questions,/issue === "ready"/); assert.match(batch,/questionReadinessIssues/); assert.match(readiness,/疑似重复/); assert.match(readiness,/主观题缺少采分点或解析/);
+  assert.match(questions,/issue === "ready"/); assert.match(batch,/reviewQuestions/); assert.match(reviewService,/questionReadinessIssues/); assert.match(readiness,/疑似重复/); assert.match(readiness,/主观题缺少采分点或解析/);
   assert.match(studentRoute,/attention/); assert.match(studentRoute,/得分率下降/); assert.match(studentPage,/学习关注事项/); assert.match(studentPage,/生成阶段总结/);
   for (const field of ["paper_files","feedback_templates","copied_at","paper_id"]) assert.match(migration,new RegExp(field));
 });
 
 test("reviewed questions can enter the formal bank without one blocked item stopping the group", async () => {
-  const [confirmRoute, batchRoute, page, readiness] = await Promise.all([read("app/api/question-sets/[id]/confirm/route.ts"),read("app/api/questions/batch/route.ts"),read("app/questions/page.tsx"),read("app/lib/question-readiness.ts")]);
-  assert.match(confirmRoute,/readyIds/); assert.match(confirmRoute,/partial/); assert.match(confirmRoute,/promoted/); assert.match(confirmRoute,/inArray/);
-  assert.match(batchRoute,/questionReadinessIssues/); assert.match(page,/将已校对且合格的题目入库/); assert.doesNotMatch(page,/disabled=\{reviewCount !== parsed\.length\}/);
+  const [confirmRoute, batchRoute, reviewService, page, readiness] = await Promise.all([read("app/api/question-sets/[id]/confirm/route.ts"),read("app/api/questions/batch/route.ts"),read("app/lib/services/question-review-service.ts"),read("app/questions/page.tsx"),read("app/lib/question-readiness.ts")]);
+  assert.match(confirmRoute,/reviewedIds/); assert.match(confirmRoute,/partial/); assert.match(confirmRoute,/promoted/); assert.match(confirmRoute,/reviewQuestions/);
+  assert.match(batchRoute,/reviewQuestions/); assert.match(reviewService,/questionReadinessIssues/); assert.match(reviewService,/status='active'/); assert.match(page,/将已校对且合格的题目入库/); assert.doesNotMatch(page,/disabled=\{reviewCount !== parsed\.length\}/);
   assert.match(readiness,/主观题缺少采分点或解析/); assert.match(readiness,/缺少选项/); assert.match(readiness,/识别置信度低/);
 });
 
@@ -110,12 +118,27 @@ test("daily cockpit milestones stay connected to durable, evidence-backed APIs",
   for (const field of ["feedback_evidence", "pricing_rule_id", "calculation_snapshot"]) assert.match(migration23, new RegExp(field));
 });
 
+test("comprehensive repairs connect lazy answers, imports, exams, promotion and mini review", async () => {
+  const [questions, contentApi, reviewApi, paperImport, lessonDisplay, feedbackImport, feedbackPage, recognition, examPage, trends, promotion, dashboard, migration24, migration25, miniHome, miniReview] = await Promise.all([
+    "app/questions/page.tsx", "app/api/questions/[id]/content/route.ts", "app/api/questions/[id]/review/route.ts", "app/api/question-sets/import/route.ts", "app/lib/lesson-display.ts", "app/lib/feedback-import.ts", "app/feedback-imports/page.tsx", "app/recognition/page.tsx", "app/exam-projects/page.tsx", "app/api/students/[id]/score-trends/route.ts", "app/lib/services/grade-promotion-service.ts", "app/api/dashboard/route.ts", "drizzle/0024_paper_feedback_workflow.sql", "drizzle/0025_academic_exam_analytics.sql", "mini-program/pages/home/index.wxml", "mini-program/pages/review/index.wxml",
+  ].map(read));
+  for (const state of ["加载中", "读取失败", "待补充", "重试题目"]) assert.match(questions, new RegExp(state));
+  assert.match(contentApi, /standardExpression/); assert.match(reviewApi, /expectedUpdatedAt/); assert.match(paperImport, /paperId/);
+  assert.match(lessonDisplay, /studentNames/); assert.match(lessonDisplay, /startTime/); assert.match(feedbackImport, /confidence/); assert.match(feedbackPage, /原文证据/); assert.match(feedbackPage, /未发布草稿/);
+  assert.match(recognition, /【存疑】/); assert.match(recognition, /本机浏览器/); assert.match(examPage, /待录/); assert.match(examPage, /成绩波动度/); assert.match(trends, /movingAverage/); assert.match(trends, /数据不足/);
+  assert.match(promotion, /INSERT OR IGNORE/); assert.match(dashboard, /today\.slice\(5, 7\) === "09"/); assert.match(dashboard, /核对新学年年级晋升/);
+  for (const field of ["feedback_imports", "academic_year", "exam_category", "district"]) assert.match(migration24, new RegExp(field));
+  for (const table of ["academic_years", "exam_projects", "exam_project_students", "grade_promotion_runs", "review_assets"]) assert.match(migration25, new RegExp(table));
+  for (const label of ["布置作业", "作业收件箱", "连续批改"]) assert.match(miniHome, new RegExp(label));
+  assert.match(miniReview, /圈画/); assert.match(miniReview, /语音评语/); assert.match(miniReview, /确认并回传/);
+});
+
 test("stage two covers political question review, paper drafting and lesson links", async () => {
-  const [schema, page, parser, importApi, confirmApi, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/questions/page.tsx"),read("app/lib/question-import.ts"),read("app/api/question-sets/import/route.ts"),read("app/api/question-sets/[id]/confirm/route.ts"),read("app/papers/page.tsx"),read("app/api/papers/route.ts"),read("app/api/lessons/[id]/questions/route.ts")]);
+  const [schema, page, parser, importApi, confirmApi, reviewService, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/questions/page.tsx"),read("app/lib/question-import.ts"),read("app/api/question-sets/import/route.ts"),read("app/api/question-sets/[id]/confirm/route.ts"),read("app/lib/services/question-review-service.ts"),read("app/papers/page.tsx"),read("app/api/papers/route.ts"),read("app/api/lessons/[id]/questions/route.ts")]);
   for (const field of ["factBasis","textbookView","valueJudgment","answerLogic","standardExpression","coreCompetencies","isFavorite","isWrong","isFrequent"]) assert.match(schema,new RegExp(field));
   for (const label of ["正式题库","待校对","Word 导入","事实依据","教材观点","价值判断","答题逻辑","规范表述","识别报告","政治题目核对四点","必修3 政治与法治"]) assert.match(page,new RegExp(label));
   for (const marker of ["parsePoliticsDocx","summarizeImport","缺少答案","缺少知识点","缺少解析","题库的难度系数越高代表越容易"]) assert.match(parser,new RegExp(marker));
-  assert.match(importApi,/status:\s*"review"/); assert.match(confirmApi,/status:\s*"active"/); assert.match(page,/将已校对且合格的题目入库/);
+  assert.match(importApi,/status:\s*"review"/); assert.match(confirmApi,/reviewQuestions/); assert.match(reviewService,/status='active'/); assert.match(page,/将已校对且合格的题目入库/);
   for (const label of ["自动推荐题目","手动添加","保存试卷草稿","练习","周测","阶段测","讲义题组"]) assert.match(paperPage,new RegExp(label));
   assert.match(paperApi,/paperQuestions/); assert.match(lessonQuestions,/lessonQuestions/);
 });

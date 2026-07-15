@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { isDenied, requirePermission } from "../../lib/access";
 import { questionReviewSummary } from "../../lib/question-review";
+import { lessonDisplay } from "../../lib/lesson-display";
+import { ensurePromotionRun } from "../../lib/services/grade-promotion-service";
 
 const chinaDate = (value: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
 const chinaTime = (value: Date) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
@@ -45,7 +47,10 @@ export async function GET(request: Request) {
   const rows = (index: number) => results[index].results as Array<Record<string, any>>;
   const number = (index: number, key = "count") => Number(rows(index)[0]?.[key] || 0);
   const rate = (index: number) => { const total = number(index, "total"); return total ? Math.round(number(index, "done") / total * 100) : null; };
-  const todayLessons = rows(6), upcomingLessons = rows(15), overdueLessons = rows(16), nextLesson = rows(19)[0] || null;
+  const lessonIds = [...new Set([...rows(6), ...rows(15), ...rows(16), ...rows(19)].map((row) => Number(row.id)).filter(Boolean))], displayNames = new Map<number, string>();
+  if (lessonIds.length) { const marks = lessonIds.map(() => "?").join(","), named = await db.prepare(`SELECT l.id,GROUP_CONCAT(s.name,'、') AS studentNames FROM lessons l LEFT JOIN enrollments e ON e.class_id=l.class_id AND e.status='active' LEFT JOIN students s ON s.id=e.student_id AND s.status='active' WHERE l.id IN (${marks}) GROUP BY l.id`).bind(...lessonIds).all<Record<string, unknown>>(); named.results.forEach((row) => displayNames.set(Number(row.id), String(row.studentNames || ""))); }
+  const display = (row: Record<string, any>): Record<string, any> => ({ ...row, ...lessonDisplay({ ...row, studentNames: displayNames.get(Number(row.id)) || "" }) });
+  const todayLessons = rows(6).map(display), upcomingLessons = rows(15).map(display), overdueLessons = rows(16).map(display), nextLesson = rows(19)[0] ? display(rows(19)[0]) : null;
   const actions: Action[] = [];
   for (const lesson of overdueLessons) actions.push({ key: `overdue-${lesson.id}`, type: "lesson-closeout", title: `补记：${lesson.topic || lesson.courseName}`, reason: "课时日期已过，课堂记录尚未完成", dueAt: lesson.date, href: `/lessons/${lesson.id}`, updatedAt: lesson.updatedAt });
   for (const lesson of todayLessons) if (lesson.status !== "completed") actions.push({ key: `today-${lesson.id}`, type: "today-lesson", title: `${lesson.prepReady ? "完成" : "备课"}：${lesson.topic || lesson.courseName}`, reason: lesson.prepReady ? "今天的课尚未完成课后记录" : "教学目标、重点或资料清单尚未补齐", dueAt: today, href: `/lessons/${lesson.id}` });
@@ -54,10 +59,16 @@ export async function GET(request: Request) {
   for (const item of rows(21)) actions.push({ key: `feedback-${item.id}`, type: "feedback", title: `确认反馈：${item.subject}`, reason: "反馈仍为草稿，尚未确认", dueAt: String(item.dueAt || ""), href: `/feedback?lessonId=${item.lessonId || ""}&status=draft`, updatedAt: item.updatedAt });
   for (const item of rows(22)) actions.push({ key: `finance-${item.id}`, type: "finance", title: `核对结算：${item.topic || item.courseName}`, reason: "课时结算仍处于待核对状态", dueAt: String(item.dueAt || ""), href: `/finance?lessonId=${item.lessonId}&status=review`, updatedAt: item.updatedAt });
   for (const item of rows(9)) actions.push({ key: `student-${item.id}`, type: "student", title: `跟进学生：${item.name}`, reason: String(item.riskTags || "已有教师确认的关注事项"), dueAt: "", href: `/students/${item.id}`, updatedAt: item.updatedAt });
+  let promotionDue = false;
+  if (access.role === "teacher" && today.slice(5, 7) === "09") {
+    const academicYear = `${today.slice(0, 4)}-${Number(today.slice(0, 4)) + 1}`, promotionRun = await ensurePromotionRun(db, academicYear);
+    promotionDue = promotionRun?.status !== "confirmed";
+    if (promotionDue) actions.push({ key: `promotion-${academicYear}`, type: "grade-promotion", title: "核对新学年年级晋升", reason: "9月已生成晋升建议；排除留级、转学或暂缓学生后再确认", dueAt: today, href: `/academic-years?year=${academicYear}` });
+  }
   const bucket = (dueAt: string) => !dueAt ? 4 : dueAt < today ? 0 : dueAt === today ? 1 : dueAt <= shiftDate(today, 2) ? 2 : dueAt <= shiftDate(today, 7) ? 3 : 4;
   const suggestedActions = [...new Map(actions.map((item) => [item.key, item])).values()].sort((a, b) => bucket(a.dueAt) - bucket(b.dueAt) || String(a.dueAt || "9999").localeCompare(String(b.dueAt || "9999")) || String(a.updatedAt || "").localeCompare(String(b.updatedAt || ""))).slice(0, 3);
   return Response.json({
-    today, horizonDays, horizonDate, weekStart: monday, weekEnd: sunday, nextLesson, suggestedActions,
+    today, horizonDays, horizonDate, weekStart: monday, weekEnd: sunday, nextLesson, suggestedActions, promotionDue,
     weekLessons: number(0), draftLessons: number(1), confirmedFeedback: number(2), pendingFeedback: number(3), attendanceRate: rate(4), homeworkRate: rate(5), todayLessons,
     pendingHomework: number(7), riskCount: number(8), riskStudents: rows(9), recentReflections: access.role === "teacher" ? rows(10) : [], recentQuestions: rows(11), pendingReview: reviewSummary.total, reviewIssues: reviewSummary,
     activeClasses: number(12), activeStudents: number(13), pendingAssessments: number(14), upcomingLessons, overdueLessons, postLessonTodos: number(17), pendingFinance: number(18),

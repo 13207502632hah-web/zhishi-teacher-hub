@@ -2,5 +2,6 @@ allowBuilds:
   core-js: false
   esbuild: true
   sharp: true
+  tesseract.js: false
   unrs-resolver: true
   workerd: true

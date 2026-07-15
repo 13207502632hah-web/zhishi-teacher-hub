@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { lessons } from "../../../db/schema";
 import { audit, isDenied, requireClassAccess, requirePermission } from "../../lib/access";
 import { usesTeachingSlot, validateLessonTime } from "../../lib/lesson-validation";
+import { lessonDisplay } from "../../lib/lesson-display";
 
 const value = (input: unknown) => String(input || "").trim();
 
@@ -28,8 +29,8 @@ export async function GET(request: Request) {
   if (status !== "all") { where.push("l.status=?"); bind.push(status); }
   if (from) { where.push("l.date>=?"); bind.push(from); }
   if (to) { where.push("l.date<=?"); bind.push(to); }
-  const sql = `SELECT l.*,c.name AS className FROM lessons l LEFT JOIN classes c ON c.id=l.class_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY l.date DESC,l.start_time DESC,l.updated_at DESC`;
-  const rows = await env.DB.prepare(sql).bind(...bind).all(), lessonRows = (rows.results as Array<Record<string, unknown>>).map((row) => ({ ...row, classId: row.class_id, startTime: row.start_time, endTime: row.end_time, onlineLink: row.online_link, courseName: row.course_name, textbookVersion: row.textbook_version, knowledgePoints: row.knowledge_points, teachingGoals: row.teaching_goals, keyPoints: row.key_points, difficultPoints: row.difficult_points, actualContent: row.actual_content, nextPlan: row.next_plan, feeStatus: row.fee_status, cancellationReason: row.cancellation_reason, createdAt: row.created_at, updatedAt: row.updated_at }));
+  const sql = `SELECT l.*,c.name AS className,(SELECT GROUP_CONCAT(s.name,'、') FROM enrollments e JOIN students s ON s.id=e.student_id AND s.status='active' WHERE e.class_id=l.class_id AND e.status='active') AS studentNames FROM lessons l LEFT JOIN classes c ON c.id=l.class_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY l.date DESC,l.start_time DESC,l.updated_at DESC`;
+  const rows = await env.DB.prepare(sql).bind(...bind).all(), lessonRows = (rows.results as Array<Record<string, unknown>>).map((row) => { const normalized = { ...row, classId: row.class_id, startTime: row.start_time, endTime: row.end_time, onlineLink: row.online_link, courseName: row.course_name, textbookVersion: row.textbook_version, knowledgePoints: row.knowledge_points, teachingGoals: row.teaching_goals, keyPoints: row.key_points, difficultPoints: row.difficult_points, actualContent: row.actual_content, nextPlan: row.next_plan, feeStatus: row.fee_status, cancellationReason: row.cancellation_reason, createdAt: row.created_at, updatedAt: row.updated_at }; return { ...normalized, ...lessonDisplay(normalized) }; });
   return Response.json({ lessons: lessonRows });
 }
 

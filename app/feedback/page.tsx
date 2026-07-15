@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { AppShell, EmptyState } from "../components/AppShell";
 import { generateFeedback } from "../lib/feedback-generator";
 
@@ -91,7 +92,7 @@ export default function FeedbackPage() {
   const copy = async (item: Row, mode: "short" | "standard" = "short") => { await navigator.clipboard.writeText((mode === "standard" ? item.standardContent : item.shortContent) || item.content || feedbackText(item)); await fetch(`/api/feedback/${item.id}/copied`, { method: "POST" }); setMessage(`${mode === "standard" ? "标准版" : "简短版"}已复制，尚未发送给任何人`); load(); };
   const print = async (id: number) => { if (!confirm("确认打印或导出这条反馈？")) return; await fetch("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "print", entityType: "feedback", entityId: id }) }); window.print(); };
 
-  return <AppShell title="课程反馈" subtitle="单节课与阶段反馈；生成后由教师逐项编辑确认" actions={<button className="primaryButton" onClick={() => { setEditing(null); setForm(blank()); setOpen(true); }}>＋ 新建反馈</button>}>
+  return <AppShell title="课程反馈" subtitle="单节课与阶段反馈；生成后由教师逐项编辑确认" actions={<><Link className="secondaryButton" href="/feedback-imports">从反馈建立课时</Link><button className="primaryButton" onClick={() => { setEditing(null); setForm(blank()); setOpen(true); }}>＋ 新建反馈</button></>}>
     {message && <div className="saveToast" role="status">{message}</div>}
     <div className="subnav" aria-label="反馈类型筛选"><button className={!filter ? "active" : ""} onClick={() => setFilter("")}>全部反馈</button><button className={filter === "lesson" ? "active" : ""} onClick={() => setFilter("lesson")}>单节课反馈</button><button className={filter === "stage" ? "active" : ""} onClick={() => setFilter("stage")}>阶段反馈</button><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">全部状态</option><option value="draft">草稿</option><option value="confirmed">已确认</option></select><select value={lessonFilter} onChange={(event) => setLessonFilter(event.target.value)}><option value="">全部课时</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.topic || item.courseName}</option>)}</select></div>
     <section className="feedbackGrid">{rows.length === 0 ? <EmptyState title="还没有反馈" description="可从已完成课时生成草稿，或手动建立阶段反馈。系统不会自动向家长发送消息。" action={<button className="secondaryButton" onClick={() => setOpen(true)}>建立第一条反馈</button>} /> : rows.map((item) => <article className="feedbackCard" key={item.id}>

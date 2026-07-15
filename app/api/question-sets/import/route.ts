@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { questions, questionSets } from "../../../../db/schema";
+import { papers, questions, questionSets } from "../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 import { questionFingerprint } from "../../../lib/question-fingerprint";
 import { questionTextSimilarity } from "../../../lib/question-similarity";
@@ -24,7 +24,8 @@ export async function POST(request: Request) {
   const similarRows = unique.flatMap((question, sourceIndex) => comparisonPool.map((candidate) => ({ sourceIndex, sourceStem: question.stem.slice(0, 180), candidateId: candidate.id, candidateStem: candidate.stem.slice(0, 180), similarity: questionTextSimilarity(question.stem, candidate.stem), exact: candidate.fingerprint === question.fingerprint })).filter((candidate) => !candidate.exact && candidate.similarity >= .82).sort((a, b) => b.similarity - a.similarity).slice(0, 3)).filter((item) => item.similarity >= .82);
   const duplicateReport = { exact: duplicateRows, similar: similarRows };
   const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length, lowConfidence: unique.filter((question) => Number(question.parseConfidence ?? 1) < .7).length };
-  const [set] = await db.insert(questionSets).values({ name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
+  const first = unique[0], sourceYear = String(first.year || ""), academicYear = /^20\d{2}-20\d{2}$/.test(sourceYear) ? sourceYear : /^20\d{2}$/.test(sourceYear) ? `${Number(sourceYear) - 1}-${sourceYear}` : "", [paper] = await db.insert(papers).values({ title: String(body.name || "Word 试卷导入"), type: String(first.examType || "完整试卷"), stage: String(first.stage || ""), grade: String(first.grade || ""), textbookVersion: String(first.textbookVersion || ""), year: Number(first.year || 0) || null, academicYear, examCategory: String(first.examType || ""), region: String(first.region || ""), source: String(body.sourceDocument || body.sourceFile || ""), parseStatus: "review", status: "draft" }).returning();
+  const [set] = await db.insert(questionSets).values({ paperId: paper.id, name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
   const insertedQuestions = [], storedAssetKeys: string[] = [];
   try {
     const storedQuestions = await Promise.all(unique.map(async (question, index) => ({ ...question, attachments: await storeInlineAttachments(question.attachments, sourceFingerprint, index, storedAssetKeys) })));
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
   } catch (error) {
     await db.delete(questions).where(eq(questions.questionSetId, set.id));
     await db.delete(questionSets).where(eq(questionSets.id, set.id));
+    await db.delete(papers).where(eq(papers.id, paper.id));
     await Promise.all(storedAssetKeys.map((key) => env.FILES.delete(key)));
     throw error;
   }

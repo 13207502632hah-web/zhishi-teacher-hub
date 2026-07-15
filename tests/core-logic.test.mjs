@@ -229,7 +229,8 @@ test("sensitive child routes enforce server-side class, student and lesson acces
   assert.match(activity, /requireLessonAccess/);
   assert.match(lessonQuestions, /requireLessonAccess/);
   assert.match(feedback, /requireFeedbackAccess/);
-  assert.match(confirm, /item\.reviewed/);
+  assert.match(confirm, /requirePermission\("questions:write"\)/);
+  assert.match(confirm, /reviewedIds/);
 });
 
 test("student wrong-question records and feedback delivery stay reviewable", async () => {
@@ -331,7 +332,7 @@ test("question portability, batch review and document export contracts exist", a
   for (const format of ["csv", "markdown", "json"]) assert.match(portable, new RegExp(format));
   assert.match(portable, /answerIncluded/); assert.match(portable, /import_questions/); assert.match(portable, /status:\s*"review"/);
   for (const action of ["confirm", "return", "ignore", "difficulty", "questionType"]) assert.match(batch, new RegExp(action));
-  assert.match(batch, /questionReadinessIssues/); assert.match(readiness, /识别置信度低/); assert.match(batch, /paper_questions/);
+  assert.match(batch, /reviewQuestions/); assert.match(readiness, /识别置信度低/); assert.match(batch, /paper_questions/);
   assert.match(docxExport, /Packer\.toBlob/); assert.match(docxExport, /STHeiti/); assert.match(docxExport, /学生版/); assert.match(docxExport, /解析版/); assert.match(docxExport, /export_jobs/); assert.match(docxExport, /ImageRun/);
   assert.match(paperDetail, /jspdf/); assert.match(paperDetail, /html2canvas/); assert.match(paperDetail, /导出 Word/); assert.match(paperDetail, /导出 PDF/);
   for (const field of ["question_group", "sub_questions", "scoring_points", "attachments", "tables", "parse_confidence", "review_status", "source_document_id", "export_jobs"]) assert.match(migration, new RegExp(field));

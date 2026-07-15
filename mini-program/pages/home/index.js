@@ -18,4 +18,6 @@ Page({
   bindAccount() { wx.navigateTo({ url: "/pages/bind/index" }); },
   open(event) { wx.navigateTo({ url: `/pages/assignment/index?id=${event.currentTarget.dataset.id}` }); },
   review() { wx.navigateTo({ url: "/pages/review/index" }); },
+  publish() { wx.navigateTo({ url: "/pages/publish/index" }); },
+  inbox() { wx.navigateTo({ url: "/pages/inbox/index" }); },
 });

@@ -1,0 +1,14 @@
+const api = require("../../utils/api");
+Page({
+  data: { step: 1, classes: [], classId: "", className: "", title: "", requirements: "", dueAt: "", allowParentSubmit: true, requireRevision: true, assets: [], busy: false, error: "" },
+  onLoad() { const saved = wx.getStorageSync("teacher-assignment-draft"); if (saved) this.setData({ ...saved, step: 1 }); this.load(); },
+  async load() { try { const data = await api.request("/api/mini/classes"); this.setData({ classes: data.classes || [] }); } catch (error) { this.setData({ error: error.error || "班级读取失败" }); } },
+  field(event) { const key = event.currentTarget.dataset.key; this.setData({ [key]: event.detail.value }); this.persist(); },
+  toggle(event) { const key = event.currentTarget.dataset.key; this.setData({ [key]: event.detail.value }); this.persist(); },
+  chooseClass(event) { const index = Number(event.detail.value), item = this.data.classes[index]; this.setData({ classId: item ? String(item.id) : "", className: item ? item.name : "" }); this.persist(); },
+  persist() { wx.setStorageSync("teacher-assignment-draft", { classId: this.data.classId, className: this.data.className, title: this.data.title, requirements: this.data.requirements, dueAt: this.data.dueAt, allowParentSubmit: this.data.allowParentSubmit, requireRevision: this.data.requireRevision, assets: this.data.assets }); },
+  async addImages() { const selected = await new Promise((resolve, reject) => wx.chooseMedia({ count: 9 - this.data.assets.length, mediaType: ["image"], success: resolve, fail: reject })); const next = [...this.data.assets]; for (const item of selected.tempFiles || []) { const uploaded = await api.upload(item.tempFilePath, "assignment", api.operationId("assignment-file")); next.push(uploaded); this.setData({ assets: next }); this.persist(); } },
+  preview() { if (!this.data.classId || !this.data.title.trim()) { this.setData({ error: "请选择班级并填写作业标题" }); return; } this.setData({ step: 2, error: "" }); },
+  back() { this.setData({ step: 1 }); },
+  async submit(event) { if (this.data.busy) return; const status = event.currentTarget.dataset.status; this.setData({ busy: true }); try { const data = await api.request("/api/mini/assignments", { method: "POST", data: { classId: Number(this.data.classId), title: this.data.title.trim(), requirements: this.data.requirements.trim(), dueAt: this.data.dueAt || null, allowParentSubmit: this.data.allowParentSubmit, requireRevision: this.data.requireRevision, assetIds: this.data.assets.map((item) => item.id), status, operationId: api.operationId("assignment-create") } }); wx.removeStorageSync("teacher-assignment-draft"); wx.showModal({ title: status === "published" ? "发布成功" : "草稿已保存", content: `已建立${data.recipientCount || 0}名学生的接收记录，重复点击不会重复创建。`, showCancel: false, success: () => wx.navigateBack() }); } catch (error) { this.setData({ error: error.error || "保存失败，请重试" }); } finally { this.setData({ busy: false }); } },
+});

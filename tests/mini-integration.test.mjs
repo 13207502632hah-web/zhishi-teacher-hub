@@ -55,11 +55,12 @@ test("private assignment and paper files enforce target-aware access and no-stor
 });
 
 test("mini client has role pages, environment config, session expiry and recoverable drafts", async () => {
-  const [config, api, app, home, submit, review, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/submit/index.js", "mini-program/pages/review/index.wxml", "mini-program/README.md"].map(read));
+  const [config, api, app, home, submit, review, publish, inbox, annotate, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/submit/index.js", "mini-program/pages/review/index.wxml", "mini-program/pages/publish/index.wxml", "mini-program/pages/inbox/index.wxml", "mini-program/pages/annotate/index.wxml", "mini-program/README.md"].map(read));
   assert.match(config, /develop/); assert.match(config, /trial/); assert.match(config, /release/);
   assert.match(api, /MINI_SESSION_EXPIRED|statusCode === 401/); assert.match(api, /onProgressUpdate/); assert.match(api, /mini-sync-cursor/);
-  for (const page of ["pages/bind/index", "pages/portal/index", "pages/review/index"]) assert.match(app, new RegExp(page));
+  for (const page of ["pages/bind/index", "pages/portal/index", "pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.match(app, new RegExp(page));
   assert.match(home, /测试.*教师/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/); assert.match(review, /确认并回传/);
+  assert.match(publish, /预览发布/); assert.match(inbox, /已交待批/); assert.match(annotate, /不覆盖学生原图/);
   assert.match(readme, /不是已经提交审核或正式发布/);
 });
 

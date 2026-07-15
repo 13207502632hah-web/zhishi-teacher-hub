@@ -7,11 +7,12 @@ const value = (input: unknown) => String(input || "").trim();
 
 export async function GET(request: Request) {
   const access = await requirePermission("papers:read"); if (isDenied(access)) return access;
-  const params = new URL(request.url).searchParams, q = value(params.get("q")), status = value(params.get("status")), stage = value(params.get("stage")), grade = value(params.get("grade")), conditions: string[] = [], bindings: string[] = [];
+  const params = new URL(request.url).searchParams, q = value(params.get("q")), status = value(params.get("status")), stage = value(params.get("stage")), grade = value(params.get("grade")), academicYear = value(params.get("academicYear")), examCategory = value(params.get("examCategory")), province = value(params.get("province")), city = value(params.get("city")), district = value(params.get("district")), school = value(params.get("school")), conditions: string[] = [], bindings: string[] = [];
   if (q) { conditions.push("p.title LIKE ?"); bindings.push(`%${q}%`); }
   if (status) { conditions.push("p.status=?"); bindings.push(status); }
   if (stage) { conditions.push("p.stage=?"); bindings.push(stage); }
   if (grade) { conditions.push("p.grade=?"); bindings.push(grade); }
+  for (const [column, filter] of [["academic_year", academicYear], ["exam_category", examCategory], ["province", province], ["city", city], ["district", district], ["school", school]] as const) if (filter) { conditions.push(`p.${column}=?`); bindings.push(filter); }
   const result = await env.DB.prepare(`SELECT p.*,(SELECT COUNT(*) FROM paper_questions pq WHERE pq.paper_id=p.id) AS questionCount,COALESCE((SELECT SUM(pq.score) FROM paper_questions pq WHERE pq.paper_id=p.id),0) AS calculatedScore,(SELECT COUNT(*) FROM paper_files pf WHERE pf.paper_id=p.id) AS fileCount FROM papers p ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} ORDER BY p.updated_at DESC`).bind(...bindings).all();
   return Response.json({ papers: result.results });
 }
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   if (selected.some((item) => !Number.isFinite(item.score) || item.score < 0)) return Response.json({ error: "分值必须是非负数字" }, { status: 400 });
   const actual = await env.DB.prepare(`SELECT id FROM questions WHERE status='active' AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
   if (actual.results.length !== ids.length) return Response.json({ error: "所选题目中包含不存在或未正式入库的题目" }, { status: 400 });
-  const total = selected.reduce((sum, item) => sum + item.score, 0), db = getDb(), [paper] = await db.insert(papers).values({ title, type: value(body.type) || "练习", stage: value(body.stage), grade: value(body.grade), textbookVersion: value(body.textbookVersion), durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null, instructions: value(body.instructions), totalScore: total, status: "draft" }).returning();
+  const total = selected.reduce((sum, item) => sum + item.score, 0), db = getDb(), [paper] = await db.insert(papers).values({ title, type: value(body.type) || "练习", stage: value(body.stage), grade: value(body.grade), textbookVersion: value(body.textbookVersion), durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null, instructions: value(body.instructions), totalScore: total, academicYear: value(body.academicYear), examCategory: value(body.examCategory), semester: value(body.semester), province: value(body.province), city: value(body.city), district: value(body.district), examDate: value(body.examDate), school: value(body.school), status: "draft" }).returning();
   for (let index = 0; index < selected.length; index += 20) await db.insert(paperQuestions).values(selected.slice(index, index + 20).map((item, offset) => ({ paperId: paper.id, questionId: item.id, position: index + offset + 1, score: item.score, groupTitle: item.groupTitle, answerSpace: item.answerSpace })));
   await env.DB.batch(selected.map((item) => env.DB.prepare("UPDATE questions SET use_count=use_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(item.id)));
   await audit(access, "create", "paper", paper.id, { questionCount: selected.length, totalScore: total });

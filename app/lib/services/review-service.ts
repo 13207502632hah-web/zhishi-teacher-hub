@@ -20,6 +20,16 @@ export async function saveReview(input: Record<string, any>, reviewer: { actor: 
     const tags = Array.isArray(input.reviewTags) ? input.reviewTags.join("、") : String(input.reviewTags || "");
     const row = await env.DB.prepare("INSERT INTO submission_reviews(submission_id,submission_version_id,status,outcome,score,review_tags,teacher_note,revision_requirements,operation_id,reviewed_by,confirmed_at) VALUES(?,?,?, ?,?,?,?,?,?,?,CASE WHEN ?='confirmed' THEN CURRENT_TIMESTAMP ELSE NULL END) RETURNING id")
       .bind(submissionId, submission.versionId || null, confirm ? "confirmed" : "draft", outcome, input.score ?? null, tags || null, String(input.teacherNote || "").trim() || null, String(input.revisionRequirements || "").trim() || null, operationId || null, reviewer.userId, confirm ? "confirmed" : "draft").first<{ id: number }>();
+    const assetIds = [...new Set((Array.isArray(input.reviewAssetIds) ? input.reviewAssetIds : []).map(Number).filter(Boolean))];
+    for (const [position, assetId] of assetIds.entries()) {
+      const asset = await env.DB.prepare("SELECT id,mime_type AS mimeType FROM file_assets WHERE id=? AND owner_type='mini_account' AND owner_id=? AND status='active'").bind(assetId, reviewer.actor.id).first<Record<string, unknown>>();
+      if (!asset) throw new Error("批改附件不存在或不属于当前教师账号");
+      const type = String(asset.mimeType || "").startsWith("audio/") ? "voice" : "annotation";
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO review_assets(review_id,asset_id,type,position) VALUES(?,?,?,?)").bind(row?.id, assetId, type, position),
+        env.DB.prepare("INSERT INTO file_leases(asset_id,state,linked_entity_type,linked_entity_id) VALUES(?,'linked','submission_review',?) ON CONFLICT(asset_id) DO UPDATE SET state='linked',linked_entity_type='submission_review',linked_entity_id=excluded.linked_entity_id,updated_at=CURRENT_TIMESTAMP").bind(assetId, String(row?.id || "")),
+      ]);
+    }
     if (confirm) {
       await env.DB.prepare("UPDATE assignment_submissions SET status=?,score=?,review_tags=?,teacher_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
         .bind(outcome, input.score ?? null, tags || null, String(input.teacherNote || "").trim() || null, submissionId).run();

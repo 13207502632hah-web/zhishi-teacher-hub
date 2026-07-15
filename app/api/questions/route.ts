@@ -28,7 +28,8 @@ export async function GET(request: Request) {
     questionReviewSummary(env.DB),
   ]);
   const total = Number(countRows[0]?.count || 0);
-  return Response.json({ questions: rows, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)), allIds: idRows.map((item) => item.id), filters: Object.fromEntries(params.entries()), issues });
+  const listRows = rows.map(({ answer, analysis, answerPoints, scoringPoints, standardExpression, ...row }) => ({ ...row, answerAvailable: Boolean(String(answer || "").trim()), analysisAvailable: Boolean(String(analysis || answerPoints || scoringPoints || standardExpression || "").trim()) }));
+  return Response.json({ questions: listRows, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)), allIds: idRows.map((item) => item.id), filters: Object.fromEntries(params.entries()), issues });
 }
 
 export async function POST(request: Request) {

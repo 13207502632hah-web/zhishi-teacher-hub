@@ -1,0 +1,1 @@
+.submissionImages{display:flex;gap:14rpx;overflow-x:auto;margin:16rpx 0}.reviewImage{min-width:220rpx}.reviewImage image{width:220rpx;height:280rpx;border-radius:12rpx;background:#edf0e9}.reviewImage button{margin-top:8rpx;font-size:22rpx}

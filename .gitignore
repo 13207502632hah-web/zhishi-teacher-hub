@@ -49,3 +49,4 @@ next-env.d.ts
 /work/
 /.artifacts/
 /mini-program/project.private.config.json
+/public/ocr/
