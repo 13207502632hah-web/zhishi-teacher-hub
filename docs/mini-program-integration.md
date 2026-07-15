@@ -150,6 +150,12 @@ stateDiagram-v2
 
 正式接入前还需配置 AppID、request/uploadFile/downloadFile 合法域名、隐私协议、用户信息处理说明和订阅消息模板；文档只记录变量名，不记录真实值。
 
+### 本地自动化
+
+根目录提供 `mini:prepare`、`mini:dev`、`mini:check`、`mini:e2e` 与 `mini:verify`。自动化仅连接项目目录内的 Miniflare D1，使用 `__e2e__` 合成数据，并在结束后只清理这些合成记录。接口和开发者工具模拟器结果写入 `.artifacts/mini/`，报告必须分别标明本地检查、模拟器、真机、预览和发布状态。
+
+`mini:preview` 默认拒绝执行。只有正式 AppID、独立 HTTPS 测试域名和当次人工确认同时存在时，才允许通过微信开发者工具生成预览二维码；该命令不调用上传、审核或发布。
+
 ## 13. 迁移与回滚
 
 迁移只新增表和索引，不删除旧字段，旧 `class_id`、`parent_student_links` 和提交数据继续可读。上线前分别在全新数据库和版本 27 数据库副本执行，核对学生、绑定、作业、提交、附件和反馈数量。

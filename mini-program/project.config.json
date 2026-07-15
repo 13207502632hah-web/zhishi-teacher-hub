@@ -1,1 +1,14 @@
-{"description":"知师研室作业小程序一期","compileType":"miniprogram","appid":"touristappid","projectname":"zhishi-mini","miniprogramRoot":"./","setting":{"es6":true,"minified":true,"urlCheck":false}}
+{
+  "description": "满分道法作业小程序一期",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "满分道法",
+  "miniprogramRoot": "./",
+  "libVersion": "3.15.2",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "urlCheck": false,
+    "minifyWXML": true
+  }
+}

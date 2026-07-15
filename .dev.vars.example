@@ -1,0 +1,2 @@
+# 只供本地微信开发者工具测试，生产和正式预览必须为 false。
+WECHAT_TEST_MODE=true

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { SessionProvider } from "./components/SessionProvider";
 import "./globals.css";
 import "./responsive-fixes.css";
+import "./question-bank.css";
 
 export const metadata: Metadata = {
   title: "知师研室｜初高中教师教学工作台",

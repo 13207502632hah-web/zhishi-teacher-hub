@@ -1,8 +1,10 @@
+import { env } from "cloudflare:workers";
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { questions, questionSets } from "../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 import { questionFingerprint } from "../../../lib/question-fingerprint";
+import { questionTextSimilarity } from "../../../lib/question-similarity";
 import { questionValues } from "../../questions/values";
 
 export async function POST(request: Request) {
@@ -14,22 +16,47 @@ export async function POST(request: Request) {
   if (previous) return Response.json({ error: "这份 Word 文件已经导入过，避免重复入库", existing: previous }, { status: 409 });
   const prepared = input.map((question) => ({ ...questionValues({ ...question, source: question.source || body.sourceFile || "Word 试卷导入", sourceFile: body.sourceFile || "", status: "review", recordedBy: access.name }), reviewed: Boolean(question.reviewed) }));
   const fingerprints = [...new Set(prepared.map((question) => question.fingerprint))], existingRows = fingerprints.length ? await db.select({ fingerprint: questions.fingerprint }).from(questions).where(inArray(questions.fingerprint, fingerprints)) : [], existing = new Set(existingRows.map((question) => question.fingerprint));
-  const unique = prepared.filter((question) => !existing.has(question.fingerprint));
+  const seen = new Set<string>();
+  const unique = prepared.filter((question) => { if (existing.has(question.fingerprint) || seen.has(question.fingerprint)) return false; seen.add(question.fingerprint); return true; });
   if (!unique.length) return Response.json({ error: "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length }, { status: 409 });
-  const duplicateRows = prepared.filter((question) => existing.has(question.fingerprint)).map((question) => ({ fingerprint: question.fingerprint, stem: question.stem.slice(0, 80) }));
-  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length, lowConfidence: unique.filter((question) => Number(question.parseConfidence ?? 1) < .7).length };
-  const [set] = await db.insert(questionSets).values({ name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateRows), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
-  const insertedQuestions = [];
+  const duplicateRows = prepared.filter((question, index) => existing.has(question.fingerprint) || prepared.findIndex((candidate) => candidate.fingerprint === question.fingerprint) !== index).map((question) => ({ fingerprint: question.fingerprint, stem: question.stem.slice(0, 120) }));
+  const comparisonPool = await db.select({ id: questions.id, stem: questions.stem, fingerprint: questions.fingerprint }).from(questions).limit(2000);
+  const similarRows = unique.flatMap((question, sourceIndex) => comparisonPool.map((candidate) => ({ sourceIndex, sourceStem: question.stem.slice(0, 180), candidateId: candidate.id, candidateStem: candidate.stem.slice(0, 180), similarity: questionTextSimilarity(question.stem, candidate.stem), exact: candidate.fingerprint === question.fingerprint })).filter((candidate) => !candidate.exact && candidate.similarity >= .82).sort((a, b) => b.similarity - a.similarity).slice(0, 3)).filter((item) => item.similarity >= .82);
+  const duplicateReport = { exact: duplicateRows, similar: similarRows };
+  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length, lowConfidence: unique.filter((question) => Number(question.parseConfidence ?? 1) < .7).length };
+  const [set] = await db.insert(questionSets).values({ name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
+  const insertedQuestions = [], storedAssetKeys: string[] = [];
   try {
-    for (let index = 0; index < unique.length; index += 2) {
-      const inserted = await db.insert(questions).values(unique.slice(index, index + 2).map((question) => ({ ...question, questionSetId: set.id, sourceDocumentId: set.id }))).returning();
+    const storedQuestions = await Promise.all(unique.map(async (question, index) => ({ ...question, attachments: await storeInlineAttachments(question.attachments, sourceFingerprint, index, storedAssetKeys) })));
+    for (let index = 0; index < storedQuestions.length; index += 2) {
+      const inserted = await db.insert(questions).values(storedQuestions.slice(index, index + 2).map((question) => ({ ...question, questionSetId: set.id, sourceDocumentId: set.id }))).returning();
       insertedQuestions.push(...inserted);
     }
   } catch (error) {
     await db.delete(questions).where(eq(questions.questionSetId, set.id));
     await db.delete(questionSets).where(eq(questionSets.id, set.id));
+    await Promise.all(storedAssetKeys.map((key) => env.FILES.delete(key)));
     throw error;
   }
   await audit(access, "import", "question_set", set.id, report);
-  return Response.json({ questionSet: set, questions: insertedQuestions, questionCount: unique.length, report }, { status: 201 });
+  return Response.json({ questionSet: set, questions: insertedQuestions, questionCount: unique.length, report, duplicateReport }, { status: 201 });
+}
+
+async function storeInlineAttachments(value: unknown, sourceFingerprint: string, questionIndex: number, storedKeys: string[]) {
+  let attachments: Array<Record<string, unknown>> = [];
+  try { const parsed = typeof value === "string" ? JSON.parse(value) : value; if (Array.isArray(parsed)) attachments = parsed; } catch { return "[]"; }
+  const stored = await Promise.all(attachments.map(async (attachment, attachmentIndex) => {
+    const match = String(attachment.src || "").match(/^data:image\/(png|jpe?g);base64,([a-z0-9+/=\s]+)$/i);
+    if (!match) return attachment;
+    const bytes = Uint8Array.from(atob(match[2].replace(/\s/g, "")), (character) => character.charCodeAt(0));
+    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const extension = match[1].toLowerCase() === "png" ? "png" : "jpg", mimeType = extension === "png" ? "image/png" : "image/jpeg";
+    const key = `question-assets/${sourceFingerprint}/${questionIndex + 1}-${attachmentIndex + 1}-${digest.slice(0, 16)}.${extension}`;
+    await env.FILES.put(key, bytes, { httpMetadata: { contentType: mimeType }, customMetadata: { sourceFingerprint, questionNumber: String(questionIndex + 1) } });
+    storedKeys.push(key);
+    const metadata = { ...attachment };
+    delete metadata.src;
+    return { ...metadata, storageKey: key, mimeType, size: bytes.byteLength };
+  }));
+  return JSON.stringify(stored);
 }

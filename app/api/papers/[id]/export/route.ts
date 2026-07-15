@@ -25,14 +25,21 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   ];
   if (paper.instructions) children.push(new Paragraph({ children: [new TextRun({ text: String(paper.instructions), font: chineseFont, size: 21 })], spacing: { after: 180 } }));
   let previousGroup = "";
-  rows.results.forEach((question, index) => {
+  for (let index = 0; index < rows.results.length; index += 1) {
+    const question = rows.results[index];
     const group = String(question.group_title || question.question_group || "");
     if (group && group !== previousGroup) { children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: group, bold: true, font: chineseFont, size: 26 })], keepNext: true })); previousGroup = group; }
     if (question.material) children.push(new Paragraph({ children: [new TextRun({ text: String(question.material), font: chineseFont, size: 22 })], shading: { fill: "F4F6EF" }, spacing: { after: 100 }, keepNext: true }));
-    for (const attachment of json<Array<{ src?: string; alt?: string }>>(question.attachments, [])) {
-      const match = String(attachment.src || "").match(/^data:image\/(png|jpe?g);base64,(.+)$/i); if (!match) continue;
-      const bytes = Uint8Array.from(atob(match[2]), (character) => character.charCodeAt(0));
-      children.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ data: bytes, type: match[1].toLowerCase() === "png" ? "png" : "jpg", transformation: { width: 480, height: 270 }, altText: { title: attachment.alt || "试题图片", description: attachment.alt || "试题图片", name: attachment.alt || "试题图片" } })], spacing: { after: 100 } }));
+    for (const attachment of json<Array<{ src?: string; storageKey?: string; mimeType?: string; alt?: string }>>(question.attachments, [])) {
+      const match = String(attachment.src || "").match(/^data:image\/(png|jpe?g);base64,(.+)$/i);
+      let bytes: Uint8Array | null = match ? Uint8Array.from(atob(match[2]), (character) => character.charCodeAt(0)) : null;
+      let type: "png" | "jpg" = match?.[1].toLowerCase() === "png" ? "png" : "jpg";
+      if (!bytes && attachment.storageKey) {
+        const object = await env.FILES.get(attachment.storageKey);
+        if (object) { bytes = new Uint8Array(await new Response(object.body).arrayBuffer()); type = String(attachment.mimeType || object.httpMetadata?.contentType).includes("png") ? "png" : "jpg"; }
+      }
+      if (!bytes) continue;
+      children.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ data: bytes, type, transformation: { width: 480, height: 270 }, altText: { title: attachment.alt || "试题图片", description: attachment.alt || "试题图片", name: attachment.alt || "试题图片" } })], spacing: { after: 100 } }));
     }
     children.push(new Paragraph({ children: [new TextRun({ text: `${index + 1}．${question.stem}（${question.paper_score || question.score || 0}分）`, font: chineseFont, size: 22 })], spacing: { before: 120, after: 80 }, keepNext: true }));
     children.push(...lines(question.options));
@@ -40,7 +47,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (mode === "student") for (let line = 0; line < Math.max(1, Number(question.answer_space || 2)); line++) children.push(new Paragraph({ children: [new TextRun({ text: "____________________________________________________________________________", color: "777777" })] }));
     if (["teacher", "answer", "analysis"].includes(mode)) children.push(new Paragraph({ children: [new TextRun({ text: `答案：${question.answer || "待补充"}`, bold: true, font: chineseFont, size: 21 })], spacing: { before: 80 } }));
     if (["teacher", "analysis"].includes(mode)) children.push(new Paragraph({ children: [new TextRun({ text: `解析：${question.analysis || "待补充"}`, font: chineseFont, size: 21 })] }), new Paragraph({ children: [new TextRun({ text: `知识点：${question.knowledge_points || "待标注"}`, color: "41644A", font: chineseFont, size: 20 })] }));
-  });
+  }
   const doc = new Document({ styles: { default: { document: { run: { font: chineseFont, size: 22 }, paragraph: { spacing: { line: 360 } } } } }, sections: [{ properties: { page: { margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } } }, children }] });
   try {
     const blob = await Packer.toBlob(doc), resultKey = `paper-exports/${date}/${jobId}.docx`; await env.FILES.put(resultKey, blob, { httpMetadata: { contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }, customMetadata: { filename, mode } });

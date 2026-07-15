@@ -9,9 +9,16 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "pnpm build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "mini:prepare": "node scripts/mini-automation.mjs prepare",
+    "mini:dev": "node scripts/mini-automation.mjs dev",
+    "mini:check": "node scripts/mini-automation.mjs check",
+    "mini:e2e": "node scripts/mini-automation.mjs e2e",
+    "mini:verify": "node scripts/mini-automation.mjs verify",
+    "mini:preview": "node scripts/mini-automation.mjs preview"
   },
   "dependencies": {
     "docx": "^9.7.1",
@@ -35,6 +42,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "miniprogram-automator": "0.12.1",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",

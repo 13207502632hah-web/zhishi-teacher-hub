@@ -6,9 +6,9 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("dashboard uses the political-teaching workspace navigation", async () => {
   const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
-  for (const label of ["工作台","课时记录","学生与班级","测验与成绩","题库与组卷","课程反馈","教学反思","数据中心","资源中心","设置"]) assert.match(shell, new RegExp(label));
-  assert.match(page, /今日课程/); assert.match(page, /待办事项/); assert.match(page, /重点关注学生/); assert.match(page, /数据不足/); assert.match(page,/建立您的日常教学闭环/); assert.match(page,/创建第一份试卷/);
-  assert.match(page,/r\.ok\?r\.json\(\):empty/);
+  for (const label of ["工作台","题库检索","组卷草稿","课时记录","学生与班级","测验与成绩","课程反馈","教学反思","数据中心","资源中心","更多工具"]) assert.match(shell, new RegExp(label));
+  for (const label of ["政治题库工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "其他待办"]) assert.match(page, new RegExp(label));
+  assert.match(page,/response\.ok \? response\.json\(\) : empty/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
 });
@@ -75,6 +75,16 @@ test("Word imports accept the advertised size and explain non-JSON upload failur
   const [config, page, source] = await Promise.all([read("next.config.ts"), read("app/questions/page.tsx"), read("app/api/question-sets/source/route.ts")]);
   assert.match(config, /bodySizeLimit:\s*"20mb"/); assert.match(page, /response\.text\(\)/); assert.match(page, /超过服务器接收上限/);
   assert.match(page, /15 \* 1024 \* 1024/); assert.match(source, /15 \* 1024 \* 1024/); assert.match(source, /status: 413/);
+});
+
+test("question-bank-first workflow exposes queue, saved views, indexed search and durable paper cart", async () => {
+  const [page, questionApi, viewsApi, facetsApi, migration, schema, papers, shell, dashboard] = await Promise.all([read("app/questions/page.tsx"), read("app/api/questions/route.ts"), read("app/api/question-views/route.ts"), read("app/api/questions/facets/route.ts"), read("drizzle/0021_question_bank_search.sql"), read("db/schema.ts"), read("app/papers/page.tsx"), read("app/components/AppShell.tsx"), read("app/page.tsx")]);
+  for (const label of ["批量导入 Word", "Word 导入队列", "保存筛选", "最近：", "加入试卷草稿", "相似题并排核对", "使用次数从多到少"]) assert.match(page, new RegExp(label));
+  assert.match(page, /multiple type="file"/); assert.match(page, /question-import-queue/); assert.match(page, /单个文件失败不会中断后续文件/);
+  assert.match(questionApi, /use_count_desc/); assert.match(questionApi, /params\.get\("ids"\)/); assert.match(facetsApi, /textbook_version/);
+  assert.match(viewsApi, /ownerId/); assert.match(viewsApi, /allowedKeys/); assert.match(schema, /savedQuestionViews/);
+  for (const index of ["question_search_textbook_index", "question_search_knowledge_index", "question_search_sort_index"]) assert.match(migration, new RegExp(index));
+  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(shell, /题库检索/); assert.match(shell, /微信小程序（暂停）/); assert.match(dashboard, /政治题库工作台/);
 });
 
 test("lesson closure persists attendance, performance, homework and feedback", async () => {

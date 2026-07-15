@@ -1,5 +1,5 @@
 <view class="page">
-  <view class="hero"><view class="eyebrow">知师研室</view><view class="title">{{me.role==='teacher'?'今日教学与批改':me.role==='parent'?'孩子的作业与订正':'我的作业与订正'}}</view><view class="muted">网站发布、提交、批改与学情使用同一套数据</view></view>
+  <view class="hero"><view class="eyebrow">满分道法</view><view class="title">{{me.role==='teacher'?'今日教学与批改':me.role==='parent'?'孩子的作业与订正':'我的作业与订正'}}</view><view class="muted">网站发布、提交、批改与学情使用同一套数据</view></view>
   <view wx:if="{{error}}" class="card error"><text>{{error}}</text><view class="buttonRow"><button wx:for="{{testRoles}}" wx:key="*this" size="mini" class="secondary" data-role="{{item}}" bindtap="login">测试{{item==='teacher'?'教师':item==='parent'?'家长':'学生'}}</button></view></view>
   <view wx:if="{{me && me.bindingRequired}}" class="card warning"><view class="title small">尚未完成绑定</view><view class="muted">输入邀请码后还需教师在网站确认，确认前不会显示学生数据。</view><button class="primary" bindtap="bindAccount">输入邀请码</button></view>
   <view wx:if="{{me && me.bindingStatus==='pending'}}" class="card warning"><view class="title small">绑定申请待教师确认</view><view class="muted">确认后下拉刷新即可读取对应学生数据。</view></view>

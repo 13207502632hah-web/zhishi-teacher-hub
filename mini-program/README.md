@@ -1,4 +1,4 @@
-# 知师研室微信小程序一期
+# 满分道法微信小程序一期
 
 本项目与教师网站共用 D1 和 R2，可在无正式 AppID 时使用微信开发者工具的测试 AppID进行本地验收。它不是已经提交审核或正式发布的小程序。
 
@@ -21,3 +21,14 @@
 - 使用隔离测试账号验证绑定、停用后权限、指定学生作业、私有文件和优秀作业遮罩。
 
 真实密钥、会话令牌和学生资料不得写入本文件、代码、日志或 Git。
+
+## 自动化命令
+
+- `pnpm mini:prepare`：仅准备并核验本地 Miniflare D1，自动备份后补齐缺失迁移。
+- `pnpm mini:dev`：准备 D1、启动网站并通过微信开发者工具 CLI 打开本项目。
+- `pnpm mini:check`：运行类型、Lint、测试、构建和静态安全检查。
+- `pnpm mini:e2e`：使用 `__e2e__` 合成数据完成接口回归和开发者工具模拟器回归。
+- `pnpm mini:verify`：依次执行 `mini:check` 与 `mini:e2e`，报告保存在 `.artifacts/mini/`。
+- `pnpm mini:preview`：仅在正式 AppID、独立 HTTPS 测试域名和人工确认口令齐备时生成预览码；不会执行上传、审核或发布。
+
+自动化不会读取 `.env.local`，本地 Worker 只从被 Git 忽略的 `.dev.vars` 读取 `WECHAT_TEST_MODE=true`。模拟器不能完整代替相机、相册、微信授权和弱网真机验收。

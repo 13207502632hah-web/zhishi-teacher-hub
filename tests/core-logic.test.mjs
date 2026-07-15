@@ -41,6 +41,69 @@ test("Word parser separates political materials and keeps scoring evidence", asy
   assert.match(parsed[0].standardExpression, /本质属性/);
 });
 
+test("Word parser merges a separated reference-answer section without duplicating questions", async () => {
+  const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  const parsed = parsePoliticsDocx(`八下选择题专练
+一、单选题
+1．人民法院应当依法独立公正行使审判权。（ ）
+A．正确选项
+B．干扰选项
+2．人民政协围绕民生问题开展调研。（ ）
+A．正确选项
+B．干扰选项
+《八下选择题专练》参考答案
+题号
+1
+2
+答案
+A
+B
+1．A
+【知识点】人民法院的性质与职权
+【详解】人民法院是国家审判机关。
+2．B
+【知识点】人民政协的职能
+【详解】人民政协履行政治协商、民主监督和参政议政职能。`, { stage: "初中", grade: "八年级" });
+  assert.equal(parsed.length, 2);
+  assert.deepEqual(parsed.map((question) => question.answer), ["A", "B"]);
+  assert.deepEqual(parsed.map((question) => question.sourceQuestionNumber), [1, 2]);
+  assert.ok(parsed.every((question) => question.analysis && question.knowledgePoints));
+});
+
+test("Word parser expands grouped answers and shared explanations", async () => {
+  const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  const questions = [27, 28, 29, 30].map((number) => `${number}．第${number}题（ ）\nA．选项一\nB．选项二\nC．选项三\nD．选项四`).join("\n");
+  const parsed = parsePoliticsDocx(`一、单选题\n${questions}\n参考答案\n27．B    28．C    29．A    30．D\n【知识点】中华优秀传统文化\n【详解】27．第一题解析。\n28．第二题解析。\n29．第三题解析。\n30．第四题解析。`, { stage: "初中", grade: "八年级" });
+  assert.equal(parsed.length, 4);
+  assert.deepEqual(parsed.map((question) => question.answer), ["B", "C", "A", "D"]);
+  assert.ok(parsed.every((question) => question.analysis && question.knowledgePoints));
+});
+
+test("Word media stays with the nearest numbered political question", async () => {
+  const { enrichQuestionsFromHtml, parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  const questions = parsePoliticsDocx(`一、选择题\n1．第一题\n【答案】A\n【解析】解析一\n【知识点】知识点一\n2．第二题\n【答案】B\n【解析】解析二\n【知识点】知识点二`, {});
+  const enriched = enrichQuestionsFromHtml(`<p>1．第一题<img src="data:image/png;base64,one" alt="第一题图"></p><p>2．第二题</p><table><tr><td>第二题表格</td></tr></table>`, questions);
+  assert.equal(enriched[0].attachments.length, 1);
+  assert.equal(enriched[0].tables.length, 0);
+  assert.equal(enriched[1].attachments.length, 0);
+  assert.deepEqual(enriched[1].tables[0].rows, [["第二题表格"]]);
+  assert.doesNotMatch(enriched[0].importNotes.join(" "), /位于首道/);
+});
+
+test("uncertain Word media is marked instead of silently guessed", async () => {
+  const { enrichQuestionsFromHtml, parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  const questions = parsePoliticsDocx(`一、选择题\n1．题干\n【答案】A\n【解析】解析\n【知识点】法治`, {});
+  const [question] = enrichQuestionsFromHtml(`<p><img src="before.png"></p><p>1．题干</p>`, questions);
+  assert.match(question.importNotes.join(" "), /【存疑】/);
+  assert.equal(question.attachments[0].uncertainPosition, true);
+});
+
+test("similarity warns for near duplicate political questions without equating unrelated stems", async () => {
+  const { questionTextSimilarity } = await loadTsModule("app/lib/question-similarity.ts");
+  assert.ok(questionTextSimilarity("全过程人民民主是最广泛、最真实、最管用的民主", "全过程人民民主，是最广泛最真实最管用的民主。") >= .82);
+  assert.ok(questionTextSimilarity("我国坚持依法治国", "商品价格由价值决定并受供求影响") < .5);
+});
+
 test("three real docx fixtures survive Mammoth extraction and political parsing", async () => {
   const mammoth = require("mammoth");
   const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
@@ -221,6 +284,23 @@ test("professional political question import preserves review structure", async 
   assert.equal(question.reviewStatus, "pending");
   assert.ok(question.parseConfidence > 0 && question.parseConfidence <= 1);
   assert.equal(summarizeImport([question]).lowConfidence, 0);
+});
+
+test("Word import persists original question numbers and uncertainty notes", async () => {
+  const [values, importRoute, exportRoute] = await Promise.all([
+    "app/api/questions/values.ts",
+    "app/api/question-sets/import/route.ts",
+    "app/api/papers/[id]/export/route.ts",
+  ].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  assert.match(values, /sourceQuestionNumber/);
+  assert.match(values, /importNotes/);
+  assert.match(values, /原题号/);
+  assert.match(values, /importNotesField\(payload\)/);
+  assert.match(importRoute, /storeInlineAttachments/);
+  assert.match(importRoute, /question-assets/);
+  assert.match(importRoute, /env\.FILES\.put/);
+  assert.match(exportRoute, /attachment\.storageKey/);
+  assert.match(exportRoute, /env\.FILES\.get/);
 });
 
 test("question portability, batch review and document export contracts exist", async () => {
