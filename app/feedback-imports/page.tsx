@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/HardNavigationLink";
 import { useEffect, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { recognizeChineseImage } from "../lib/local-ocr";

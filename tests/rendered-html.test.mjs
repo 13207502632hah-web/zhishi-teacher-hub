@@ -26,11 +26,14 @@ test("dashboard uses the political-teaching workspace navigation", async () => {
 });
 
 test("route navigation keeps session state mounted and preserves native link behavior", async () => {
-  const [layout, shell, provider] = await Promise.all([read("app/layout.tsx"), read("app/components/AppShell.tsx"), read("app/components/SessionProvider.tsx")]);
+  const [layout, shell, provider, hardLink] = await Promise.all([read("app/layout.tsx"), read("app/components/AppShell.tsx"), read("app/components/SessionProvider.tsx"), read("app/components/HardNavigationLink.tsx")]);
   assert.match(layout, /<SessionProvider>\{children\}<\/SessionProvider>/);
   assert.match(provider, /fetch\("\/api\/session"/);
   assert.doesNotMatch(shell, /fetch\("\/api\/session"/);
   assert.doesNotMatch(shell, /onNavigate|preventDefault\(\).*router\.push|useTransition/);
+  assert.match(shell, /HardNavigationLink/);
+  assert.match(hardLink, /return <a href=\{href\}/);
+  assert.doesNotMatch(hardLink, /next\/link/);
   assert.match(shell, /<Link key=\{href\} href=\{href\}/);
   assert.match(shell, /<Link href="\/resources#teaching-method">教学理念<\/Link>/);
 });
@@ -47,6 +50,7 @@ test("every literal internal hyperlink resolves to an existing page or API route
   const unresolved = [];
   for (const path of componentFiles) {
     const source = await readFile(path, "utf8");
+    assert.doesNotMatch(source, /from "next\/link"/, `${path.slice(projectRoot.length)} must use full-page navigation`);
     for (const match of source.matchAll(/\bhref="([^"]+)"/g)) {
       const href = match[1];
       if (!href.startsWith("/") || href.startsWith("//")) continue;

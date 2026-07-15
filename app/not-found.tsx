@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/app/components/HardNavigationLink";
 
 export default function NotFound() {
   return <main className="routeState">

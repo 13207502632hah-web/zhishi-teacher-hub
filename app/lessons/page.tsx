@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/HardNavigationLink";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell, EmptyState } from "../components/AppShell";
 

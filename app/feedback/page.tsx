@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/HardNavigationLink";
 import { AppShell, EmptyState } from "../components/AppShell";
 import { generateFeedback } from "../lib/feedback-generator";
 
