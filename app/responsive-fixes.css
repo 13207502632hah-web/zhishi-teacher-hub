@@ -52,14 +52,6 @@
   .viewSwitch, .rangeTabs { flex-wrap: wrap; }
 }
 
-.sideNav nav a {
-  transition: opacity 160ms ease, background-color 160ms ease, color 160ms ease;
-}
-
-.sideNav nav[aria-busy="true"] a:not(.active) {
-  opacity: .58;
-}
-
 .assessmentList { display: grid; }
 .assessmentList article { display: grid; grid-template-columns: 90px minmax(0,1fr) auto auto; gap: 18px; align-items: center; padding: 16px 0; border-bottom: 1px solid #eceee9; }
 .assessmentList time { color: #6b7972; font-size: 11px; }

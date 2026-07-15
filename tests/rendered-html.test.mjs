@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+const projectRoot = fileURLToPath(new URL("../", import.meta.url));
+
+async function sourceFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map((entry) => {
+    const path = `${directory}/${entry.name}`;
+    return entry.isDirectory() ? sourceFiles(path) : [path];
+  }));
+  return nested.flat();
+}
 
 test("dashboard uses the political-teaching workspace navigation", async () => {
   const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
@@ -14,15 +25,36 @@ test("dashboard uses the political-teaching workspace navigation", async () => {
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
 });
 
-test("route transitions keep session state mounted and expose a subtle pending state", async () => {
-  const [layout, shell, provider, css] = await Promise.all([read("app/layout.tsx"), read("app/components/AppShell.tsx"), read("app/components/SessionProvider.tsx"), read("app/responsive-fixes.css")]);
+test("route navigation keeps session state mounted and preserves native link behavior", async () => {
+  const [layout, shell, provider] = await Promise.all([read("app/layout.tsx"), read("app/components/AppShell.tsx"), read("app/components/SessionProvider.tsx")]);
   assert.match(layout, /<SessionProvider>\{children\}<\/SessionProvider>/);
   assert.match(provider, /fetch\("\/api\/session"/);
   assert.doesNotMatch(shell, /fetch\("\/api\/session"/);
-  assert.match(shell, /useTransition/);
-  assert.match(shell, /onNavigate/);
-  assert.match(shell, /aria-busy=\{isPending\}/);
-  assert.match(css, /nav\[aria-busy="true"\]/);
+  assert.doesNotMatch(shell, /onNavigate|preventDefault\(\).*router\.push|useTransition/);
+  assert.match(shell, /<Link key=\{href\} href=\{href\}/);
+  assert.match(shell, /<Link href="\/resources#teaching-method">教学理念<\/Link>/);
+});
+
+test("every literal internal hyperlink resolves to an existing page or API route", async () => {
+  const files = await sourceFiles(`${projectRoot}/app`);
+  const routeFiles = files.filter((path) => /\/(page|route)\.tsx?$/.test(path));
+  const routePatterns = routeFiles.map((path) => {
+    const relative = path.slice(`${projectRoot}/app`.length).replace(/\/(page|route)\.tsx?$/, "") || "/";
+    const pattern = relative.replace(/\[\.\.\.[^\]]+\]/g, ".+").replace(/\[[^\]]+\]/g, "[^/]+");
+    return new RegExp(`^${pattern}$`);
+  });
+  const componentFiles = files.filter((path) => /\.tsx$/.test(path));
+  const unresolved = [];
+  for (const path of componentFiles) {
+    const source = await readFile(path, "utf8");
+    for (const match of source.matchAll(/\bhref="([^"]+)"/g)) {
+      const href = match[1];
+      if (!href.startsWith("/") || href.startsWith("//")) continue;
+      const pathname = href.split(/[?#]/, 1)[0] || "/";
+      if (!routePatterns.some((pattern) => pattern.test(pathname))) unresolved.push(`${path.slice(projectRoot.length)} -> ${href}`);
+    }
+  }
+  assert.deepEqual(unresolved, []);
 });
 
 test("zero-cost usability optimizations add quick navigation, resilient route states and cheaper question search", async () => {
