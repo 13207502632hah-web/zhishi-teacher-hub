@@ -13,4 +13,8 @@ function apiBase() {
   return override || apiBases[environment()] || apiBases.develop;
 }
 
-module.exports = { apiBase, environment };
+function testLoginEnabled() {
+  return environment() === "develop" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(apiBase());
+}
+
+module.exports = { apiBase, environment, testLoginEnabled };

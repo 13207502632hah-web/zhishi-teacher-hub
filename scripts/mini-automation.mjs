@@ -22,7 +22,7 @@ const command = process.argv[2] || "verify";
 const report = {
   startedAt: new Date().toISOString(),
   command,
-  brand: "满分道法",
+  brand: "来写作业吧",
   stages: [],
   boundaries: {
     gitPush: false,
@@ -142,7 +142,7 @@ async function probeHome() {
   try {
     const response = await fetch(`${BASE_URL}/`, { signal: AbortSignal.timeout(1800) });
     const body = await response.text();
-    return { reachable: true, valid: response.status === 200 && /知师研室|满分道法/.test(body), status: response.status };
+    return { reachable: true, valid: response.status === 200 && /知师研室|来写作业吧/.test(body), status: response.status };
   } catch {
     return { reachable: false, valid: false, status: 0 };
   }
@@ -515,14 +515,23 @@ async function waitForPageData(page, predicate, message, timeout = 20000) {
 async function simulatorRegression(runDir, fixture) {
   const automator = (await import("miniprogram-automator")).default;
   let miniProgram;
+  let simulatorProject;
   const evidence = [];
   try {
+    // 正式工程必须开启合法域名校验；本地模拟器回归使用一次性副本关闭校验，
+    // 以便访问 localhost。副本位于 Git 忽略的报告目录，不会进入上传包。
+    simulatorProject = path.join(process.env.TMPDIR || "/tmp", `zhishi-mini-e2e-${timestamp()}`);
+    await cp(MINI_ROOT, simulatorProject, { recursive: true });
+    const simulatorConfigPath = path.join(simulatorProject, "project.config.json");
+    const simulatorConfig = JSON.parse(await readFile(simulatorConfigPath, "utf8"));
+    simulatorConfig.setting = { ...(simulatorConfig.setting || {}), urlCheck: false };
+    await writeFile(simulatorConfigPath, `${JSON.stringify(simulatorConfig, null, 2)}\n`, "utf8");
     const reuseConnection = await isPortOpen(9420);
     miniProgram = await withTimeout(reuseConnection
       ? automator.connect({ wsEndpoint: "ws://127.0.0.1:9420" })
       : automator.launch({
           cliPath: DEVTOOLS_CLI,
-          projectPath: MINI_ROOT,
+          projectPath: simulatorProject,
           timeout: 90000,
           port: 9420,
           args: ["--port", "9431"],
@@ -596,6 +605,7 @@ async function simulatorRegression(runDir, fixture) {
       }
       await sleep(1500);
     }
+    if (simulatorProject) await rm(simulatorProject, { recursive: true, force: true });
   }
 }
 
@@ -612,10 +622,11 @@ async function staticSecurityCheck() {
     if (/private\.[A-Za-z0-9_-]+\.key/.test(relative)) violations.push(`${relative}: 上传密钥进入 Git`);
   }
   const project = JSON.parse(await readFile(path.join(MINI_ROOT, "project.config.json"), "utf8"));
-  if (project.appid !== "touristappid") violations.push("当前阶段 project.config.json 必须保持 touristappid");
-  if (project.projectname !== "满分道法") violations.push("开发者工具工程名未统一为满分道法");
+  if (project.appid !== "touristappid" && !/^wx[a-zA-Z0-9]{16}$/.test(project.appid)) violations.push("project.config.json 必须使用 touristappid 或格式正确的正式 AppID");
+  if (project.appid !== "touristappid" && project.setting?.urlCheck !== true) violations.push("正式 AppID 必须开启服务器域名校验");
+  if (project.projectname !== "来写作业吧") violations.push("开发者工具工程名未统一为来写作业吧");
   const app = JSON.parse(await readFile(path.join(MINI_ROOT, "app.json"), "utf8"));
-  if (app.window?.navigationBarTitleText !== "满分道法") violations.push("导航栏品牌未统一为满分道法");
+  if (app.window?.navigationBarTitleText !== "来写作业吧") violations.push("导航栏品牌未统一为来写作业吧");
   const ignored = await runProcess("git", ["check-ignore", ".dev.vars", ".artifacts/mini/report.json", "private.wx-appid.key"], { label: "Git 忽略规则检查" });
   if (ignored.stdout.trim().split(/\r?\n/).length !== 3) violations.push("本地变量、报告或上传密钥未被完整忽略");
   if (violations.length) throw new Error(`静态安全检查失败：${violations.join("；")}`);
@@ -658,7 +669,7 @@ async function runE2E() {
 
 async function openDevTools() {
   await runProcess(DEVTOOLS_CLI, ["open", "--project", MINI_ROOT], { label: "打开微信开发者工具", timeout: 60000 });
-  stage("微信开发者工具", "passed", { summary: "已打开满分道法本地项目" });
+  stage("微信开发者工具", "passed", { summary: "已打开来写作业吧本地项目" });
 }
 
 async function runDev() {
@@ -667,7 +678,7 @@ async function runDev() {
   const server = await startServer({ stream: true });
   await openDevTools();
   if (!server.child) return;
-  console.log("满分道法本地联调正在运行；按 Ctrl+C 停止。不会上传或发布。");
+  console.log("来写作业吧本地联调正在运行；按 Ctrl+C 停止。不会上传或发布。");
   for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => server.child.kill(signal));
   await new Promise((resolve) => server.child.once("exit", resolve));
 }
@@ -713,7 +724,7 @@ async function writeReport(status, artifactDir = ARTIFACT_ROOT, error = null) {
   const markdownPath = path.join(artifactDir, "report.md");
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
   const lines = [
-    "# 满分道法小程序自动化报告",
+    "# 来写作业吧小程序自动化报告",
     "",
     `- 状态：${status === "passed" ? "通过" : "失败"}`,
     `- 开始：${report.startedAt}`,

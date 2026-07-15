@@ -45,10 +45,11 @@ test("brand and local artifacts are configured safely", async () => {
     read("mini-program/pages/home/index.wxml"),
     read(".gitignore"),
   ]);
-  assert.equal(JSON.parse(app).window.navigationBarTitleText, "满分道法");
-  assert.equal(JSON.parse(project).projectname, "满分道法");
-  assert.equal(JSON.parse(project).appid, "touristappid");
+  assert.equal(JSON.parse(app).window.navigationBarTitleText, "来写作业吧");
+  assert.equal(JSON.parse(project).projectname, "来写作业吧");
+  assert.equal(JSON.parse(project).appid, "wxfec0f64566c68a2c");
+  assert.equal(JSON.parse(project).setting.urlCheck, true);
   assert.equal(JSON.parse(project).libVersion, "3.15.2");
-  assert.match(home, /满分道法/);
+  assert.match(home, /来写作业吧/);
   for (const marker of [".dev.vars", "/.artifacts/", "private.*.key", "project.private.config.json"]) assert.ok(ignore.includes(marker), `${marker} must be ignored`);
 });

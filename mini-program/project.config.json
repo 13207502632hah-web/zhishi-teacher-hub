@@ -1,14 +1,14 @@
 {
-  "description": "满分道法作业小程序一期",
+  "description": "来写作业吧小程序一期",
   "compileType": "miniprogram",
-  "appid": "touristappid",
-  "projectname": "满分道法",
+  "appid": "wxfec0f64566c68a2c",
+  "projectname": "来写作业吧",
   "miniprogramRoot": "./",
   "libVersion": "3.15.2",
   "setting": {
     "es6": true,
     "minified": true,
-    "urlCheck": false,
+    "urlCheck": true,
     "minifyWXML": true
   }
 }
