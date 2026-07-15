@@ -38,9 +38,14 @@ export async function listAssignments(actor: AssignmentActor, filters: URLSearch
   }
   const status = filters.get("status");
   const classId = Number(filters.get("classId") || 0);
+  const lessonId = Number(filters.get("lessonId") || 0);
+  const submissionStatus = filters.get("submissionStatus") || "";
   const query = (filters.get("q") || "").trim();
   if (status && status !== "all") { where.push("a.status=?"); bind.push(status); }
   if (classId) { where.push("a.class_id=?"); bind.push(classId); }
+  if (lessonId) { where.push("a.lesson_id=?"); bind.push(lessonId); }
+  if (submissionStatus === "pending") where.push("EXISTS(SELECT 1 FROM assignment_submissions fs WHERE fs.assignment_id=a.id AND fs.status NOT IN ('completed','corrected'))");
+  else if (submissionStatus) { where.push("EXISTS(SELECT 1 FROM assignment_submissions fs WHERE fs.assignment_id=a.id AND fs.status=?)"); bind.push(submissionStatus); }
   if (query) { where.push("(a.title LIKE ? OR a.requirements LIKE ?)"); bind.push(`%${query}%`, `%${query}%`); }
   const rows = await env.DB.prepare(`SELECT a.id,a.lesson_id AS lessonId,a.paper_id AS paperId,a.class_id AS classId,a.title,a.requirements,a.due_at AS dueAt,a.reminder_rule AS reminderRule,a.status,a.created_at AS createdAt,a.updated_at AS updatedAt,c.name AS className,p.title AS paperTitle,COALESCE(s.allow_parent_submit,1) AS allowParentSubmit,COALESCE(s.require_revision,1) AS requireRevision,s.published_at AS publishedAt,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id) AS recipientCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status IN ('submitted','revision_submitted')) AS pendingReviewCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status='revision') AS revisionCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status='completed') AS completedCount FROM assignments a LEFT JOIN classes c ON c.id=a.class_id LEFT JOIN papers p ON p.id=a.paper_id LEFT JOIN assignment_settings s ON s.assignment_id=a.id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY a.updated_at DESC,a.id DESC LIMIT 200`)
     .bind(...bind).all<Record<string, unknown>>();

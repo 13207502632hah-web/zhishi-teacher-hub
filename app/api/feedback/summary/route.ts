@@ -86,6 +86,13 @@ export async function GET(request: Request) {
       periodSummary: facts.join("；") + "。",
       progress: performance.length ? performance.join("；") + "。以上为真实记录均值，请教师结合课堂证据补充进步描述。" : "暂无足够的课堂表现记录，请教师根据实际情况补充。",
       problems: problems.length ? `已有记录中的需关注项：${problems.join("；")}。请教师核对后保留或修改。` : "暂无已确认的需关注项，请教师根据实际情况补充。",
+      evidenceRefs: [
+        { sourceType: "lesson_summary", sourceId: null, label: `${start}至${end}课时汇总`, excerpt: facts.join("；"), sourceDate: end },
+        ...(attendance !== null ? [{ sourceType: "attendance_summary", sourceId: null, label: "出勤记录汇总", excerpt: `出勤率${attendance}%`, sourceDate: end }] : []),
+        ...(homework !== null ? [{ sourceType: "assignment_summary", sourceId: null, label: "作业记录汇总", excerpt: `完成率${homework}%`, sourceDate: end }] : []),
+        ...(assessmentAverage !== null ? [{ sourceType: "assessment_summary", sourceId: null, label: "测验记录汇总", excerpt: `${assessmentCount}次测验平均${assessmentAverage}分`, sourceDate: end }] : []),
+        ...(performance.length ? [{ sourceType: "lesson_record_summary", sourceId: null, label: "课堂表现记录汇总", excerpt: performance.join("；"), sourceDate: end }] : []),
+      ],
     },
   });
 }

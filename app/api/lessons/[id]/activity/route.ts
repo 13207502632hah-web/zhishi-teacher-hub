@@ -24,8 +24,41 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const lessonId = await idFrom(context), denied = await requireLessonAccess(access, lessonId); if (denied) return denied;
   const payload = await request.json() as Record<string, any>, action = String(payload.action || "");
 
+  if (action === "undoLatestCompletion") {
+    const run = await env.DB.prepare("SELECT id,before_snapshot AS beforeSnapshot,artifact_snapshot AS artifactSnapshot,completed_at AS completedAt FROM lesson_completion_runs WHERE lesson_id=? AND status='active' AND datetime(completed_at)>=datetime('now','-24 hours') ORDER BY completed_at DESC LIMIT 1").bind(lessonId).first<Record<string, any>>();
+    if (!run) return Response.json({ error: "没有可撤销的24小时内完成记录" }, { status: 409 });
+    let before: Record<string, any> = {}, artifacts: Record<string, any> = {}; try { before = JSON.parse(String(run.beforeSnapshot || "{}")); artifacts = JSON.parse(String(run.artifactSnapshot || "{}")); } catch { return Response.json({ error: "撤销快照损坏，已停止操作以保护现有数据" }, { status: 409 }); }
+    const blockers: string[] = [];
+    const assignment = artifacts.assignment?.id ? await env.DB.prepare("SELECT id,status,requirements,due_at AS dueAt,updated_at AS updatedAt,(SELECT COUNT(*) FROM assignment_submissions s WHERE s.assignment_id=assignments.id AND s.status!='pending') AS actedCount,(SELECT COUNT(*) FROM submission_versions sv JOIN assignment_submissions s ON s.id=sv.submission_id WHERE s.assignment_id=assignments.id) AS versionCount FROM assignments WHERE id=?").bind(artifacts.assignment.id).first<Record<string, any>>() : null;
+    const feedback = artifacts.feedback?.id ? await env.DB.prepare("SELECT id,status,sent_at AS sentAt,updated_at AS updatedAt FROM feedback WHERE id=?").bind(artifacts.feedback.id).first<Record<string, any>>() : null;
+    const finance = artifacts.finance?.id ? await env.DB.prepare("SELECT id,status,updated_at AS updatedAt FROM lesson_finance WHERE id=?").bind(artifacts.finance.id).first<Record<string, any>>() : null;
+    if (assignment && (assignment.status !== "draft" || Number(assignment.actedCount) > 0 || Number(assignment.versionCount) > 0 || (artifacts.assignment.afterUpdatedAt && assignment.updatedAt !== artifacts.assignment.afterUpdatedAt))) blockers.push("作业已发布、已有学生操作或被后续修改");
+    if (feedback && (feedback.status !== "draft" || feedback.sentAt || (artifacts.feedback.afterUpdatedAt && feedback.updatedAt !== artifacts.feedback.afterUpdatedAt))) blockers.push("反馈已确认、已发送或被后续修改");
+    if (finance && (finance.status !== "review" || (artifacts.finance.afterUpdatedAt && finance.updatedAt !== artifacts.finance.afterUpdatedAt))) blockers.push("财务记录已确认或被后续修改");
+    if (blockers.length) return Response.json({ error: "存在受保护产物，本次撤销未执行", blockers }, { status: 409 });
+    const statements = [env.DB.prepare("UPDATE lessons SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(String(before.lessonStatus || "scheduled"), lessonId)];
+    if (assignment && artifacts.assignment.created) statements.push(
+      env.DB.prepare("DELETE FROM assignment_assets WHERE assignment_id=?").bind(assignment.id), env.DB.prepare("DELETE FROM assignment_targets WHERE assignment_id=?").bind(assignment.id), env.DB.prepare("DELETE FROM assignment_settings WHERE assignment_id=?").bind(assignment.id), env.DB.prepare("DELETE FROM assignment_submissions WHERE assignment_id=?").bind(assignment.id), env.DB.prepare("DELETE FROM assignments WHERE id=?").bind(assignment.id),
+    );
+    else if (assignment && artifacts.assignment.before) {
+      const originalStudents = (artifacts.assignment.before.submissionStudentIds || []).map(Number).filter((value: number) => value > 0);
+      if (originalStudents.length) statements.push(env.DB.prepare(`DELETE FROM assignment_submissions WHERE assignment_id=? AND status='pending' AND student_id NOT IN (${originalStudents.map(() => "?").join(",")})`).bind(assignment.id, ...originalStudents));
+      else statements.push(env.DB.prepare("DELETE FROM assignment_submissions WHERE assignment_id=? AND status='pending'").bind(assignment.id));
+      statements.push(env.DB.prepare("UPDATE assignments SET requirements=?,due_at=?,status=?,updated_at=? WHERE id=?").bind(artifacts.assignment.before.requirements || null, artifacts.assignment.before.dueAt || null, artifacts.assignment.before.status || "draft", artifacts.assignment.before.updatedAt, assignment.id));
+    }
+    if (feedback && artifacts.feedback.created) statements.push(env.DB.prepare("DELETE FROM feedback_evidence WHERE feedback_id=?").bind(feedback.id), env.DB.prepare("DELETE FROM feedback WHERE id=?").bind(feedback.id));
+    else if (feedback && artifacts.feedback.before) statements.push(env.DB.prepare("UPDATE feedback SET tone=?,content=?,learning_content=?,homework_requirements=?,next_focus=?,status=?,updated_at=? WHERE id=?").bind(artifacts.feedback.before.tone || null, artifacts.feedback.before.content || "", artifacts.feedback.before.learningContent || null, artifacts.feedback.before.homeworkRequirements || null, artifacts.feedback.before.nextFocus || null, artifacts.feedback.before.status || "draft", artifacts.feedback.before.updatedAt, feedback.id));
+    if (finance && artifacts.finance.created) statements.push(env.DB.prepare("DELETE FROM lesson_billing_items WHERE lesson_finance_id=?").bind(finance.id), env.DB.prepare("DELETE FROM lesson_finance WHERE id=?").bind(finance.id));
+    else if (finance && artifacts.finance.before) {
+      statements.push(env.DB.prepare("DELETE FROM lesson_billing_items WHERE lesson_finance_id=?").bind(finance.id), env.DB.prepare("UPDATE lesson_finance SET payer_type=?,payer_id=?,base_fee=?,adjustment=?,expected_amount=?,received_amount=?,status=?,note=?,pricing_rule_id=?,calculation_snapshot=?,updated_at=? WHERE id=?").bind(artifacts.finance.before.payerType, artifacts.finance.before.payerId || null, artifacts.finance.before.baseFee || 0, artifacts.finance.before.adjustment || 0, artifacts.finance.before.expectedAmount || 0, artifacts.finance.before.receivedAmount || 0, artifacts.finance.before.status || "review", artifacts.finance.before.note || null, artifacts.finance.before.pricingRuleId || null, artifacts.finance.before.calculationSnapshot || null, artifacts.finance.before.updatedAt, finance.id));
+      for (const item of artifacts.finance.before.billingItems || []) statements.push(env.DB.prepare("INSERT INTO lesson_billing_items(lesson_finance_id,student_id,attendance_status,billing_factor,unit_fee,amount,reason) VALUES(?,?,?,?,?,?,?)").bind(finance.id, item.studentId, item.attendanceStatus, item.billingFactor, item.unitFee, item.amount, item.reason || null));
+    }
+    statements.push(env.DB.prepare("UPDATE lesson_completion_runs SET status='undone',undone_at=CURRENT_TIMESTAMP WHERE id=?").bind(run.id));
+    await env.DB.batch(statements); await audit(access, "undo_complete", "lesson", lessonId, { runId: run.id }); return Response.json({ ok: true, runId: run.id });
+  }
+
   if (["saveDraft", "completeLesson"].includes(action)) {
-    const lesson = await env.DB.prepare("SELECT id,date,fee,status FROM lessons WHERE id=?").bind(lessonId).first<{ id: number; date: string; fee: number | null; status: string }>();
+    const lesson = await env.DB.prepare("SELECT id,class_id AS classId,date,fee,status,next_plan AS nextPlan FROM lessons WHERE id=?").bind(lessonId).first<{ id: number; classId: number | null; date: string; fee: number | null; status: string; nextPlan: string | null }>();
     if (!lesson) return Response.json({ error: "课时不存在" }, { status: 404 });
     const memberRows = await env.DB.prepare("SELECT e.student_id AS id FROM lessons l JOIN enrollments e ON e.class_id=l.class_id AND e.status='active' WHERE l.id=? ORDER BY e.student_id").bind(lessonId).all<{ id: number }>();
     const memberIds = memberRows.results.map((item) => Number(item.id)), allowed = new Set(memberIds);
@@ -34,6 +67,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (action === "completeLesson") {
       const errors = validateLessonCompletion(payload.actualContent, memberIds, records);
       if (errors.length) return Response.json({ error: errors[0], errors }, { status: 422 });
+      if (lesson.status === "completed") {
+        const [savedAssignment, savedFeedback, savedFinance] = await Promise.all([
+          env.DB.prepare("SELECT id,status FROM assignments WHERE lesson_id=? ORDER BY updated_at DESC,id DESC LIMIT 1").bind(lessonId).first<Record<string, any>>(),
+          env.DB.prepare("SELECT id,status FROM feedback WHERE lesson_id=? ORDER BY updated_at DESC,id DESC LIMIT 1").bind(lessonId).first<Record<string, any>>(),
+          env.DB.prepare("SELECT id,status,expected_amount AS expectedAmount FROM lesson_finance WHERE lesson_id=?").bind(lessonId).first<Record<string, any>>(),
+        ]);
+        const todos = completionTodos({ assignment: Boolean(savedAssignment), feedback: Boolean(savedFeedback), nextPlan: lesson.nextPlan });
+        await audit(access, "complete_idempotent", "lesson", lessonId, { todos });
+        return Response.json({ ok: true, status: "completed", idempotent: true, completionRunId: null, artifacts: { assignmentId: savedAssignment?.id || null, feedbackId: savedFeedback?.id || null, financeId: savedFinance?.id || null, financeStatus: savedFinance?.status || null, financeLocked: Boolean(savedFinance && savedFinance.status !== "review") }, todos });
+      }
     }
 
     const statements = [] as ReturnType<typeof env.DB.prepare>[];
@@ -48,11 +91,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
     const assignment = payload.assignment as Record<string, unknown> | undefined, assignmentTitle = String(assignment?.title || "").trim();
     const feedback = payload.feedback as Record<string, unknown> | undefined, feedbackContent = String(feedback?.content || "").trim(), feedbackStudentId = feedback?.studentId ? Number(feedback.studentId) : null;
+    const runId = action === "completeLesson" ? crypto.randomUUID() : "";
+    const [beforeAssignment, beforeFeedback, beforeFinance] = action === "completeLesson" ? await Promise.all([
+      assignmentTitle ? env.DB.prepare("SELECT id,requirements,due_at AS dueAt,status,updated_at AS updatedAt FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1").bind(lessonId, assignmentTitle).first<Record<string, any>>() : null,
+      feedbackContent ? env.DB.prepare("SELECT id,tone,content,learning_content AS learningContent,homework_requirements AS homeworkRequirements,next_focus AS nextFocus,status,updated_at AS updatedAt FROM feedback WHERE lesson_id=? AND COALESCE(student_id,0)=COALESCE(?,0) ORDER BY id DESC LIMIT 1").bind(lessonId, feedbackStudentId).first<Record<string, any>>() : null,
+      env.DB.prepare("SELECT id,payer_type AS payerType,payer_id AS payerId,base_fee AS baseFee,adjustment,expected_amount AS expectedAmount,received_amount AS receivedAmount,status,note,pricing_rule_id AS pricingRuleId,calculation_snapshot AS calculationSnapshot,updated_at AS updatedAt FROM lesson_finance WHERE lesson_id=?").bind(lessonId).first<Record<string, any>>(),
+    ]) : [null, null, null];
+    if (beforeAssignment?.id) beforeAssignment.submissionStudentIds = (await env.DB.prepare("SELECT student_id AS studentId FROM assignment_submissions WHERE assignment_id=?").bind(beforeAssignment.id).all<{ studentId: number }>()).results.map((item) => Number(item.studentId));
+    if (beforeFinance?.id) beforeFinance.billingItems = (await env.DB.prepare("SELECT student_id AS studentId,attendance_status AS attendanceStatus,billing_factor AS billingFactor,unit_fee AS unitFee,amount,reason FROM lesson_billing_items WHERE lesson_finance_id=? ORDER BY id").bind(beforeFinance.id).all()).results;
+    if (action === "completeLesson") statements.push(env.DB.prepare("INSERT INTO lesson_completion_runs(id,lesson_id,actor_id,before_snapshot,artifact_snapshot,status) VALUES(?,?,?,?,?,'active')").bind(runId, lessonId, access.id, JSON.stringify({ lessonStatus: lesson.status }), JSON.stringify({ assignment: { before: beforeAssignment || null }, feedback: { before: beforeFeedback || null }, finance: { before: beforeFinance || null } })));
     let financeLocked = false;
     if (action === "completeLesson") {
       if (assignmentTitle) {
         statements.push(env.DB.prepare("UPDATE assignments SET requirements=?,due_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=(SELECT id FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1) AND status='draft'").bind(String(assignment?.requirements || ""), String(assignment?.dueAt || ""), lessonId, assignmentTitle));
-        statements.push(env.DB.prepare("INSERT INTO assignments(lesson_id,title,requirements,due_at,status) SELECT ?,?,?,?,'draft' WHERE NOT EXISTS(SELECT 1 FROM assignments WHERE lesson_id=? AND title=?)").bind(lessonId, assignmentTitle, String(assignment?.requirements || ""), String(assignment?.dueAt || ""), lessonId, assignmentTitle));
+        statements.push(env.DB.prepare("INSERT INTO assignments(lesson_id,class_id,title,requirements,due_at,status) SELECT ?,?,?,?,?,'draft' WHERE NOT EXISTS(SELECT 1 FROM assignments WHERE lesson_id=? AND title=?)").bind(lessonId, lesson.classId, assignmentTitle, String(assignment?.requirements || ""), String(assignment?.dueAt || ""), lessonId, assignmentTitle));
+        statements.push(env.DB.prepare("INSERT OR IGNORE INTO assignment_settings(assignment_id,allow_parent_submit,require_revision) SELECT id,1,1 FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1").bind(lessonId, assignmentTitle));
+        if (lesson.classId) statements.push(env.DB.prepare("INSERT OR IGNORE INTO assignment_targets(assignment_id,target_type,target_id) SELECT id,'class',? FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1").bind(lesson.classId, lessonId, assignmentTitle));
         for (const memberId of memberIds) statements.push(env.DB.prepare("INSERT INTO assignment_submissions(assignment_id,student_id,status) SELECT (SELECT id FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1),?,'pending' WHERE NOT EXISTS(SELECT 1 FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id WHERE a.lesson_id=? AND a.title=? AND s.student_id=?)").bind(lessonId, assignmentTitle, memberId, lessonId, assignmentTitle, memberId));
       }
       if (feedbackContent) {
@@ -85,12 +139,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return Response.json({ ok: true, status: lesson.status, todos });
     }
     const [savedAssignment, savedFeedback, savedFinance] = await Promise.all([
-      assignmentTitle ? env.DB.prepare("SELECT id FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1").bind(lessonId, assignmentTitle).first<{ id: number }>() : null,
-      feedbackContent ? env.DB.prepare("SELECT id,status FROM feedback WHERE lesson_id=? AND COALESCE(student_id,0)=COALESCE(?,0) ORDER BY id DESC LIMIT 1").bind(lessonId, feedbackStudentId).first<{ id: number; status: string }>() : null,
-      env.DB.prepare("SELECT id,status,expected_amount AS expectedAmount,note FROM lesson_finance WHERE lesson_id=?").bind(lessonId).first<Record<string, unknown>>(),
+      assignmentTitle ? env.DB.prepare("SELECT id,status,updated_at AS updatedAt FROM assignments WHERE lesson_id=? AND title=? ORDER BY id LIMIT 1").bind(lessonId, assignmentTitle).first<Record<string, any>>() : null,
+      feedbackContent ? env.DB.prepare("SELECT id,status,updated_at AS updatedAt FROM feedback WHERE lesson_id=? AND COALESCE(student_id,0)=COALESCE(?,0) ORDER BY id DESC LIMIT 1").bind(lessonId, feedbackStudentId).first<Record<string, any>>() : null,
+      env.DB.prepare("SELECT id,status,expected_amount AS expectedAmount,note,updated_at AS updatedAt FROM lesson_finance WHERE lesson_id=?").bind(lessonId).first<Record<string, any>>(),
     ]);
+    const artifactSnapshot = { assignment: savedAssignment ? { id: savedAssignment.id, created: !beforeAssignment, before: beforeAssignment || null, afterUpdatedAt: savedAssignment.updatedAt } : null, feedback: savedFeedback ? { id: savedFeedback.id, created: !beforeFeedback, before: beforeFeedback || null, afterUpdatedAt: savedFeedback.updatedAt } : null, finance: savedFinance ? { id: savedFinance.id, created: !beforeFinance, before: beforeFinance || null, afterUpdatedAt: savedFinance.updatedAt } : null };
+    await env.DB.prepare("UPDATE lesson_completion_runs SET artifact_snapshot=? WHERE id=?").bind(JSON.stringify(artifactSnapshot), runId).run();
     await audit(access, "complete", "lesson", lessonId, { students: records.length, assignment: Boolean(assignmentTitle), feedback: Boolean(feedbackContent), financeLocked, todos });
-    return Response.json({ ok: true, status: "completed", artifacts: { assignmentId: savedAssignment?.id || null, feedbackId: savedFeedback?.id || null, financeId: savedFinance?.id || null, financeStatus: savedFinance?.status || null, financeLocked }, todos });
+    return Response.json({ ok: true, status: "completed", completionRunId: runId, artifacts: { assignmentId: savedAssignment?.id || null, feedbackId: savedFeedback?.id || null, financeId: savedFinance?.id || null, financeStatus: savedFinance?.status || null, financeLocked }, todos });
   }
 
   if (action === "studentRecord") {

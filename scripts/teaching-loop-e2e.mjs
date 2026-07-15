@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
 const baseUrl = "http://localhost:3000";
 const marker = "__e2e__teaching_loop";
+const e2ePassword = randomBytes(24).toString("base64url");
+const e2eSessionSecret = randomBytes(32).toString("base64url");
 const devVars = path.join(root, ".dev.vars.e2e");
 const reportPath = path.join(root, "outputs", "teaching-loop-e2e.json");
 const logs = [];
@@ -44,22 +47,40 @@ function cleanup() {
   const classIds = `SELECT id FROM classes WHERE name LIKE ${quote(`${marker}%`)}`;
   const studentIds = `SELECT id FROM students WHERE name LIKE ${quote(`${marker}%`)}`;
   const assignmentIds = `SELECT id FROM assignments WHERE lesson_id IN (${lessonIds})`;
+  const feedbackIds = `SELECT id FROM feedback WHERE lesson_id IN (${lessonIds}) OR student_id IN (${studentIds})`;
   const financeIds = `SELECT id FROM lesson_finance WHERE lesson_id IN (${lessonIds})`;
+  const paperIds = `SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)}`;
+  const questionIds = `SELECT id FROM questions WHERE stem LIKE ${quote(`${marker}%`)}`;
   const importIds = `SELECT id FROM schedule_imports WHERE source_name LIKE ${quote(`${marker}%`)}`;
   sql(`PRAGMA foreign_keys=ON;
     DELETE FROM audit_logs WHERE entity_type='lesson' AND CAST(entity_id AS INTEGER) IN (${lessonIds});
+    DELETE FROM feedback_evidence WHERE feedback_id IN (${feedbackIds});
+    DELETE FROM lesson_completion_runs WHERE lesson_id IN (${lessonIds});
+    DELETE FROM lesson_workflow_state WHERE lesson_id IN (${lessonIds});
+    DELETE FROM lesson_questions WHERE lesson_id IN (${lessonIds}) OR question_id IN (${questionIds});
+    DELETE FROM wrong_questions WHERE student_id IN (${studentIds}) OR question_id IN (${questionIds});
+    DELETE FROM sync_events WHERE student_id IN (${studentIds});
     DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (${financeIds});
     DELETE FROM lesson_finance WHERE lesson_id IN (${lessonIds});
+    DELETE FROM assignment_assets WHERE assignment_id IN (${assignmentIds});
+    DELETE FROM assignment_targets WHERE assignment_id IN (${assignmentIds});
+    DELETE FROM assignment_settings WHERE assignment_id IN (${assignmentIds});
     DELETE FROM assignment_submissions WHERE assignment_id IN (${assignmentIds});
     DELETE FROM assignments WHERE lesson_id IN (${lessonIds});
-    DELETE FROM feedback WHERE lesson_id IN (${lessonIds});
+    DELETE FROM feedback WHERE id IN (${feedbackIds});
     DELETE FROM attendance WHERE lesson_id IN (${lessonIds});
     DELETE FROM student_lesson_records WHERE lesson_id IN (${lessonIds});
+    DELETE FROM export_jobs WHERE paper_id IN (${paperIds});
+    DELETE FROM paper_questions WHERE paper_id IN (${paperIds}) OR question_id IN (${questionIds});
+    DELETE FROM paper_files WHERE paper_id IN (${paperIds});
+    DELETE FROM papers WHERE id IN (${paperIds}) OR title LIKE ${quote(`${marker}%`)};
     DELETE FROM schedule_import_rows WHERE import_id IN (${importIds});
     DELETE FROM schedule_imports WHERE id IN (${importIds});
     DELETE FROM lessons WHERE id IN (${lessonIds});
     DELETE FROM enrollments WHERE class_id IN (${classIds}) OR student_id IN (${studentIds});
     DELETE FROM pricing_rules WHERE student_id IN (${studentIds});
+    DELETE FROM workflow_templates WHERE name LIKE ${quote(`${marker}%`)};
+    DELETE FROM questions WHERE id IN (${questionIds});
     DELETE FROM students WHERE id IN (${studentIds});
     DELETE FROM classes WHERE id IN (${classIds});`);
 }
@@ -76,8 +97,12 @@ function seed(round) {
     INSERT INTO students(name,grade,status) VALUES(${quote(`${marker}_student_b_${round}`)},'高一','active');
     INSERT INTO enrollments(class_id,student_id,status)
       SELECT c.id,s.id,'active' FROM classes c,students s WHERE c.name=${quote(className)} AND s.name LIKE ${quote(`${marker}_student_%_${round}`)};
-    INSERT INTO lessons(class_id,date,start_time,end_time,course_name,stage,grade,topic,teaching_goals,status,fee)
-      SELECT id,${quote(today)},'08:00','09:30','道德与法治','高中','高一',${quote(topic)},'完成合成回归','scheduled',999 FROM classes WHERE name=${quote(className)};
+    INSERT INTO lessons(class_id,date,start_time,end_time,course_name,stage,grade,textbook_version,volume,unit,topic,knowledge_points,teaching_goals,status,fee)
+      SELECT id,${quote(today)},'08:00','09:30','道德与法治','高中','高一','统编版','必修3','第一单元',${quote(topic)},'人民民主','完成合成回归','scheduled',999 FROM classes WHERE name=${quote(className)};
+    INSERT INTO questions(stem,question_type,stage,grade,textbook_version,volume,unit,topic,knowledge_points,answer,analysis,status,use_count)
+      VALUES(${quote(`${marker}_人民民主的本质是什么_${round}`)},'单选题','高中','高一','统编版','必修3','第一单元',${quote(topic)},'人民民主','人民当家作主','来自合成回归的既有解析','active',0);
+    INSERT INTO questions(stem,question_type,stage,grade,textbook_version,volume,unit,topic,knowledge_points,answer,analysis,status,use_count)
+      VALUES(${quote(`${marker}_人民民主的本质是什么？_${round}`)},'单选题','高中','高一','统编版','必修3','第一单元',${quote(topic)},'人民民主','人民当家作主','来自合成回归的相似题解析','active',0);
     INSERT INTO schedule_imports(source_name,fingerprint,status) VALUES(${quote(`${marker}_import_${round}`)},${quote(`${marker}_fingerprint_${round}`)},'committed');
     INSERT INTO schedule_import_rows(import_id,row_number,raw_data,normalized_data,action,lesson_id)
       SELECT i.id,1,'{}',${quote(JSON.stringify({ baseFee: 100, perStudentFee: 50, institution: marker }))},'created',l.id
@@ -85,7 +110,9 @@ function seed(round) {
   const lesson = rows(`SELECT id FROM lessons WHERE topic=${quote(topic)}`)[0];
   const students = rows(`SELECT s.id FROM students s JOIN enrollments e ON e.student_id=s.id JOIN lessons l ON l.class_id=e.class_id WHERE l.id=${lesson.id} ORDER BY s.id`);
   assert.equal(students.length, 2);
-  return { lessonId: Number(lesson.id), studentIds: students.map((item) => Number(item.id)), topic, dueAt };
+  sql(`INSERT INTO pricing_rules(student_id,payer_type,base_fee,unit_price,effective_from,effective_to,status) VALUES(${students[0].id},'parent',0,80,${quote(today)},${quote(dueAt)},'active');`);
+  const questionIds = rows(`SELECT id FROM questions WHERE stem LIKE ${quote(`${marker}%_${round}`)} ORDER BY id`).map((item) => Number(item.id));
+  return { lessonId: Number(lesson.id), studentIds: students.map((item) => Number(item.id)), questionIds, topic, dueAt, today };
 }
 
 async function request(pathname, { cookie, method = "GET", body } = {}) {
@@ -115,7 +142,7 @@ async function waitForServer() {
 async function login() {
   const unauthenticated = await request("/api/dashboard");
   assert.equal(unauthenticated.response.status, 401);
-  const { response, data } = await request("/api/auth/login", { method: "POST", body: { account: marker, password: "Politics2026Secure", returnTo: "/workspace" } });
+  const { response, data } = await request("/api/auth/login", { method: "POST", body: { account: marker, password: e2ePassword, returnTo: "/workspace" } });
   assert.equal(response.status, 200, JSON.stringify(data));
   const cookie = response.headers.get("set-cookie")?.split(";")[0];
   assert.ok(cookie?.startsWith("zhishi_teacher_admin="));
@@ -124,16 +151,74 @@ async function login() {
 
 async function exerciseRound(round, cookie) {
   cleanup();
-  const { lessonId, studentIds, topic, dueAt } = seed(round);
-  const dashboard = await request("/api/dashboard", { cookie });
-  assert.equal(dashboard.response.status, 200);
-  assert.ok(dashboard.data.todayLessons.some((lesson) => lesson.id === lessonId && lesson.topic === topic));
+  const { lessonId, studentIds, questionIds, topic, dueAt, today } = seed(round);
+  assert.equal(questionIds.length, 2);
+  for (const days of [7, 14, 30]) {
+    const dashboard = await request(`/api/dashboard?days=${days}`, { cookie });
+    assert.equal(dashboard.response.status, 200);
+    assert.equal(dashboard.data.horizonDays, days);
+    assert.ok(dashboard.data.suggestedActions.length <= 3);
+    assert.ok(dashboard.data.todayLessons.some((lesson) => lesson.id === lessonId && lesson.topic === topic));
+  }
+
+  let result = await request(`/api/lessons/${lessonId}/workflow-state`, { cookie });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.data.state.revision, 0);
+  result = await request(`/api/lessons/${lessonId}/workflow-state`, { cookie, method: "PUT", body: { revision: 0, payload: { closure: { actualContent: `${marker}_autosave_${round}` } } } });
+  assert.equal(result.response.status, 200, JSON.stringify(result.data));
+  assert.equal(result.data.revision, 1);
+  const conflict = await request(`/api/lessons/${lessonId}/workflow-state`, { cookie, method: "PUT", body: { revision: 0, payload: { closure: { actualContent: "旧页面覆盖" } } } });
+  assert.equal(conflict.response.status, 409);
+
+  const prep = await request(`/api/lessons/${lessonId}/prep`, { cookie });
+  assert.equal(prep.response.status, 200, JSON.stringify(prep.data));
+  assert.ok(prep.data.recommendedQuestions.some((question) => question.id === questionIds[0] && question.score === 100));
+  result = await request(`/api/lessons/${lessonId}/prep`, { cookie, method: "PATCH", body: { teachingGoals: "教师填写目标", keyPoints: "教师填写重点", difficultPoints: "教师填写难点", materials: "教材与既有讲义", knowledgePoints: "人民民主" } });
+  assert.equal(result.response.status, 200);
+
+  const stats = await request("/api/questions/stats?stage=高中&grade=高一&knowledge=人民民主", { cookie });
+  assert.equal(stats.response.status, 200);
+  assert.ok(stats.data.summary.total >= 2);
+  const similar = await request(`/api/questions/${questionIds[0]}/similar`, { cookie });
+  assert.equal(similar.response.status, 200);
+  assert.ok(similar.data.similar.some((question) => question.id === questionIds[1]));
+
+  result = await request(`/api/lessons/${lessonId}/questions/batch`, { cookie, method: "POST", body: { questionIds: [questionIds[0]], purpose: "课堂练习" } });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.data.linked, 1);
+  result = await request(`/api/lessons/${lessonId}/questions/batch`, { cookie, method: "POST", body: { questionIds: [questionIds[0]], purpose: "课堂练习" } });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.data.linked, 0);
+
+  const homework = await request(`/api/lessons/${lessonId}/homework-draft`, { cookie, method: "POST", body: { questionIds } });
+  assert.equal(homework.response.status, 200, JSON.stringify(homework.data));
+  assert.equal(homework.data.added, 2);
+  const homeworkAgain = await request(`/api/lessons/${lessonId}/homework-draft`, { cookie, method: "POST", body: { questionIds } });
+  assert.equal(homeworkAgain.response.status, 200);
+  assert.equal(homeworkAgain.data.paperId, homework.data.paperId);
+  assert.equal(homeworkAgain.data.assignmentId, homework.data.assignmentId);
+  assert.equal(homeworkAgain.data.added, 0);
+  let benchmarkMs = null;
+  if (round === 1) {
+    for (const mode of ["student", "analysis"]) {
+      const exported = await request(`/api/papers/${homework.data.paperId}/export?mode=${mode}`, { cookie });
+      assert.equal(exported.response.status, 200);
+      assert.match(exported.response.headers.get("content-type") || "", /wordprocessingml/);
+    }
+  }
+
+  const templateName = `${marker}_template_${round}`;
+  result = await request("/api/workflow-templates", { cookie, method: "POST", body: { type: "next_plan", name: templateName, payload: { nextPlan: "复习已有记录" } } });
+  assert.equal(result.response.status, 201);
+  const templateId = Number(result.data.id);
+  result = await request("/api/workflow-templates?type=next_plan", { cookie });
+  assert.ok(result.data.templates.some((item) => item.id === templateId));
 
   const baseRecords = [
     { studentId: studentIds[0], attendanceStatus: "present", participation: 5, understanding: 4, completion: 5 },
     { studentId: studentIds[1], attendanceStatus: "leave", participation: 3, understanding: 3, completion: 3 },
   ];
-  let result = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "", records: baseRecords } });
+  result = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "", records: baseRecords } });
   assert.equal(result.response.status, 422);
   result = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "人民民主专题", records: baseRecords.slice(0, 1) } });
   assert.equal(result.response.status, 422);
@@ -148,15 +233,23 @@ async function exerciseRound(round, cookie) {
 
   const completion = {
     ...payload, action: "completeLesson",
-    assignment: { title: `${marker}_assignment_${round}`, requirements: "完成合成练习", dueAt },
+    assignment: { title: `${topic} 课后作业`, requirements: "完成合成练习", dueAt },
     feedback: { tone: "专业简洁", content: `${marker}_feedback_${round}` },
   };
   const first = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
   assert.equal(first.response.status, 200, JSON.stringify(first.data));
   assert.equal(first.data.status, "completed");
   assert.deepEqual(first.data.todos, ["补充下节课计划"]);
+  const undo = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "undoLatestCompletion" } });
+  assert.equal(undo.response.status, 200, JSON.stringify(undo.data));
+  const afterUndo = rows(`SELECT l.status,l.actual_content AS actualContent,(SELECT COUNT(*) FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id WHERE a.lesson_id=l.id) AS submissions,(SELECT COUNT(*) FROM feedback WHERE lesson_id=l.id) AS feedback,(SELECT COUNT(*) FROM lesson_finance WHERE lesson_id=l.id) AS finance FROM lessons l WHERE l.id=${lessonId}`)[0];
+  assert.deepEqual({ status: afterUndo.status, actualContent: afterUndo.actualContent, submissions: afterUndo.submissions, feedback: afterUndo.feedback, finance: afterUndo.finance }, { status: "scheduled", actualContent: "人民民主专题", submissions: 0, feedback: 0, finance: 0 });
+
+  const completedAgain = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
+  assert.equal(completedAgain.response.status, 200, JSON.stringify(completedAgain.data));
   const second = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
   assert.equal(second.response.status, 200, JSON.stringify(second.data));
+  assert.equal(second.data.idempotent, true);
 
   const counts = rows(`SELECT
     (SELECT COUNT(*) FROM assignments WHERE lesson_id=${lessonId}) AS assignments,
@@ -169,25 +262,70 @@ async function exerciseRound(round, cookie) {
   assert.deepEqual({ assignments: counts.assignments, submissions: counts.submissions, feedback: counts.feedback, finance: counts.finance, billing: counts.billing, attendance: counts.attendance }, { assignments: 1, submissions: 2, feedback: 1, finance: 1, billing: 2, attendance: 2 });
   assert.equal(Number(counts.expectedAmount), 150);
 
-  sql(`UPDATE feedback SET status='confirmed',content=${quote(`${marker}_confirmed_${round}`)} WHERE lesson_id=${lessonId};
-    UPDATE lesson_finance SET status='confirmed',note=${quote(`${marker}_finance_locked_${round}`)} WHERE lesson_id=${lessonId};`);
+  const adjustmentWithoutReason = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 10 } });
+  assert.equal(adjustmentWithoutReason.response.status, 422);
+  const financePreview = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
+  assert.equal(financePreview.response.status, 200, JSON.stringify(financePreview.data));
+  assert.equal(financePreview.data.context.canConfirm, true);
+  assert.equal(financePreview.data.preview.expectedAmount, 80);
+  const financeConfirm = await request("/api/finance", { cookie, method: "POST", body: { action: "confirm", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
+  assert.equal(financeConfirm.response.status, 200, JSON.stringify(financeConfirm.data));
+  assert.equal(financeConfirm.data.calculation.expectedAmount, 80);
+
+  const feedbackSummary = await request(`/api/feedback/summary?studentId=${studentIds[0]}&start=${today}&end=${today}`, { cookie });
+  assert.equal(feedbackSummary.response.status, 200);
+  const noEvidence = await request("/api/feedback", { cookie, method: "POST", body: { type: "stage", studentId: studentIds[0], content: `${marker}_stage_${round}`, status: "confirmed" } });
+  assert.equal(noEvidence.response.status, 422);
+  const evidenced = await request("/api/feedback", { cookie, method: "POST", body: { type: "stage", studentId: studentIds[0], content: `${marker}_stage_${round}`, status: "confirmed", evidenceRefs: feedbackSummary.data.draft.evidenceRefs } });
+  assert.equal(evidenced.response.status, 201, JSON.stringify(evidenced.data));
+
+  sql(`UPDATE students SET risk_confirmed=1,risk_tags=${quote(`${marker}_teacher_confirmed`)} WHERE id=${studentIds[0]};
+    UPDATE feedback SET status='confirmed',content=${quote(`${marker}_confirmed_${round}`)} WHERE lesson_id=${lessonId};`);
   const protectedRun = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { ...completion, actualContent: "重复完成后的内容", feedback: { content: `${marker}_must_not_overwrite_${round}` } } });
   assert.equal(protectedRun.response.status, 200, JSON.stringify(protectedRun.data));
   assert.equal(protectedRun.data.artifacts.financeLocked, true);
+  const blockedUndo = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "undoLatestCompletion" } });
+  assert.equal(blockedUndo.response.status, 409);
+  assert.ok(blockedUndo.data.blockers.length >= 1);
   const protectedRows = rows(`SELECT
     (SELECT COUNT(*) FROM feedback WHERE lesson_id=${lessonId}) AS feedbackCount,
     (SELECT content FROM feedback WHERE lesson_id=${lessonId}) AS feedbackContent,
     (SELECT status FROM lesson_finance WHERE lesson_id=${lessonId}) AS financeStatus,
-    (SELECT note FROM lesson_finance WHERE lesson_id=${lessonId}) AS financeNote`)[0];
+    (SELECT pricing_rule_id FROM lesson_finance WHERE lesson_id=${lessonId}) AS pricingRuleId,
+    (SELECT calculation_snapshot FROM lesson_finance WHERE lesson_id=${lessonId}) AS calculationSnapshot`)[0];
   assert.equal(protectedRows.feedbackCount, 1);
   assert.equal(protectedRows.feedbackContent, `${marker}_confirmed_${round}`);
-  assert.equal(protectedRows.financeStatus, "confirmed");
-  assert.equal(protectedRows.financeNote, `${marker}_finance_locked_${round}`);
-  return { round, lessonId, idempotent: true, expectedAmount: 150, protectedArtifacts: true };
+  assert.equal(protectedRows.financeStatus, "pending");
+  assert.ok(protectedRows.pricingRuleId);
+  assert.match(protectedRows.calculationSnapshot, /expectedAmount/);
+
+  const attention = await request("/api/students/attention", { cookie });
+  assert.equal(attention.response.status, 200);
+  assert.ok(attention.data.students.some((student) => student.id === studentIds[0]));
+  const insights = await request(`/api/students/${studentIds[0]}/insights?weeks=4`, { cookie });
+  assert.equal(insights.response.status, 200);
+  assert.ok(insights.data.timeline.some((item) => item.type === "出勤"));
+  assert.ok(insights.data.timeline.some((item) => item.type === "已确认反馈"));
+  const month = today.slice(0, 7), monthly = await request(`/api/finance/monthly?month=${month}`, { cookie });
+  assert.equal(monthly.response.status, 200);
+  assert.ok(monthly.data.items.some((item) => item.lessonId === lessonId && item.pricingRuleId));
+  if (round === 1) {
+    const monthlyExport = await request(`/api/finance/export?mode=monthly&month=${month}`, { cookie });
+    assert.equal(monthlyExport.response.status, 200);
+    assert.match(monthlyExport.response.headers.get("content-type") || "", /spreadsheetml/);
+    sql(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<1000) INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status) SELECT ${quote(`${marker}_benchmark_`)}||n,'单选题','高中','高一','人民民主','A','合成检索性能样本','active' FROM seq;`);
+    const started = performance.now(), search = await request("/api/questions?stage=高中&grade=高一&knowledge=人民民主&sort=use_count_asc", { cookie }), elapsedMs = performance.now() - started;
+    benchmarkMs = Number(elapsedMs.toFixed(1));
+    assert.equal(search.response.status, 200);
+    assert.ok(search.data.total >= 1000);
+    assert.ok(elapsedMs < 1000, `1000题组合检索耗时 ${elapsedMs.toFixed(1)}ms`);
+  }
+  await request(`/api/workflow-templates?id=${templateId}`, { cookie, method: "DELETE" });
+  return { round, lessonId, idempotent: true, undoRestoredDraft: true, protectedArtifacts: true, pricingSnapshot: true, benchmarkMs };
 }
 
 try {
-  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=Politics2026Secure\nTEACHER_ADMIN_SESSION_SECRET=${marker}_session_secret_2026\n`, { mode: 0o600 });
+  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\n`, { mode: 0o600 });
   server = spawn("pnpm", ["dev"], { cwd: root, env: { ...process.env, CLOUDFLARE_ENV: "e2e" }, stdio: ["ignore", "pipe", "pipe"] });
   for (const stream of [server.stdout, server.stderr]) stream.on("data", (chunk) => logs.push(String(chunk).trim()));
   await waitForServer();

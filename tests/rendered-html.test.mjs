@@ -7,8 +7,9 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 test("dashboard uses the political-teaching workspace navigation", async () => {
   const [page, shell, layout] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/layout.tsx")]);
   for (const label of ["工作台","题库检索","组卷草稿","课时记录","学生与班级","测验与成绩","课程反馈","教学反思","数据中心","资源中心","更多工具"]) assert.match(shell, new RegExp(label));
-  for (const label of ["今日教学工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "未来七天", "集中待办"]) assert.match(page, new RegExp(label));
-  assert.match(page,/response\.ok \? response\.json\(\) : empty/);
+  for (const label of ["今日教学工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "今天建议先完成的3件事", "集中待办"]) assert.match(page, new RegExp(label));
+  assert.match(page,/\[7,14,30\]/);
+  assert.match(page,/horizonDays: days/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
 });
@@ -45,7 +46,7 @@ test("question review URLs, counts and pagination share one contract", async () 
 
 test("daily-use design keeps lesson and assessment states explicit", async () => {
   const [lesson,assessment,design] = await Promise.all([read("app/lessons/[id]/page.tsx"),read("app/assessments/[id]/page.tsx"),read("app/design-system.css")]);
-  for(const label of ["签到","教学内容","课堂表现","作业","反馈","下节计划","带入反馈草稿"]) assert.match(lesson,new RegExp(label));
+  for(const label of ["签到","教学内容","课堂表现","作业","反馈","下节计划","整理为反馈草稿"]) assert.match(lesson,new RegExp(label));
   assert.match(assessment,/样本不足/); assert.match(assessment,/有未保存修改/); assert.match(design,/position:sticky/); assert.match(design,/min-height:44px/);
 });
 
@@ -90,8 +91,23 @@ test("question-bank-first workflow exposes queue, saved views, indexed search an
 test("lesson closure persists attendance, performance, homework, feedback and review finance", async () => {
   const [activity, detail, dashboard, classDetail, students] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx")]);
   assert.match(activity,/studentRecord/); assert.match(activity,/saveDraft/); assert.match(activity,/validateLessonCompletion/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/); assert.match(activity,/lesson_finance/); assert.match(activity,/status!='review'|status !== "review"/);
-  for (const label of ["学生出勤与课堂表现","单独布置作业","单独保存反馈","教师确认关注","保存草稿","一键完成本节课","待核对"]) assert.match(detail,new RegExp(label));
+  for (const label of ["学生出勤与课堂表现","单独保存作业草稿","单独保存反馈","教师确认关注","保存草稿","一键完成本节课","待核对"]) assert.match(detail,new RegExp(label));
   assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(dashboard,/pendingFinance/); assert.match(classDetail,/平均出勤/); assert.match(students,/全部班级/);
+});
+
+test("daily cockpit milestones stay connected to durable, evidence-backed APIs", async () => {
+  const [dashboard, prep, workflow, activity, questionStats, similar, insights, attention, feedbackApi, financeApi, monthly, financeExport, migration22, migration23] = await Promise.all([
+    "app/api/dashboard/route.ts", "app/api/lessons/[id]/prep/route.ts", "app/api/lessons/[id]/workflow-state/route.ts", "app/api/lessons/[id]/activity/route.ts", "app/api/questions/stats/route.ts", "app/api/questions/[id]/similar/route.ts", "app/api/students/[id]/insights/route.ts", "app/api/students/attention/route.ts", "app/api/feedback/route.ts", "app/api/finance/route.ts", "app/lib/finance-monthly.ts", "app/api/finance/export/route.ts", "drizzle/0022_daily_workflow.sql", "drizzle/0023_learning_evidence_finance.sql",
+  ].map(read));
+  assert.match(dashboard, /\[7, 14, 30\]/); assert.match(dashboard, /suggestedActions/); assert.match(dashboard, /weekStart: monday/); assert.match(dashboard, /nextLesson/);
+  for (const label of ["教材版本一致", "册别一致", "单元一致", "课题匹配", "知识点匹配"]) assert.match(prep, new RegExp(label));
+  assert.match(workflow, /revision/); assert.match(workflow, /status: 409/); assert.match(activity, /undoLatestCompletion/); assert.match(activity, /存在受保护产物/); assert.match(activity, /complete_idempotent/);
+  assert.match(questionStats, /missingAnswer/); assert.match(questionStats, /useCount/); assert.match(similar, /questionTextSimilarity/); assert.match(similar, /不会自动删除/);
+  for (const evidence of ["attendance", "assignments", "assessments", "wrongQuestions", "observations", "数据不足"]) assert.match(insights, new RegExp(evidence));
+  assert.match(attention, /previous - current >= 8/); assert.match(attention, /early.*recent/); assert.match(feedbackApi, /feedback_evidence/);
+  assert.match(financeApi, /pricing_rule_id/); assert.match(financeApi, /calculation_snapshot/); assert.match(monthly, /出勤登记不完整/); assert.match(financeExport, /月度核对清单/); assert.match(financeExport, /课时结算明细/);
+  for (const table of ["lesson_workflow_state", "lesson_completion_runs", "workflow_templates"]) assert.match(migration22, new RegExp(table));
+  for (const field of ["feedback_evidence", "pricing_rule_id", "calculation_snapshot"]) assert.match(migration23, new RegExp(field));
 });
 
 test("stage two covers political question review, paper drafting and lesson links", async () => {

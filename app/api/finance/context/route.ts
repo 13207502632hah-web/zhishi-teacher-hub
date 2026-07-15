@@ -1,3 +1,12 @@
-import { env } from "cloudflare:workers";import { isDenied,requirePermission } from "../../../lib/access";
-export async function GET(request:Request){const access=await requirePermission("lessons:read");if(isDenied(access))return access;const lessonId=Number(new URL(request.url).searchParams.get("lessonId")||0),lesson=await env.DB.prepare("SELECT * FROM lessons WHERE id=?").bind(lessonId).first(),students=(await env.DB.prepare("SELECT s.id,s.name,COALESCE(a.status,'present') AS status FROM lessons l JOIN enrollments e ON e.class_id=l.class_id AND e.status='active' JOIN students s ON s.id=e.student_id LEFT JOIN attendance a ON a.lesson_id=l.id AND a.student_id=s.id WHERE l.id=? ORDER BY s.name").bind(lessonId).all()).results,institutions=(await env.DB.prepare("SELECT id,name,settlement_cycle AS settlementCycle FROM institutions WHERE status='active' ORDER BY name").all()).results;return Response.json({lesson,students,institutions})}
+import { env } from "cloudflare:workers";
+import { isDenied, requireLessonAccess, requirePermission } from "../../../lib/access";
+import { resolvePricingContext } from "../../../lib/finance-rules";
 
+export async function GET(request: Request) {
+  const access = await requirePermission("lessons:read"); if (isDenied(access)) return access;
+  const params = new URL(request.url).searchParams, lessonId = Number(params.get("lessonId") || 0); if (!lessonId) return Response.json({ error: "请选择课时" }, { status: 400 });
+  const denied = await requireLessonAccess(access, lessonId); if (denied) return denied;
+  const payerType = params.get("payerType") === "parent" ? "parent" : "institution", payerId = Number(params.get("payerId") || 0) || null, [context, institutions] = await Promise.all([resolvePricingContext(lessonId, payerType, payerId), env.DB.prepare("SELECT id,name,settlement_cycle AS settlementCycle FROM institutions WHERE status='active' ORDER BY name").all()]);
+  if (!context) return Response.json({ error: "课时不存在" }, { status: 404 });
+  return Response.json({ ...context, institutions: institutions.results });
+}

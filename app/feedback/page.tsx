@@ -7,7 +7,7 @@ import { generateFeedback } from "../lib/feedback-generator";
 type Row = Record<string, any> & { id: number; type: string; status: string };
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (days: number) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-const blank = () => ({ type: "lesson", audience: "private", lengthMode: "short", lessonId: "", studentId: "", classId: "", tone: "温和鼓励", opening: "", closing: "", styleRules: "", previousHomework: "", classPerformance: "", weakPoints: "", dueAt: "", customInput: "", learningContent: "", highlights: "", consolidate: "", homeworkRequirements: "", parentAdvice: "", nextFocus: "", periodStart: daysAgo(90), periodEnd: today(), periodSummary: "", progress: "", problems: "", goals: "", suggestions: "", content: "", shortContent: "", standardContent: "", status: "draft" });
+const blank = () => ({ type: "lesson", audience: "private", lengthMode: "short", lessonId: "", studentId: "", classId: "", tone: "温和鼓励", opening: "", closing: "", styleRules: "", previousHomework: "", classPerformance: "", weakPoints: "", dueAt: "", customInput: "", learningContent: "", highlights: "", consolidate: "", homeworkRequirements: "", parentAdvice: "", nextFocus: "", periodStart: daysAgo(90), periodEnd: today(), periodSummary: "", progress: "", problems: "", goals: "", suggestions: "", content: "", shortContent: "", standardContent: "", status: "draft", evidenceRefs: [] as Array<Record<string, any>> });
 
 function feedbackText(form: Record<string, any>) {
   if (form.type === "lesson") return generateFeedback(form, form.lengthMode === "standard" ? "standard" : "short", form.audience === "group" ? "group" : "private");
@@ -32,25 +32,25 @@ export default function FeedbackPage() {
   const [form, setForm] = useState<any>(blank());
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState(""), [statusFilter, setStatusFilter] = useState(""), [lessonFilter, setLessonFilter] = useState(""), [studentFilter, setStudentFilter] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [templates, setTemplates] = useState<Row[]>([]), [templateName, setTemplateName] = useState("");
 
   const load = useCallback(async () => {
     const [f, l, s, c, t] = await Promise.all([
-      fetch(`/api/feedback${filter ? `?type=${filter}` : ""}`).then((r) => r.json()),
+      fetch(`/api/feedback?${new URLSearchParams({ type: filter, status: statusFilter, lessonId: lessonFilter, studentId: studentFilter })}`).then((r) => r.json()),
       fetch("/api/lessons").then((r) => r.json()),
       fetch("/api/students").then((r) => r.json()),
       fetch("/api/classes").then((r) => r.json()),
       fetch("/api/feedback/templates").then((r) => r.json()),
     ]);
     setRows(f.feedback || []); setLessons(l.lessons || []); setStudents(s.students || []); setClasses(c.classes || []); setTemplates(t.templates || []);
-  }, [filter]);
+  }, [filter, statusFilter, lessonFilter, studentFilter]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    const params = new URLSearchParams(location.search), lesson = params.get("lesson"), student = params.get("student"), requestedType = params.get("type");
+    const params = new URLSearchParams(location.search), lesson = params.get("lesson"), student = params.get("student"), requestedType = params.get("type"); setFilter(requestedType === "lesson" || requestedType === "stage" ? requestedType : ""); setStatusFilter(params.get("status") || ""); setLessonFilter(params.get("lessonId") || ""); setStudentFilter(params.get("studentId") || "");
     if (lesson) fetch(`/api/lessons/${lesson}`).then((r) => r.json()).then((data) => {
       if (!data.lesson) return;
       setForm({ ...blank(), lessonId: lesson, classId: String(data.lesson.classId || ""), learningContent: data.lesson.actualContent || data.lesson.topic || "", homeworkRequirements: data.lesson.homework || "", nextFocus: data.lesson.nextPlan || "" });
@@ -65,13 +65,13 @@ export default function FeedbackPage() {
     const source = { ...form, studentName: student?.name, lessonDate: lesson?.date, startTime: lesson?.startTime, endTime: lesson?.endTime };
     const shortContent = form.type === "lesson" ? generateFeedback(source, "short", form.audience === "group" ? "group" : "private") : feedbackText(form), standardContent = form.type === "lesson" ? generateFeedback(source, "standard", form.audience === "group" ? "group" : "private") : feedbackText(form);
     const payload = { ...form, shortContent, standardContent, content: form.lengthMode === "standard" ? standardContent : shortContent, status };
-    const response = await fetch(editing ? `/api/feedback/${editing}` : "/api/feedback", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await fetch(editing ? `/api/feedback/${editing}` : "/api/feedback", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }), result = await response.json();
     setBusy(false);
-    if (!response.ok) { setMessage("保存失败，请检查必填信息后重试"); return; }
+    if (!response.ok) { setMessage(result.error || "保存失败，请检查必填信息后重试"); return; }
     setOpen(false); setEditing(null); setForm(blank()); setMessage(status === "confirmed" ? "反馈已确认，可复制或打印" : "反馈草稿已保存"); load();
   };
-  const applyTemplate = () => { if (form.type === "lesson") setForm({ ...form, learningContent: form.learningContent || "本节课围绕教材重点开展学习。", highlights: form.highlights || "能结合材料表达自己的理解。", consolidate: form.consolidate || "请结合错题继续巩固规范表述。", homeworkRequirements: form.homeworkRequirements || "按要求完成练习并整理疑问。", parentAdvice: form.parentAdvice || "可提醒孩子按时完成巩固任务。", nextFocus: form.nextFocus || "下节课继续进行材料分析与答题训练。" }); else setForm({ ...form, periodSummary: form.periodSummary || "本阶段已完成既定学习内容。", progress: form.progress || "能逐步运用教材观点分析材料。", problems: form.problems || "规范表述与知识点整合仍需巩固。", goals: form.goals || "提升材料分析的完整性与准确性。", suggestions: form.suggestions || "坚持错题复盘，并完成针对性练习。" }); setMessage("已填入可编辑模板，请按真实学习记录调整"); };
-  const copyAsTemplate = (item: Row) => { setForm({ ...blank(), ...item, lessonId: "", studentId: "", classId: "", status: "draft", confirmedAt: null, sentAt: null }); setEditing(null); setOpen(true); setMessage("已复制为新草稿，请核对关联对象与具体内容"); };
+  const applyTemplate = () => { if (form.type === "lesson") { const lesson = lessons.find((item) => item.id === Number(form.lessonId)); if (!lesson) { setMessage("请先关联一节已有课时，再整理真实记录"); return; } setForm({ ...form, learningContent: form.learningContent || lesson.actualContent || lesson.topic || "", homeworkRequirements: form.homeworkRequirements || lesson.homework || "", nextFocus: form.nextFocus || lesson.nextPlan || "", evidenceRefs: form.evidenceRefs?.length ? form.evidenceRefs : [{ sourceType: "lesson", sourceId: lesson.id, label: `${lesson.date} ${lesson.topic || lesson.courseName}`, excerpt: lesson.actualContent || "", sourceDate: lesson.date }] }); setMessage("已带入该课时的现有记录，未补写教材观点或学生结论"); } else setMessage("阶段反馈请使用“汇总真实课时、出勤、作业与测验”，系统不提供无证据的内容模板"); };
+  const copyAsTemplate = (item: Row) => { setForm({ ...blank(), ...item, lessonId: "", studentId: "", classId: "", status: "draft", confirmedAt: null, sentAt: null, evidenceRefs: [] }); setEditing(null); setOpen(true); setMessage("已复制为新草稿；证据关联已清空，请重新汇总真实记录"); };
   const markSent = async (id: number) => { if (!confirm("确认已通过您选择的渠道发送这条反馈？系统只记录状态，不会代发消息。")) return; const response = await fetch(`/api/feedback/${id}/sent`, { method: "POST" }), payload = await response.json(); setMessage(response.ok ? "已记录为发送完成" : payload.error || "标记发送失败"); if (response.ok) load(); };
 
   const buildSummary = async () => {
@@ -86,18 +86,18 @@ export default function FeedbackPage() {
   };
   const saveStyleTemplate = async () => { const name = templateName.trim(); if (!name) { setMessage("请先填写个人话术模板名称"); return; } const source = { ...form, studentName: students.find((item) => item.id === Number(form.studentId))?.name, lessonDate: lessons.find((item) => item.id === Number(form.lessonId))?.date }; const response = await fetch("/api/feedback/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, audience: form.audience, tone: form.tone, opening: form.opening, closing: form.closing, styleRules: form.styleRules, exampleText: generateFeedback(source, "standard", form.audience === "group" ? "group" : "private") }) }), payload = await response.json(); if (!response.ok) { setMessage(payload.error || "保存话术模板失败"); return; } setTemplateName(""); setMessage("个人话术模板已保存，可在后续反馈中复用"); load(); };
 
-  const edit = (item: Row) => { setForm({ ...blank(), ...item, lessonId: String(item.lessonId || ""), studentId: String(item.studentId || ""), classId: String(item.classId || "") }); setEditing(item.id); setOpen(true); };
+  const edit = (item: Row) => { setForm({ ...blank(), ...item, lessonId: String(item.lessonId || ""), studentId: String(item.studentId || ""), classId: String(item.classId || ""), evidenceRefs: item.evidence || [] }); setEditing(item.id); setOpen(true); };
   const remove = async (id: number) => { if (!confirm("确认删除这条反馈？删除后不可恢复。")) return; await fetch(`/api/feedback/${id}`, { method: "DELETE" }); load(); };
   const copy = async (item: Row, mode: "short" | "standard" = "short") => { await navigator.clipboard.writeText((mode === "standard" ? item.standardContent : item.shortContent) || item.content || feedbackText(item)); await fetch(`/api/feedback/${item.id}/copied`, { method: "POST" }); setMessage(`${mode === "standard" ? "标准版" : "简短版"}已复制，尚未发送给任何人`); load(); };
   const print = async (id: number) => { if (!confirm("确认打印或导出这条反馈？")) return; await fetch("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "print", entityType: "feedback", entityId: id }) }); window.print(); };
 
   return <AppShell title="课程反馈" subtitle="单节课与阶段反馈；生成后由教师逐项编辑确认" actions={<button className="primaryButton" onClick={() => { setEditing(null); setForm(blank()); setOpen(true); }}>＋ 新建反馈</button>}>
     {message && <div className="saveToast" role="status">{message}</div>}
-    <div className="subnav" aria-label="反馈类型筛选"><button className={!filter ? "active" : ""} onClick={() => setFilter("")}>全部反馈</button><button className={filter === "lesson" ? "active" : ""} onClick={() => setFilter("lesson")}>单节课反馈</button><button className={filter === "stage" ? "active" : ""} onClick={() => setFilter("stage")}>阶段反馈</button></div>
+    <div className="subnav" aria-label="反馈类型筛选"><button className={!filter ? "active" : ""} onClick={() => setFilter("")}>全部反馈</button><button className={filter === "lesson" ? "active" : ""} onClick={() => setFilter("lesson")}>单节课反馈</button><button className={filter === "stage" ? "active" : ""} onClick={() => setFilter("stage")}>阶段反馈</button><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">全部状态</option><option value="draft">草稿</option><option value="confirmed">已确认</option></select><select value={lessonFilter} onChange={(event) => setLessonFilter(event.target.value)}><option value="">全部课时</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.topic || item.courseName}</option>)}</select></div>
     <section className="feedbackGrid">{rows.length === 0 ? <EmptyState title="还没有反馈" description="可从已完成课时生成草稿，或手动建立阶段反馈。系统不会自动向家长发送消息。" action={<button className="secondaryButton" onClick={() => setOpen(true)}>建立第一条反馈</button>} /> : rows.map((item) => <article className="feedbackCard" key={item.id}>
       <div><span>{item.type === "lesson" ? item.audience === "group" ? "家长群版" : "微信私聊版" : "阶段"}</span><em className={`statusBadge ${item.status}`}>{item.sentAt ? "已发送" : item.copiedAt ? "已复制" : item.status === "confirmed" ? "已确认" : "草稿"}</em></div>
       <h3>{item.studentId ? students.find((s) => s.id === item.studentId)?.name || "学生反馈" : item.classId ? classes.find((c) => c.id === item.classId)?.name || "班级反馈" : "通用反馈"}</h3>
-      <pre>{String(item.content || feedbackText(item)).slice(0, 280)}</pre>
+      <pre>{String(item.content || feedbackText(item)).slice(0, 280)}</pre>{item.evidence?.length ? <div className="feedbackEvidence"><b>证据来源</b>{item.evidence.map((evidence: Record<string, any>, index: number) => <span key={`${evidence.sourceType}-${index}`}>{evidence.sourceDate || "日期待补"} · {evidence.label}{evidence.excerpt ? `：${String(evidence.excerpt).slice(0, 90)}` : ""}</span>)}</div> : <div className="feedbackEvidence empty">未关联证据来源</div>}
       <small>创建：{String(item.createdAt || "").slice(0, 16)}　修改：{String(item.updatedAt || "").slice(0, 16)}{item.sentAt ? "　已标记发送" : ""}</small>
       <div className="cardActions"><button onClick={() => edit(item)}>编辑</button><button onClick={() => copyAsTemplate(item)}>用作模板</button><button onClick={() => copy(item, "short")}>复制简短版</button><button onClick={() => copy(item, "standard")}>复制标准版</button>{item.status === "confirmed" && <button disabled={Boolean(item.sentAt)} onClick={() => markSent(item.id)}>{item.sentAt ? "已标记发送" : "标记已发送"}</button>}<button onClick={() => print(item.id)}>打印</button><button onClick={() => remove(item.id)}>删除</button></div>
     </article>)}</section>
@@ -136,7 +136,7 @@ export default function FeedbackPage() {
           <label>具体建议<textarea value={form.suggestions} onChange={(e) => setForm({ ...form, suggestions: e.target.value })} /></label>
         </>}
       </div>
-      <div className="feedbackPreview"><b>{form.type === "lesson" ? `${form.audience === "group" ? "家长群" : "微信私聊"}${form.lengthMode === "standard" ? "标准版" : "简短版"}预览` : "反馈文本预览"}</b><pre>{form.type === "lesson" ? generateFeedback({ ...form, studentName: students.find((item) => item.id === Number(form.studentId))?.name, lessonDate: lessons.find((item) => item.id === Number(form.lessonId))?.date, startTime: lessons.find((item) => item.id === Number(form.lessonId))?.startTime, endTime: lessons.find((item) => item.id === Number(form.lessonId))?.endTime }, form.lengthMode === "standard" ? "standard" : "short", form.audience === "group" ? "group" : "private") : feedbackText(form)}</pre></div>
+      <div className="feedbackPreview"><b>{form.type === "lesson" ? `${form.audience === "group" ? "家长群" : "微信私聊"}${form.lengthMode === "standard" ? "标准版" : "简短版"}预览` : "反馈文本预览"}</b><pre>{form.type === "lesson" ? generateFeedback({ ...form, studentName: students.find((item) => item.id === Number(form.studentId))?.name, lessonDate: lessons.find((item) => item.id === Number(form.lessonId))?.date, startTime: lessons.find((item) => item.id === Number(form.lessonId))?.startTime, endTime: lessons.find((item) => item.id === Number(form.lessonId))?.endTime }, form.lengthMode === "standard" ? "standard" : "short", form.audience === "group" ? "group" : "private") : feedbackText(form)}</pre><div className="feedbackEvidence"><b>证据来源</b>{form.evidenceRefs?.length ? form.evidenceRefs.map((evidence: Record<string, any>, index: number) => <span key={`${evidence.sourceType}-${index}`}>{evidence.sourceDate || "日期待补"} · {evidence.label}：{String(evidence.excerpt || "").slice(0, 120)}</span>) : <span>暂无；阶段反馈只能保存草稿，不能确认</span>}</div></div>
       <div className="privacyNote">系统只生成可编辑草稿，不会自动发送短信、微信或家长群消息。</div>
       <div className="modalActions"><button disabled={busy} onClick={() => save("draft")}>保存草稿</button><button disabled={busy} className="primaryButton" onClick={() => save("confirmed")}>确认反馈</button></div>
     </div></div>}

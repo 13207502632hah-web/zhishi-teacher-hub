@@ -7,6 +7,9 @@ import ResourcesPage from "./resources/page";
 
 type LessonCard = Record<string, unknown> & { id: number; date: string; status: string };
 type DashboardData = {
+  today: string;
+  horizonDays: number;
+  horizonDate: string;
   weekLessons: number;
   draftLessons: number;
   confirmedFeedback: number;
@@ -24,14 +27,17 @@ type DashboardData = {
   todayLessons: LessonCard[];
   upcomingLessons: LessonCard[];
   overdueLessons: LessonCard[];
+  nextLesson: LessonCard | null;
+  suggestedActions: Array<{ key: string; type: string; title: string; reason: string; dueAt: string; href: string }>;
   recentQuestions: Array<Record<string, unknown>>;
 };
 
 const empty: DashboardData = {
+  today: "", horizonDays: 7, horizonDate: "",
   weekLessons: 0, draftLessons: 0, confirmedFeedback: 0, pendingFeedback: 0, attendanceRate: null, homeworkRate: null,
   pendingHomework: 0, riskCount: 0, pendingReview: 0, postLessonTodos: 0, pendingFinance: 0,
   reviewIssues: { missingAnswer: 0, missingAnalysis: 0, missingClassification: 0, lowConfidence: 0 },
-  activeClasses: 0, activeStudents: 0, todayLessons: [], upcomingLessons: [], overdueLessons: [], recentQuestions: [],
+  activeClasses: 0, activeStudents: 0, todayLessons: [], upcomingLessons: [], overdueLessons: [], nextLesson: null, suggestedActions: [], recentQuestions: [],
 };
 
 const truthy = (value: unknown) => Number(value || 0) > 0;
@@ -49,27 +55,29 @@ function WorkflowChips({ lesson }: { lesson: LessonCard }) {
 }
 
 export function Dashboard() {
-  const [data, setData] = useState<DashboardData>(empty), [loading, setLoading] = useState(true), [paperCart, setPaperCart] = useState(0);
+  const [data, setData] = useState<DashboardData>(empty), [loading, setLoading] = useState(true), [paperCart, setPaperCart] = useState(0), [days, setDays] = useState(7);
   useEffect(() => {
     try { setPaperCart((JSON.parse(localStorage.getItem("zhishi:paper-cart") || "[]") as number[]).length); } catch { setPaperCart(0); }
-    fetch("/api/dashboard").then((response) => response.ok ? response.json() : empty).then(setData).catch(() => setData(empty)).finally(() => setLoading(false));
-  }, []);
+    setLoading(true); fetch(`/api/dashboard?days=${days}`).then((response) => response.ok ? response.json() : { ...empty, horizonDays: days }).then(setData).catch(() => setData({ ...empty, horizonDays: days })).finally(() => setLoading(false));
+  }, [days]);
   const today = new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" });
-  const nextLesson = data.todayLessons.find((lesson) => lesson.status !== "completed") || data.upcomingLessons[0];
+  const nextLesson = data.nextLesson;
   return <AppShell title="今日教学工作台" subtitle="从今日课程出发，完成备课、出勤、作业、反馈与结算" actions={<><Link href="/schedule-imports" className="secondaryButton">导入课表</Link><Link href="/lessons?new=1" className="primaryButton">＋ 新建课时</Link></>}>
     {loading && <div className="noticeStrip"><b>正在读取今日教学安排…</b></div>}
 
     <section className="todayTeachingHero">
       <div><p>{today}</p><h2>{data.todayLessons.length ? `今天有 ${data.todayLessons.length} 节课` : "今天暂未安排课程"}</h2><span>{nextLesson ? `下一项：${String(nextLesson.date || "今天")} ${String(nextLesson.startTime || "待定")} · ${String(nextLesson.topic || nextLesson.courseName || "未填写课题")}` : "可以整理题库、继续校对，或安排新的课时。"}</span></div>
-      <div className="todayTeachingMetrics"><article><b>{data.todayLessons.length}</b><span>今日课程</span></article><article><b>{data.upcomingLessons.length}</b><span>未来七天</span></article><article className={data.overdueLessons.length ? "attention" : ""}><b>{data.overdueLessons.length}</b><span>逾期待处理</span></article><article><b>{data.postLessonTodos}</b><span>课后待补</span></article></div>
+      <div className="todayTeachingMetrics"><article><b>{data.todayLessons.length}</b><span>今日课程</span></article><article><b>{data.upcomingLessons.length}</b><span>未来{days}天</span></article><article className={data.overdueLessons.length ? "attention" : ""}><b>{data.overdueLessons.length}</b><span>逾期待处理</span></article><article><b>{data.postLessonTodos}</b><span>课后待补</span></article></div>
     </section>
+
+    <section className="panel dailyPriorityPanel"><div className="panelTitle"><div><p>按临近程度排列</p><h2>今天建议先完成的3件事</h2></div><span>只根据已有课时、作业、反馈、结算和教师确认记录</span></div>{data.suggestedActions.length ? <div className="dailyPriorityList">{data.suggestedActions.map((item, index) => <Link href={item.href} key={item.key}><b>{index + 1}</b><div><strong>{item.title}</strong><span>{item.reason}</span></div><time>{item.dueAt ? item.dueAt === data.today ? "今天" : item.dueAt.slice(5) : "尽快处理"}</time></Link>)}</div> : <EmptyState title="当前没有紧急待办" description="可以继续整理题库、准备后续课程或核对学生档案。" />}</section>
 
     <div className="dashboardGrid teachingDashboard">
       <section className="panel span2"><div className="panelTitle"><div><p>今天先做什么</p><h2>今日课程</h2></div><Link href="/lessons">打开课时日历</Link></div>{data.todayLessons.length === 0 ? <EmptyState title="今天还没有课程" description="可以从课表导入或新建一节真实课程。" action={<Link className="secondaryButton" href="/schedule-imports">导入课表</Link>} /> : <div className="todayWorkflowList">{data.todayLessons.map((lesson) => <article key={lesson.id}><time>{String(lesson.startTime || "待定")}<small>{String(lesson.endTime || "")}</small></time><div className="workflowLesson"><span className={`statusBadge ${String(lesson.status || "draft")}`}>{lesson.status === "completed" ? "已完成" : "待记录"}</span><h3>{String(lesson.topic || lesson.courseName || "未填写课题")}</h3><p>{String(lesson.className || "未关联班级")} · {String(lesson.location || (lesson.mode === "online" ? "线上" : "地点待补"))}</p><WorkflowChips lesson={lesson} /></div><Link className="primaryButton" href={`/lessons/${lesson.id}`}>{lesson.status === "completed" ? "查看记录" : "开始记录"}</Link></article>)}</div>}</section>
 
-      <section className="panel"><div className="panelTitle"><div><p>未来安排</p><h2>未来七天</h2></div><Link href="/lessons">全部课时</Link></div>{data.upcomingLessons.length ? <div className="upcomingLessonList">{data.upcomingLessons.slice(0, 7).map((lesson) => <Link href={`/lessons/${lesson.id}`} key={lesson.id}><time>{String(lesson.date).slice(5)}<small>{String(lesson.startTime || "待定")}</small></time><div><b>{String(lesson.topic || lesson.courseName || "未填写课题")}</b><span>{String(lesson.className || "未关联班级")}</span></div></Link>)}</div> : <EmptyState title="未来七天暂无课程" description="后续课程会按日期自动出现在这里。" />}</section>
+      <section className="panel"><div className="panelTitle"><div><p>未来安排</p><h2>未来{days}天</h2></div><Link href="/lessons">全部课时</Link></div><div className="rangeSwitch" aria-label="未来课时范围">{[7,14,30].map((value) => <button className={days === value ? "active" : ""} onClick={() => setDays(value)} key={value}>{value}天</button>)}</div>{data.upcomingLessons.length ? <div className="upcomingLessonList">{data.upcomingLessons.map((lesson) => <Link href={`/lessons/${lesson.id}`} key={lesson.id}><time>{String(lesson.date).slice(5)}<small>{String(lesson.startTime || "待定")}</small></time><div><b>{String(lesson.topic || lesson.courseName || "未填写课题")}</b><span>{String(lesson.className || "未关联班级")}</span></div></Link>)}</div> : <EmptyState title={`未来${days}天暂无课程`} description={nextLesson ? `下一节课是 ${String(nextLesson.date).slice(5)} ${String(nextLesson.startTime || "待定")}，仍可提前进入备课。` : "后续课程会按日期自动出现在这里。"} action={nextLesson ? <Link className="secondaryButton" href={`/lessons/${nextLesson.id}`}>打开下一节课</Link> : undefined} />}</section>
 
-      <section className="panel"><div className="panelTitle"><div><p>教学闭环</p><h2>集中待办</h2></div></div><ul className="todoList"><li><Link href="/lessons">逾期待完成课时</Link><b>{data.overdueLessons.length}</b></li><li><Link href="/feedback">待确认反馈</Link><b>{data.pendingFeedback}</b></li><li><Link href="/assignments">待批改作业</Link><b>{data.pendingHomework}</b></li><li><Link href="/finance">待核对结算</Link><b>{data.pendingFinance}</b></li><li><Link href="/students">待跟进学生</Link><b>{data.riskCount}</b></li></ul></section>
+      <section className="panel"><div className="panelTitle"><div><p>教学闭环</p><h2>集中待办</h2></div></div><ul className="todoList"><li><Link href="/lessons?focus=post&status=scheduled">逾期待完成课时</Link><b>{data.overdueLessons.length}</b></li><li><Link href="/feedback?status=draft">待确认反馈</Link><b>{data.pendingFeedback}</b></li><li><Link href="/assignments?submissionStatus=pending">待批改作业</Link><b>{data.pendingHomework}</b></li><li><Link href="/finance?status=review">待核对结算</Link><b>{data.pendingFinance}</b></li><li><Link href="/students?attention=weekly">待跟进学生</Link><b>{data.riskCount}</b></li></ul></section>
     </div>
 
     <section className="questionWorkbenchCompact"><div><p>政治题库与组卷</p><h2>备课需要题目时，从这里继续</h2><span>原文优先、人工校对、教材目录检索；系统不会替您补写答案或知识点。</span></div><div className="questionWorkbenchActions"><Link href="/questions?import=1"><b>01</b><span>导入 Word</span><small>多 DOCX 队列</small></Link><Link href="/questions?status=review"><b>02</b><span>继续校对</span><small>{data.pendingReview} 道待处理</small></Link><Link href="/questions"><b>03</b><span>搜索题目</span><small>目录、关键词、标签</small></Link><Link href="/papers"><b>04</b><span>开始组卷</span><small>{paperCart} 道已加入草稿</small></Link></div></section>

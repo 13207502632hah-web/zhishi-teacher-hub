@@ -10,18 +10,18 @@ const reviewTags = ["观点不准确", "材料对应不足", "政治术语不规
 export default function AssignmentsPage() {
   const [rows, setRows] = useState<Row[]>([]), [counts, setCounts] = useState<Record<string, number>>({});
   const [classes, setClasses] = useState<Row[]>([]), [students, setStudents] = useState<Row[]>([]), [papers, setPapers] = useState<Row[]>([]), [lessons, setLessons] = useState<Row[]>([]);
-  const [status, setStatus] = useState("all"), [classId, setClassId] = useState(""), [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all"), [classId, setClassId] = useState(""), [query, setQuery] = useState(""), [lessonFilter, setLessonFilter] = useState(""), [submissionStatus, setSubmissionStatus] = useState("");
   const [open, setOpen] = useState(false), [form, setForm] = useState<any>(emptyForm()), [files, setFiles] = useState<Row[]>([]), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [selected, setSelected] = useState<Row | null>(null), [submissions, setSubmissions] = useState<Row[]>([]), [review, setReview] = useState<any>({ submissionId: 0, outcome: "completed", score: "", reviewTags: [], teacherNote: "", revisionRequirements: "" });
 
   const load = useCallback(async () => {
-    const params = new URLSearchParams(); if (status !== "all") params.set("status", status); if (classId) params.set("classId", classId); if (query) params.set("q", query);
+    const params = new URLSearchParams(); if (status !== "all") params.set("status", status); if (classId) params.set("classId", classId); if (query) params.set("q", query); if (lessonFilter) params.set("lessonId", lessonFilter); if (submissionStatus) params.set("submissionStatus", submissionStatus);
     const response = await fetch(`/api/assignments?${params}`), data = await response.json();
     if (response.ok) { setRows(data.assignments || []); setCounts(data.counts || {}); }
-  }, [status, classId, query]);
+  }, [status, classId, query, lessonFilter, submissionStatus]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { Promise.all([fetch("/api/classes").then((r) => r.json()), fetch("/api/students").then((r) => r.json()), fetch("/api/papers").then((r) => r.json()), fetch("/api/lessons").then((r) => r.json())]).then(([c, s, p, l]) => { setClasses(c.classes || []); setStudents(s.students || []); setPapers(p.papers || []); setLessons(l.lessons || []); }); }, []);
+  useEffect(() => { const params = new URLSearchParams(location.search); setStatus(params.get("status") || "all"); setClassId(params.get("classId") || ""); setLessonFilter(params.get("lessonId") || ""); setSubmissionStatus(params.get("submissionStatus") || ""); Promise.all([fetch("/api/classes").then((r) => r.json()), fetch("/api/students").then((r) => r.json()), fetch("/api/papers").then((r) => r.json()), fetch("/api/lessons").then((r) => r.json())]).then(([c, s, p, l]) => { setClasses(c.classes || []); setStudents(s.students || []); setPapers(p.papers || []); setLessons(l.lessons || []); }); }, []);
   const classStudents = useMemo(() => !form.classId ? students : students.filter((student) => !student.classId || Number(student.classId) === Number(form.classId)), [students, form.classId]);
 
   const uploadFiles = async (list: FileList | null) => {
@@ -68,6 +68,8 @@ export default function AssignmentsPage() {
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或要求" aria-label="搜索作业" />
       <select value={classId} onChange={(event) => setClassId(event.target.value)} aria-label="按班级筛选"><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
       <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="按状态筛选"><option value="all">全部状态</option><option value="draft">草稿</option><option value="published">已发布</option><option value="closed">已关闭</option></select>
+      <select value={lessonFilter} onChange={(event) => setLessonFilter(event.target.value)} aria-label="按课时筛选"><option value="">全部课时</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.topic || item.courseName}</option>)}</select>
+      <select value={submissionStatus} onChange={(event) => setSubmissionStatus(event.target.value)} aria-label="按提交状态筛选"><option value="">全部提交状态</option><option value="pending">待完成、订正或批改</option><option value="submitted">待批改</option><option value="revision">待订正</option><option value="completed">已完成</option></select>
       <button onClick={() => load()}>刷新</button>
     </section>
     <section className="assignmentList">{rows.length === 0 ? <EmptyState title="还没有符合条件的作业" description="可从班级、指定学生、课时或整张试卷创建第一份作业。" action={<button className="secondaryButton" onClick={() => setOpen(true)}>新建作业</button>} /> : rows.map((item) => <article key={item.id}>
