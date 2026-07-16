@@ -83,6 +83,14 @@ test("structured response rejects empty, truncated, malformed and non-object JSO
   assert.throws(() => parseDeepSeekEnvelope({ choices: [{ message: { content: '{"ok":true}' } }] }), (error) => error.code === "FINISH_MISSING");
 });
 
+test("question review accepts omitted empty groups but still rejects non-object groups", async () => {
+  const { normalizeOptionalJsonObject } = await loadTsModule("app/lib/ai/policy.ts");
+  assert.deepEqual(normalizeOptionalJsonObject(undefined), {});
+  assert.deepEqual(normalizeOptionalJsonObject(null), {});
+  assert.deepEqual(normalizeOptionalJsonObject({ analysis: "逐题核对" }), { analysis: "逐题核对" });
+  for (const invalid of [[], "", 1, true]) assert.throws(() => normalizeOptionalJsonObject(invalid), (error) => error.code === "SCHEMA_INVALID");
+});
+
 test("daily limit defaults to 50 and blocks the boundary call", async () => {
   const { dailyLimitReached } = await loadTsModule("app/lib/ai/policy.ts");
   assert.equal(dailyLimitReached(49, 50), false);

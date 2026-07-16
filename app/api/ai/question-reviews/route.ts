@@ -1,11 +1,16 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
-import { AiServiceError, aiErrorResponse, callDeepSeekJson, requireAiTeacher, SAFE_QUESTION_FIELDS, SENSITIVE_QUESTION_FIELDS } from "../../../lib/ai/server";
+import { AiServiceError, aiErrorResponse, callDeepSeekJson, normalizeOptionalJsonObject, requireAiTeacher, SAFE_QUESTION_FIELDS, SENSITIVE_QUESTION_FIELDS } from "../../../lib/ai/server";
 
 const fieldColumns: Record<string, string> = { questionType: "question_type", stage: "stage", grade: "grade", textbookVersion: "textbook_version", volume: "volume", unit: "unit", topic: "topic", knowledgePoints: "knowledge_points", coreCompetencies: "core_competencies", abilityLevel: "ability_level" };
 type ReviewResult = { questionId: number; safeSuggestions?: Record<string, unknown>; sensitiveSuggestions?: Record<string, unknown>; confidence?: Record<string, number>; reasons?: Record<string, string> };
 const allFields = [...SAFE_QUESTION_FIELDS, ...SENSITIVE_QUESTION_FIELDS] as readonly string[];
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+function optionalObject(value: unknown) {
+  try { return normalizeOptionalJsonObject(value); }
+  catch { throw new AiServiceError("AI 审核建议字段类型无效，当前批次未推进", 502, "SCHEMA_INVALID"); }
+}
 
 function validateReviewBatch(value: unknown, batchIds: number[]) {
   if (!isObject(value) || !Array.isArray(value.reviews) || value.reviews.length !== batchIds.length) throw new AiServiceError("AI 未返回完整题目审核结果，当前批次未推进", 502, "SCHEMA_INVALID");
@@ -13,8 +18,7 @@ function validateReviewBatch(value: unknown, batchIds: number[]) {
   for (const candidate of value.reviews) {
     if (!isObject(candidate) || !Number.isInteger(Number(candidate.questionId)) || !expected.has(Number(candidate.questionId)) || seen.has(Number(candidate.questionId))) throw new AiServiceError("AI 审核题号不完整或重复，当前批次未推进", 502, "SCHEMA_INVALID");
     seen.add(Number(candidate.questionId));
-    const safe = candidate.safeSuggestions, sensitive = candidate.sensitiveSuggestions, confidence = candidate.confidence, reasons = candidate.reasons;
-    if (!isObject(safe) || !isObject(sensitive) || !isObject(confidence) || !isObject(reasons)) throw new AiServiceError("AI 审核建议字段类型无效，当前批次未推进", 502, "SCHEMA_INVALID");
+    const safe = optionalObject(candidate.safeSuggestions), sensitive = optionalObject(candidate.sensitiveSuggestions), confidence = optionalObject(candidate.confidence), reasons = optionalObject(candidate.reasons);
     for (const [group, allowed] of [[safe, SAFE_QUESTION_FIELDS], [sensitive, SENSITIVE_QUESTION_FIELDS]] as const) for (const [field, suggestion] of Object.entries(group)) {
       if (!allowed.includes(field as never) || typeof suggestion !== "string" || !suggestion.trim()) throw new AiServiceError("AI 审核包含无效字段或空建议，当前批次未推进", 502, "SCHEMA_INVALID");
       if (!Object.hasOwn(confidence, field) || !Number.isFinite(Number(confidence[field])) || Number(confidence[field]) < 0 || Number(confidence[field]) > 1) throw new AiServiceError("AI 审核置信度缺失或超出范围，当前批次未推进", 502, "SCHEMA_INVALID");
@@ -63,7 +67,7 @@ export async function POST(request: Request) {
     const vocab: Record<string, string[]> = {};
     for (const [field, column] of Object.entries(fieldColumns)) { const result = await env.DB.prepare(`SELECT DISTINCT ${column} AS value FROM questions WHERE ${column} IS NOT NULL AND TRIM(${column})<>'' ORDER BY updated_at DESC LIMIT 100`).all<{ value: string }>(); vocab[field] = result.results.map((item) => String(item.value)); }
     const validate = (value: unknown) => validateReviewBatch(value, batchIds);
-    const payload = { instruction: "审核政治学科题目并严格输出 JSON。安全分类字段只能建议 vocabulary 中的已有值；不确定则不建议。答案、解析、事实依据、教材观点、价值判断、答题逻辑、规范表述只给逐题建议。每个字段给 0 到 1 置信度和简短理由；不得声称已核验政策时效。", safeFields: SAFE_QUESTION_FIELDS, sensitiveFields: SENSITIVE_QUESTION_FIELDS, vocabulary: vocab, questions: rows.results, requiredJsonExample: { reviews: [{ questionId: 1, safeSuggestions: {}, sensitiveSuggestions: {}, confidence: {}, reasons: {} }] } };
+    const payload = { instruction: "审核政治学科题目并严格输出 JSON。reviews 必须与输入题目逐一对应。每条 review 必须包含 questionId、safeSuggestions、sensitiveSuggestions、confidence、reasons；后四项必须是 JSON 对象，不能是数组或 null，没有建议时使用空对象 {}。所有建议值和理由必须是字符串，包括知识点、核心素养等多值字段也要合并为一个字符串；confidence 的值必须是 0 到 1 的数字。安全分类字段只能建议 vocabulary 中的已有值；不确定则不建议。答案、解析、事实依据、教材观点、价值判断、答题逻辑、规范表述只给逐题建议。不得声称已核验政策时效。", safeFields: SAFE_QUESTION_FIELDS, sensitiveFields: SENSITIVE_QUESTION_FIELDS, vocabulary: vocab, questions: rows.results, requiredJsonExample: { reviews: [{ questionId: 1, safeSuggestions: { questionType: "材料分析题" }, sensitiveSuggestions: { analysis: "待教师逐题核对的解析建议" }, confidence: { questionType: 0.92, analysis: 0.76 }, reasons: { questionType: "题干要求结合材料分析", analysis: "解析可补充材料与观点之间的推理链" } }] } };
     const deep = task.mode === "deep", result = await callDeepSeekJson<{ reviews: ReviewResult[] }>({ access, feature: "question_review", entityType: deep ? "question_deep_review" : "question_batch", entityId: taskId, system: "你是教师题库的辅助审核员。仅输出 JSON。不得修改题目，不得绕过教师人工复核，不得编造事实或教材观点。", payload, thinking: true, useProModel: deep, maxTokens: deep ? 4200 : 5000, validate });
     const byId = new Map(rows.results.map((row) => [Number(row.id), row]));
     for (const review of result.data.reviews) {

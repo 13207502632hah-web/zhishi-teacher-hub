@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import type { AccessContext } from "../access";
 import { aiRoleAllowed, AiPayloadError, buildDeepSeekRequest, executeDeepSeekRequest } from "./policy";
 
-export { redactPrivateText, SAFE_QUESTION_FIELDS, sanitizeForAi, SENSITIVE_QUESTION_FIELDS } from "./policy";
+export { normalizeOptionalJsonObject, redactPrivateText, SAFE_QUESTION_FIELDS, sanitizeForAi, SENSITIVE_QUESTION_FIELDS } from "./policy";
 
 type AiFeature = "feedback_draft" | "question_review";
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number };

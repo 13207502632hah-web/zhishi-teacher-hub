@@ -7,6 +7,12 @@ export class AiPayloadError extends Error {
   constructor(message: string, public code: string, public status = 502) { super(message); }
 }
 
+export function normalizeOptionalJsonObject(value: unknown) {
+  if (value == null) return {} as Record<string, unknown>;
+  if (typeof value !== "object" || Array.isArray(value)) throw new AiPayloadError("DeepSeek 审核分组必须是 JSON 对象", "SCHEMA_INVALID");
+  return value as Record<string, unknown>;
+}
+
 export function redactPrivateText(value: unknown, names: string[] = []) {
   let text = String(value || "");
   for (const name of names.filter(Boolean)) text = text.replaceAll(name, "【学生】");
