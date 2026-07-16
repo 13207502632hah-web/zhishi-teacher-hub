@@ -16,6 +16,12 @@ npm run dev
 npm run build
 ```
 
+本地启用知师研室教师工作台前，将 `.env.example` 复制为 `.env.local`，填写
+教师管理员配置。需要试用 DeepSeek 时，再填写 `DEEPSEEK_API_KEY` 并将
+`DEEPSEEK_AI_ENABLED` 改为 `true`。真实密钥只放在未纳入 Git 的
+`.env.local` 中；生产环境通过 Sites Secret 配置，不写入源码、
+`hosting.json`、浏览器或 `.dev.vars`。后者只供微信开发者工具测试。
+
 This starter does not use `wrangler.jsonc`.
 
 ## Included Shape

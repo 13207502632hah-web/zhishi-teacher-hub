@@ -127,10 +127,15 @@ test("AI setting flags preserve database zero values instead of re-enabling priv
 test("server keeps secrets server-side, uses current models and never sends a login identifier", async () => {
   const server = await read("app/lib/ai/server.ts"), policy = await read("app/lib/ai/policy.ts"), migration = await read("drizzle/0026_deepseek_ai_assistance.sql");
   const clients = (await Promise.all(["app/feedback/page.tsx", "app/questions/page.tsx", "app/settings/page.tsx"].map(read))).join("\n");
+  const [envExample, ignore, readme] = await Promise.all([read(".env.example"), read(".gitignore"), read("README.md")]);
   assert.match(server, /env\.DEEPSEEK_API_KEY/);
   assert.match(policy, /Authorization: `Bearer/);
   assert.doesNotMatch(server, /user_id:\s*`teacher_/);
   assert.doesNotMatch(clients, /DEEPSEEK_API_KEY|api\.deepseek\.com|Authorization.*Bearer/);
+  assert.match(envExample, /^DEEPSEEK_API_KEY=$/m);
+  assert.match(envExample, /^DEEPSEEK_AI_ENABLED=false$/m);
+  assert.match(ignore, /^\.env\*$/m);
+  assert.match(readme, /生产环境通过 Sites Secret 配置/);
   assert.match(migration, /deepseek-v4-flash/);
   assert.match(migration, /deepseek-v4-pro/);
 });
