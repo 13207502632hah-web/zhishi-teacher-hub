@@ -98,6 +98,18 @@ test("daily limit defaults to 50 and blocks the boundary call", async () => {
   assert.equal(dailyLimitReached(50, 0), true);
 });
 
+test("AI setting flags preserve database zero values instead of re-enabling privacy options", async () => {
+  const { aiBoolean } = await loadTsModule("app/lib/ai/settings.ts");
+  assert.equal(aiBoolean(undefined, true), true);
+  assert.equal(aiBoolean(1), true);
+  assert.equal(aiBoolean("1"), true);
+  for (const value of [0, "0", false, null]) assert.equal(aiBoolean(value), false);
+  const client = await read("app/settings/page.tsx"), route = await read("app/api/settings/ai/route.ts");
+  assert.match(client, /includeStudentName:\s*aiBoolean\(current\.includeStudentName, true\)/);
+  assert.match(client, /checked=\{aiBoolean\(ai\.settings\?\.includeStudentName, true\)\}/);
+  assert.match(route, /includeName = aiBoolean\(body\.includeStudentName, true\) \? 1 : 0/);
+});
+
 test("server keeps secrets server-side, uses current models and never sends a login identifier", async () => {
   const server = await read("app/lib/ai/server.ts"), policy = await read("app/lib/ai/policy.ts"), migration = await read("drizzle/0026_deepseek_ai_assistance.sql");
   const clients = (await Promise.all(["app/feedback/page.tsx", "app/questions/page.tsx", "app/settings/page.tsx"].map(read))).join("\n");

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 import { requireAiTeacher } from "../../../lib/ai/server";
+import { aiBoolean } from "../../../lib/ai/settings";
 import { loadAiUsage } from "../../../lib/ai/usage";
 
 async function load(userId: number) {
@@ -18,8 +19,8 @@ export async function PATCH(request: Request) {
   const access = await requirePermission("settings:write"); if (isDenied(access)) return access; const denied = requireAiTeacher(access); if (denied) return denied;
   const body = await request.json() as Record<string, any>;
   if (body.action === "clearLearning") { await env.DB.prepare("DELETE FROM ai_feedback_learning_events WHERE user_id=?").bind(access.id).run(); await audit(access, "delete_all", "ai_feedback_learning"); return Response.json(await load(access.id)); }
-  if (body.action === "setLearningActive") { const id = Number(body.id), active = body.active ? 1 : 0; const owned = await env.DB.prepare("SELECT 1 AS owned FROM ai_feedback_learning_events WHERE id=? AND user_id=?").bind(id, access.id).first(); if (!owned) return Response.json({ error: "学习记录不存在或无权修改" }, { status: 404 }); await env.DB.prepare("UPDATE ai_feedback_learning_events SET active=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(active, id, access.id).run(); await audit(access, active ? "enable" : "disable", "ai_feedback_learning", id); return Response.json(await load(access.id)); }
-  const enabled = body.enabled ? 1 : 0, includeName = body.includeStudentName === false ? 0 : 1, limit = Math.min(200, Math.max(1, Number(body.dailyLimit || 50))), emergency = body.emergencyDisabled ? 1 : 0, privacyAck = body.privacyAcknowledged ? new Date().toISOString() : null;
+  if (body.action === "setLearningActive") { const id = Number(body.id), active = aiBoolean(body.active) ? 1 : 0; const owned = await env.DB.prepare("SELECT 1 AS owned FROM ai_feedback_learning_events WHERE id=? AND user_id=?").bind(id, access.id).first(); if (!owned) return Response.json({ error: "学习记录不存在或无权修改" }, { status: 404 }); await env.DB.prepare("UPDATE ai_feedback_learning_events SET active=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(active, id, access.id).run(); await audit(access, active ? "enable" : "disable", "ai_feedback_learning", id); return Response.json(await load(access.id)); }
+  const enabled = aiBoolean(body.enabled) ? 1 : 0, includeName = aiBoolean(body.includeStudentName, true) ? 1 : 0, limit = Math.min(200, Math.max(1, Number(body.dailyLimit || 50))), emergency = aiBoolean(body.emergencyDisabled) ? 1 : 0, privacyAck = aiBoolean(body.privacyAcknowledged) ? new Date().toISOString() : null;
   await env.DB.prepare("INSERT INTO ai_settings(user_id,enabled,include_student_name,privacy_ack_at,daily_limit,emergency_disabled,updated_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,include_student_name=excluded.include_student_name,privacy_ack_at=COALESCE(ai_settings.privacy_ack_at,excluded.privacy_ack_at),daily_limit=excluded.daily_limit,emergency_disabled=excluded.emergency_disabled,updated_at=CURRENT_TIMESTAMP").bind(access.id, enabled, includeName, privacyAck, limit, emergency).run();
   await audit(access, "update", "ai_settings", access.id, { enabled: Boolean(enabled), includeStudentName: Boolean(includeName), dailyLimit: limit, emergencyDisabled: Boolean(emergency) });
   return Response.json(await load(access.id));
