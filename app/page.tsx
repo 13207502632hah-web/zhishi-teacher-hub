@@ -3,6 +3,7 @@
 import Link from "@/app/components/HardNavigationLink";
 import { useEffect, useState } from "react";
 import { AppShell, EmptyState } from "./components/AppShell";
+import { taskDueLabel } from "./lib/display-format";
 import ResourcesPage from "./resources/page";
 
 type LessonCard = Record<string, unknown> & { id: number; date: string; status: string };
@@ -76,7 +77,7 @@ export function Dashboard() {
       <div className="todayTeachingMetrics"><article><b>{data.todayLessons.length}</b><span>今日课程</span></article><article><b>{data.upcomingLessons.length}</b><span>未来{days}天</span></article><article className={data.overdueLessons.length ? "attention" : ""}><b>{data.overdueLessons.length}</b><span>逾期待处理</span></article><article><b>{data.postLessonTodos}</b><span>课后待补</span></article></div>
     </section>
 
-    <section className="panel dailyPriorityPanel"><div className="panelTitle"><div><p>按临近程度排列</p><h2>今天建议先完成的3件事</h2></div><span>只根据已有课时、作业、反馈、结算和教师确认记录</span></div>{data.suggestedActions.length ? <div className="dailyPriorityList">{data.suggestedActions.map((item, index) => <Link href={item.href} key={item.key}><b>{index + 1}</b><div><strong>{item.title}</strong><span>{item.reason}</span></div><time>{item.dueAt ? item.dueAt === data.today ? "今天" : item.dueAt.slice(5) : "尽快处理"}</time></Link>)}</div> : <EmptyState title="当前没有紧急待办" description="可以继续整理题库、准备后续课程或核对学生档案。" />}</section>
+    <section className="panel dailyPriorityPanel"><div className="panelTitle"><div><p>按临近程度排列</p><h2>今天建议先完成的3件事</h2></div><span>只根据已有课时、作业、反馈、结算和教师确认记录</span></div>{data.suggestedActions.length ? <div className="dailyPriorityList">{data.suggestedActions.map((item, index) => <Link href={item.href} key={item.key}><b>{index + 1}</b><div><strong>{item.title}</strong><span>{item.reason}</span></div><time>{taskDueLabel(item.dueAt, data.today)}</time></Link>)}</div> : <EmptyState title="当前没有紧急待办" description="可以继续整理题库、准备后续课程或核对学生档案。" />}</section>
 
     <div className="dashboardGrid teachingDashboard">
       <section className="panel span2"><div className="panelTitle"><div><p>今天先做什么</p><h2>今日课程</h2></div><Link href="/lessons">打开课时日历</Link></div>{data.todayLessons.length === 0 ? <EmptyState title="今天还没有课程" description="可以从课表导入或新建一节真实课程。" action={<Link className="secondaryButton" href="/schedule-imports">导入课表</Link>} /> : <div className="todayWorkflowList">{data.todayLessons.map((lesson) => <article key={lesson.id}><time>{String(lesson.startTime || "待定")}<small>{String(lesson.endTime || "")}</small></time><div className="workflowLesson"><span className={`statusBadge ${String(lesson.status || "draft")}`}>{lesson.status === "completed" ? "已完成" : "待记录"}</span><h3>{String(lesson.topic || lesson.courseName || "未填写课题")}</h3><p>{String(lesson.className || "未关联班级")} · {String(lesson.location || (lesson.mode === "online" ? "线上" : "地点待补"))}</p><WorkflowChips lesson={lesson} /></div><Link className="primaryButton" href={`/lessons/${lesson.id}`}>{lesson.status === "completed" ? "查看记录" : "开始记录"}</Link></article>)}</div>}</section>

@@ -287,11 +287,37 @@ test("comprehensive demo data is idempotent and covers end-to-end operating stat
   for (const table of ["courses", "assignment_settings", "submission_versions", "feedback_evidence", "lesson_finance", "lesson_billing_items", "settlements", "lesson_packages", "resources", "feedback_templates"]) assert.match(route, new RegExp(table));
   assert.match(route, /entity_type='scenario'/);
   assert.match(route, /alreadyComplete/);
+  assert.doesNotMatch(route, /if \(completed\) return/);
+  assert.match(route, /course_type=COALESCE\(NULLIF\(TRIM\(course_type\),''\),'小班课'\)/);
   assert.match(route, /trackOnce/);
   assert.match(settingsPage, /核验并补齐演示数据/);
   assert.doesNotMatch(settingsPage, /disabled=\{Boolean\(demoRuns\.length\)\}/);
   assert.match(settingsPage, /logs\.slice\(0, logLimit\)/);
   assert.match(settingsPage, /再显示 30 条/);
+});
+
+test("display helpers keep demo identities and due dates readable", async () => {
+  const { personInitial, taskDueLabel } = await loadTsModule("app/lib/display-format.ts");
+  assert.equal(personInitial("【演示】九年级学生1"), "九");
+  assert.equal(personInitial("  （莫同学"), "莫");
+  assert.equal(personInitial(""), "学");
+  assert.equal(taskDueLabel("2026-07-16T21:00", "2026-07-16"), "今天 21:00");
+  assert.equal(taskDueLabel("2026-07-21T21:00", "2026-07-16"), "7月21日 21:00");
+  assert.equal(taskDueLabel("2027-01-02 09:30", "2026-07-16"), "2027年1月2日 09:30");
+  assert.equal(taskDueLabel("", "2026-07-16"), "尽快处理");
+});
+
+test("class list API returns the camel-case fields consumed by the UI", async () => {
+  const route = await readFile(new URL("../app/api/classes/route.ts", import.meta.url), "utf8");
+  assert.match(route, /c\.course_type AS courseType/);
+  assert.match(route, /c\.start_date AS startDate/);
+  assert.doesNotMatch(route, /SELECT c\.\*/);
+});
+
+test("student list does not render numeric zero for false database flags", async () => {
+  const page = await readFile(new URL("../app/students/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /Boolean\(student\.riskConfirmed\) &&/);
+  assert.doesNotMatch(page, /\}\{student\.riskConfirmed &&/);
 });
 
 test("paper, lesson and public-resource regressions remain covered", async () => {

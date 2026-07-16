@@ -57,7 +57,7 @@ async function demoSummary() {
 
 async function supplementComprehensiveDemo(access: { id: number; name: string }) {
   const completed = await env.DB.prepare("SELECT id FROM demo_records WHERE run_id=? AND entity_type='scenario' AND entity_id=2 LIMIT 1").bind(DEMO_SCENARIO_VERSION).first();
-  if (completed) return { alreadyComplete: true, summary: await demoSummary() };
+  const alreadyComplete = Boolean(completed);
 
   const db = env.DB, classIds = await trackedIds("class"), studentIds = await trackedIds("student"), lessonIds = await trackedIds("lesson");
   if (classIds.length < 2 || studentIds.length < 10 || lessonIds.length < 12) throw new Error("基础演示数据不完整，无法继续补齐综合场景");
@@ -67,7 +67,7 @@ async function supplementComprehensiveDemo(access: { id: number; name: string })
     let course = await db.prepare("SELECT id FROM courses WHERE class_id=? AND name LIKE '【演示】%' ORDER BY id LIMIT 1").bind(classId).first<Row>();
     if (!course) course = await db.prepare("INSERT INTO courses(class_id,name,stage,grade,textbook_version,volume) SELECT id,CASE WHEN stage='初中' THEN '【演示】道德与法治系统课' ELSE '【演示】高中思想政治系统课' END,stage,grade,'统编版',CASE WHEN stage='初中' THEN '九年级上册' ELSE '必修3 政治与法治' END FROM classes WHERE id=? RETURNING id").bind(classId).first<Row>();
     if (course) { courses.set(classId, course.id); await trackOnce(DEMO_SCENARIO_VERSION, "course", course.id); }
-    await db.prepare("UPDATE classes SET schedule=?,notes=? WHERE id=?").bind(index % 2 ? "每周日 14:00–16:00；必要时周三线上答疑" : "每周六 09:00–11:00；考前安排补课", "【演示】综合运行数据，可在设置中一键清除；不含真实联系方式", classId).run();
+    await db.prepare("UPDATE classes SET course_type=COALESCE(NULLIF(TRIM(course_type),''),'小班课'),schedule=?,notes=? WHERE id=?").bind(index % 2 ? "每周日 14:00–16:00；必要时周三线上答疑" : "每周六 09:00–11:00；考前安排补课", "【演示】综合运行数据，可在设置中一键清除；不含真实联系方式", classId).run();
   }
 
   const lessonRows = (await db.prepare(`SELECT id,class_id AS classId FROM lessons WHERE id IN (${marks(lessonIds)}) ORDER BY id`).bind(...lessonIds).all<{ id: number; classId: number }>()).results;
@@ -215,7 +215,7 @@ async function supplementComprehensiveDemo(access: { id: number; name: string })
   if (template) await trackOnce(DEMO_SCENARIO_VERSION, "feedback_template", template.id);
 
   await trackOnce(DEMO_SCENARIO_VERSION, "scenario", 2);
-  return { alreadyComplete: false, summary: await demoSummary() };
+  return { alreadyComplete, summary: await demoSummary() };
 }
 
 export async function GET() {

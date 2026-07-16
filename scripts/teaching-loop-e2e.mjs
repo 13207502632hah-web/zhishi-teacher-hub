@@ -163,10 +163,20 @@ async function exerciseComprehensiveDemo(cookie) {
   assert.ok(first.data.summary.finance >= 6);
   assert.ok(first.data.summary.resources >= 3);
 
+  const repairTarget = rows("SELECT c.id FROM classes c JOIN demo_records d ON d.entity_type='class' AND d.entity_id=c.id ORDER BY c.id LIMIT 1")[0];
+  assert.ok(repairTarget?.id);
+  sql(`UPDATE classes SET course_type='' WHERE id=${Number(repairTarget.id)}`);
   const repeated = await request("/api/settings/demo", { cookie, method: "POST" });
   assert.equal(repeated.response.status, 200, JSON.stringify(repeated.data));
   assert.equal(repeated.data.mode, "verified");
   assert.deepEqual(repeated.data.summary, first.data.summary);
+  const repairedClass = rows(`SELECT course_type AS courseType FROM classes WHERE id=${Number(repairTarget.id)}`)[0];
+  assert.equal(repairedClass.courseType, "小班课");
+  const classesView = await request("/api/classes?status=active", { cookie });
+  assert.equal(classesView.response.status, 200, JSON.stringify(classesView.data));
+  const demoClasses = classesView.data.classes.filter((item) => String(item.name || "").startsWith("【演示】"));
+  assert.ok(demoClasses.length >= 2);
+  assert.ok(demoClasses.every((item) => item.courseType === "小班课"));
 
   const coverage = rows(`SELECT
     (SELECT COUNT(DISTINCT l.location) FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id) AS locations,
