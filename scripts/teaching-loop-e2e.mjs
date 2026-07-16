@@ -29,6 +29,28 @@ function aiEnvelope(model, content) {
 }
 
 function aiMockContent(body, payload) {
+  if (payload?.requiredJsonExample?.tiers && Array.isArray(payload?.confirmedActiveWrongQuestions)) {
+    const wrongQuestionId = Number(payload.confirmedActiveWrongQuestions[0]?.wrongQuestionId);
+    return {
+      summary: "根据教师已登记错题，先补基础概念，再突破材料对应，最后进行迁移检测。",
+      tiers: [
+        { level: "基础巩固", target: "回扣现有错题涉及的基础概念。", evidence: [`错题#${wrongQuestionId}`], actions: ["重做原题并标注概念依据。"], wrongQuestionIds: [wrongQuestionId] },
+        { level: "重点突破", target: "纠正教师已记录的具体错因。", evidence: [`错题#${wrongQuestionId}`], actions: ["用观点—材料—结论三步复述。"], wrongQuestionIds: [wrongQuestionId] },
+        { level: "迁移提升", target: "用同一知识点完成变式表达。", evidence: [`错题#${wrongQuestionId}`], actions: ["由教师从正式题库选择一题复测。"], wrongQuestionIds: [wrongQuestionId] },
+      ],
+      correctionSteps: ["独立重做", "对照既有解析标注错因", "教师口头复核"],
+      teacherChecks: ["确认正式答案与解析仍适用于当前教学范围"],
+      uncertainty: [],
+    };
+  }
+  if (payload?.requiredJsonExample?.options && Array.isArray(payload?.candidates)) {
+    return {
+      summary: "以下方案均来自系统排除现有课时冲突后的真实候选空档。",
+      options: payload.candidates.slice(0, 2).map((candidate, index) => ({ candidateId: candidate.candidateId, priority: index === 0 ? "首选" : "备选", reason: index === 0 ? "与原课时时间最接近，调整成本较低。" : "无课时冲突，可作为后备方案。", tradeoffs: ["仍需确认学生和场地"] })),
+      teacherChecks: ["逐一确认学生可参加", "确认场地最终可用"],
+      uncertainty: ["系统没有学生个人日历与场地预约确认结果"],
+    };
+  }
   if (payload?.requiredJsonExample?.risks) return {
     summary: "试卷结构总体可用，但仍需教师核对题型、难度与分值梯度。",
     strengths: ["题型与知识点均有明确标注"],
@@ -261,6 +283,8 @@ async function exerciseAnonymousAiBoundary() {
     request("/api/ai/lesson-prep", { method: "POST", body: { lessonId: 1 } }),
     request("/api/ai/paper-review", { method: "POST", body: { paperId: 1 } }),
     request("/api/ai/reflection-drafts", { method: "POST", body: { lessonId: 1 } }),
+    request("/api/ai/wrong-question-remediation", { method: "POST", body: { studentId: 1 } }),
+    request("/api/ai/schedule-reschedule", { method: "POST", body: { lessonId: 1 } }),
     request("/api/ai/usage"),
     request("/api/settings/ai"),
     request("/api/settings/ai", { method: "PATCH", body: { enabled: true, privacyAcknowledged: true } }),
@@ -396,6 +420,9 @@ async function exerciseAiWorkflows(cookie) {
     assert.ok(lesson?.id);
     const student = rows(`SELECT s.id,s.name FROM students s JOIN enrollments e ON e.student_id=s.id WHERE e.class_id=${Number(lesson.classId)} AND e.status='active' ORDER BY s.id LIMIT 1`)[0];
     assert.ok(student?.id);
+    const remediationStudent = rows("SELECT s.id,s.name FROM students s JOIN demo_records d ON d.entity_type='student' AND d.entity_id=s.id JOIN wrong_questions w ON w.student_id=s.id AND w.status='active' GROUP BY s.id ORDER BY s.id LIMIT 1")[0];
+    const rescheduleLesson = rows("SELECT l.id,l.date,l.start_time AS startTime,l.end_time AS endTime FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id WHERE l.status NOT IN ('completed','cancelled') AND TRIM(COALESCE(l.start_time,''))<>'' AND TRIM(COALESCE(l.end_time,''))<>'' AND l.date>=date('now','+8 hours') ORDER BY l.date,l.start_time LIMIT 1")[0];
+    assert.ok(remediationStudent?.id); assert.ok(rescheduleLesson?.id);
     const feedbackInput = { lessonId: Number(lesson.id), studentId: Number(student.id), audience: "private", tone: "温和鼓励", customInput: "仅作本地隐私测试：手机 13800138000，微信号 wxTeacher88，附件 /tmp/private.pdf" };
 
     let result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: false } });
@@ -435,7 +462,7 @@ async function exerciseAiWorkflows(cookie) {
     const draft = generated.data.draft, styleMarker = "【本地风格】先回扣材料关键词，再按观点—材料—结论分层表达。";
     const paper = rows("SELECT p.id FROM papers p JOIN demo_records d ON d.entity_type='paper' AND d.entity_id=p.id JOIN paper_questions pq ON pq.paper_id=p.id GROUP BY p.id ORDER BY p.id LIMIT 1")[0];
     assert.ok(paper?.id);
-    const immutableBefore = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections`)[0];
+    const immutableBefore = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections,(SELECT GROUP_CONCAT(status) FROM wrong_questions WHERE student_id=${Number(remediationStudent.id)} ORDER BY id) AS wrongStatuses,(SELECT date||'|'||start_time||'|'||end_time FROM lessons WHERE id=${Number(rescheduleLesson.id)}) AS rescheduleSlot`)[0];
     const lessonPrep = await request("/api/ai/lesson-prep", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
     assert.equal(lessonPrep.response.status, 200, JSON.stringify(lessonPrep.data));
     assert.ok(lessonPrep.data.draft.teachingGoals);
@@ -452,7 +479,18 @@ async function exerciseAiWorkflows(cookie) {
     assert.equal(reflectionDraft.response.status, 200, JSON.stringify(reflectionDraft.data));
     assert.ok(reflectionDraft.data.draft.nextAction);
     assert.ok(reflectionDraft.data.excludedFields.includes("学生姓名和联系方式"));
-    const immutableAfter = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections`)[0];
+    const remediationDraft = await request("/api/ai/wrong-question-remediation", { cookie, method: "POST", body: { studentId: Number(remediationStudent.id) } });
+    assert.equal(remediationDraft.response.status, 200, JSON.stringify(remediationDraft.data));
+    assert.equal(remediationDraft.data.draft.tiers.length, 3);
+    assert.ok(remediationDraft.data.excludedFields.includes("学生姓名和联系方式"));
+    const remediationRequest = aiMock.requests.at(-1);
+    assert.doesNotMatch(JSON.stringify(remediationRequest.payload), new RegExp(String(remediationStudent.name)));
+    const rescheduleDraft = await request("/api/ai/schedule-reschedule", { cookie, method: "POST", body: { lessonId: Number(rescheduleLesson.id) } });
+    assert.equal(rescheduleDraft.response.status, 200, JSON.stringify(rescheduleDraft.data));
+    assert.ok(rescheduleDraft.data.draft.options.length > 0);
+    const rescheduleRequest = aiMock.requests.at(-1), allowedCandidateIds = new Set(rescheduleRequest.payload.candidates.map((item) => item.candidateId));
+    assert.ok(rescheduleDraft.data.draft.options.every((item) => allowedCandidateIds.has(item.candidateId)));
+    const immutableAfter = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections,(SELECT GROUP_CONCAT(status) FROM wrong_questions WHERE student_id=${Number(remediationStudent.id)} ORDER BY id) AS wrongStatuses,(SELECT date||'|'||start_time||'|'||end_time FROM lessons WHERE id=${Number(rescheduleLesson.id)}) AS rescheduleSlot`)[0];
     assert.deepEqual(immutableAfter, immutableBefore);
     result = await request("/api/feedback", { cookie, method: "POST", body: { ...draft, lessonId: Number(lesson.id), studentId: Number(student.id), classId: Number(lesson.classId), aiDraftId: Number(draft.aiDraftId), aiReviewed: true, type: "lesson", audience: "private", tone: "温和鼓励", status: "draft", content: styleMarker, parentAdvice: styleMarker } });
     assert.equal(result.response.status, 201, JSON.stringify(result.data));
@@ -563,7 +601,7 @@ async function exerciseAiWorkflows(cookie) {
     const auditActions = new Set(rows(`SELECT action FROM audit_logs WHERE id>${baseline.audit}`).map((item) => String(item.action)));
     for (const action of ["generate", "generate_failed", "apply_ai_suggestion", "reject", "delete_all"]) assert.ok(auditActions.has(action), `缺少 AI 审计动作 ${action}`);
 
-    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, lessonPrep: true, paperReview: true, reflectionDraft: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true }, proSingleReview: true, staleProtection: true, usageRecorded: true };
+    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, lessonPrep: true, paperReview: true, reflectionDraft: true, wrongQuestionRemediation: true, scheduleReschedule: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true }, proSingleReview: true, staleProtection: true, usageRecorded: true };
   } finally {
     aiMock.mode = "ok";
     restoreLocalState();

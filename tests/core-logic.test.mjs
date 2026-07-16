@@ -145,6 +145,21 @@ test("lesson time validation catches inverted time and cancellation without reas
   assert.equal(usesTeachingSlot("scheduled"), true);
 });
 
+test("reschedule candidates preserve duration and exclude real occupied slots", async () => {
+  const { buildRescheduleCandidates } = await loadTsModule("app/lib/schedule-reschedule.ts");
+  const original = { date: "2026-07-20", startTime: "18:00", endTime: "19:30", mode: "offline", location: "知师研室 A 教室" };
+  const candidates = buildRescheduleCandidates(original, [
+    { date: "2026-07-20", startTime: "16:30", endTime: "18:00", status: "scheduled" },
+    { date: "2026-07-20", startTime: "19:00", endTime: "20:30", status: "scheduled" },
+    { date: "2026-07-21", startTime: "18:00", endTime: "19:30", status: "cancelled" },
+  ], "2026-07-16", 8);
+  assert.ok(candidates.length > 0 && candidates.length <= 8);
+  assert.ok(candidates.every((item) => item.location === original.location && item.mode === original.mode));
+  assert.ok(candidates.every((item) => (Number(item.endTime.slice(0, 2)) * 60 + Number(item.endTime.slice(3))) - (Number(item.startTime.slice(0, 2)) * 60 + Number(item.startTime.slice(3))) === 90));
+  assert.ok(candidates.every((item) => !(item.date === "2026-07-20" && item.startTime < "20:30" && item.endTime > "19:00")));
+  assert.ok(candidates.some((item) => item.date === "2026-07-21" && item.startTime === "18:00"));
+});
+
 test("mastery calculation is explainable and reweights only available evidence", async () => {
   const { calculateMastery } = await loadTsModule("app/lib/mastery.ts");
   const complete = calculateMastery({ assessmentAverage: 80, homeworkCompletionRate: 0.9, understandingAverage: 4, wrongQuestionMasteryRate: 0.5 });
