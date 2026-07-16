@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import path from "node:path";
 
 const root = process.cwd();
@@ -13,9 +14,72 @@ const e2eSessionSecret = randomBytes(32).toString("base64url");
 const devVars = path.join(root, ".dev.vars.e2e");
 const reportPath = path.join(root, "outputs", "teaching-loop-e2e.json");
 const logs = [];
-let server;
+const aiMock = { mode: "ok", requests: [] };
+let server, aiMockServer;
 
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
+
+function aiEnvelope(model, content) {
+  return JSON.stringify({
+    id: `local-mock-${Date.now()}`,
+    choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: JSON.stringify(content) } }],
+    model,
+    usage: { prompt_tokens: 120, prompt_cache_hit_tokens: 20, prompt_cache_miss_tokens: 100, completion_tokens: 60, total_tokens: 180 },
+  });
+}
+
+function aiMockContent(body, payload) {
+  if (Array.isArray(payload?.questions)) {
+    const reviews = payload.questions.map((question) => {
+      let field = "questionType", suggestion = "";
+      for (const candidate of payload.safeFields || []) {
+        const values = Array.isArray(payload.vocabulary?.[candidate]) ? payload.vocabulary[candidate] : [];
+        const different = values.find((value) => String(value) !== String(question[candidate] ?? ""));
+        if (different) { field = candidate; suggestion = String(different); break; }
+      }
+      if (!suggestion) suggestion = String(payload.vocabulary?.[field]?.[0] || question[field] || "单选题");
+      return {
+        questionId: Number(question.id),
+        safeSuggestions: { [field]: suggestion },
+        sensitiveSuggestions: { analysis: `【本地模拟审核】请核对题目 ${question.id} 的材料与教材观点对应关系。` },
+        confidence: { [field]: 0.93, analysis: 0.78 },
+        reasons: { [field]: "该值来自题库现有规范词表，仍需教师查看差异。", analysis: "解析属于敏感字段，只能逐题确认。" },
+      };
+    });
+    return { reviews };
+  }
+  return {
+    classroomSummary: "已根据真实课时记录整理课堂内容。",
+    highlights: "能够提取材料关键词并尝试分层表达。",
+    consolidate: "需要继续巩固材料信息与教材观点的对应。",
+    homeworkSuggestion: "完成配套练习并记录一条错因。",
+    nextLessonPlan: "先复测错题，再进入下一知识点。",
+    parentMessage: "本次课程已完成既定内容，请按教师记录完成巩固。",
+    reflectionOutline: "复盘材料分析步骤与学生规范表述。",
+    evidenceSummary: ["课时实际内容", "课堂表现", "作业与出勤记录"],
+    uncertainty: [],
+  };
+}
+
+async function startAiMock() {
+  aiMockServer = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    let body = {};
+    try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch {}
+    let payload = {};
+    try { payload = JSON.parse(body.messages?.find((item) => item.role === "user")?.content || "{}"); } catch {}
+    aiMock.requests.push({ body, payload });
+    if (aiMock.mode === "http402") { response.writeHead(402, { "Content-Type": "application/json" }); response.end('{"error":"local insufficient balance"}'); return; }
+    if (aiMock.mode === "empty") { response.writeHead(200, { "Content-Type": "application/json" }); response.end(aiEnvelope(body.model, {})); return; }
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(aiEnvelope(body.model, aiMockContent(body, payload)));
+  });
+  await new Promise((resolve) => aiMockServer.listen(0, "127.0.0.1", resolve));
+  const address = aiMockServer.address();
+  assert.ok(address && typeof address === "object");
+  return `http://127.0.0.1:${address.port}`;
+}
 
 async function findDatabase(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -203,6 +267,201 @@ async function exerciseComprehensiveDemo(cookie) {
   return { summary: first.data.summary, coverage, idempotent: true };
 }
 
+async function exerciseAiWorkflows(cookie) {
+  const teacher = rows("SELECT id FROM users WHERE email='teacher-admin@local.invalid' LIMIT 1")[0];
+  assert.ok(teacher?.id);
+  const userId = Number(teacher.id), sqlValue = (value) => value == null ? "NULL" : quote(value), maxId = (table) => Number(rows(`SELECT COALESCE(MAX(id),0) AS id FROM ${table}`)[0]?.id || 0);
+  const previousSettings = rows(`SELECT enabled,include_student_name AS includeStudentName,privacy_ack_at AS privacyAckAt,daily_limit AS dailyLimit,emergency_disabled AS emergencyDisabled,fast_model AS fastModel,deep_model AS deepModel FROM ai_settings WHERE user_id=${userId}`)[0] || null;
+  const baseline = { run: maxId("ai_runs"), draft: maxId("ai_feedback_drafts"), learning: maxId("ai_feedback_learning_events"), review: maxId("ai_question_reviews"), feedback: maxId("feedback"), audit: maxId("audit_logs") };
+  const taskIds = new Set(), questionRestores = new Map();
+  const safeColumns = { questionType: "question_type", stage: "stage", grade: "grade", textbookVersion: "textbook_version", volume: "volume", unit: "unit", topic: "topic", knowledgePoints: "knowledge_points", coreCompetencies: "core_competencies", abilityLevel: "ability_level" };
+  const restoreQuestion = (id, column = null) => {
+    if (questionRestores.has(id)) return;
+    const selected = column ? `,${column} AS safeValue` : "";
+    const original = rows(`SELECT id,analysis,updated_at AS updatedAt${selected} FROM questions WHERE id=${Number(id)}`)[0];
+    assert.ok(original?.id);
+    questionRestores.set(Number(id), { ...original, column });
+  };
+  const restoreLocalState = () => {
+    for (const original of questionRestores.values()) {
+      const safe = original.column ? `${original.column}=${sqlValue(original.safeValue)},` : "";
+      sql(`UPDATE questions SET ${safe}analysis=${sqlValue(original.analysis)},updated_at=${sqlValue(original.updatedAt)} WHERE id=${Number(original.id)}`);
+    }
+    const tasks = [...taskIds].map(sqlValue).join(",") || "NULL";
+    sql(`PRAGMA foreign_keys=ON;
+      DELETE FROM ai_feedback_learning_events WHERE id>${baseline.learning};
+      DELETE FROM ai_feedback_drafts WHERE id>${baseline.draft};
+      DELETE FROM feedback_evidence WHERE feedback_id>${baseline.feedback};
+      DELETE FROM feedback WHERE id>${baseline.feedback};
+      DELETE FROM ai_question_reviews WHERE id>${baseline.review};
+      DELETE FROM ai_question_review_tasks WHERE id IN (${tasks});
+      DELETE FROM ai_runs WHERE id>${baseline.run};
+      DELETE FROM audit_logs WHERE id>${baseline.audit};`);
+    if (previousSettings) sql(`INSERT INTO ai_settings(user_id,enabled,include_student_name,privacy_ack_at,daily_limit,emergency_disabled,fast_model,deep_model,updated_at) VALUES(${userId},${Number(previousSettings.enabled || 0)},${Number(previousSettings.includeStudentName || 0)},${sqlValue(previousSettings.privacyAckAt)},${Number(previousSettings.dailyLimit || 50)},${Number(previousSettings.emergencyDisabled || 0)},${sqlValue(previousSettings.fastModel)},${sqlValue(previousSettings.deepModel)},CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,include_student_name=excluded.include_student_name,privacy_ack_at=excluded.privacy_ack_at,daily_limit=excluded.daily_limit,emergency_disabled=excluded.emergency_disabled,fast_model=excluded.fast_model,deep_model=excluded.deep_model,updated_at=CURRENT_TIMESTAMP`);
+    else sql(`DELETE FROM ai_settings WHERE user_id=${userId}`);
+  };
+
+  aiMock.mode = "ok";
+  aiMock.requests.length = 0;
+  sql(`DELETE FROM ai_settings WHERE user_id=${userId}`);
+  try {
+    const lesson = rows("SELECT l.id,l.class_id AS classId FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id WHERE l.status IN ('completed','makeup') AND TRIM(COALESCE(l.actual_content,''))<>'' ORDER BY l.id LIMIT 1")[0];
+    assert.ok(lesson?.id);
+    const student = rows(`SELECT s.id,s.name FROM students s JOIN enrollments e ON e.student_id=s.id WHERE e.class_id=${Number(lesson.classId)} AND e.status='active' ORDER BY s.id LIMIT 1`)[0];
+    assert.ok(student?.id);
+    const feedbackInput = { lessonId: Number(lesson.id), studentId: Number(student.id), audience: "private", tone: "温和鼓励", customInput: "仅作本地隐私测试：手机 13800138000，微信号 wxTeacher88，附件 /tmp/private.pdf" };
+
+    let result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: false } });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    let providerCalls = aiMock.requests.length;
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.response.status, 409, JSON.stringify(result.data));
+    assert.equal(result.data.code, "PRIVACY_ACK_REQUIRED");
+    assert.equal(aiMock.requests.length, providerCalls);
+
+    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: false, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: true } });
+    assert.equal(result.response.status, 200);
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.data.code, "AI_DISABLED");
+    assert.equal(aiMock.requests.length, providerCalls);
+    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: true } });
+    assert.equal(result.response.status, 200);
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.data.code, "AI_DISABLED");
+    assert.equal(aiMock.requests.length, providerCalls);
+    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false } });
+    assert.equal(result.response.status, 200);
+
+    const preview = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: { ...feedbackInput, preview: true } });
+    assert.equal(preview.response.status, 200, JSON.stringify(preview.data));
+    assert.equal(aiMock.requests.length, providerCalls);
+    assert.ok(preview.data.sentFields.includes("学生姓名"));
+    for (const label of ["监护人联系方式", "微信标识", "附件原件与文件地址", "登录、会话和密钥数据"]) assert.ok(preview.data.excludedFields.includes(label));
+
+    const generated = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(generated.response.status, 200, JSON.stringify(generated.data));
+    const feedbackRequest = aiMock.requests.at(-1);
+    assert.equal(feedbackRequest.body.model, "deepseek-v4-flash");
+    assert.equal(feedbackRequest.body.thinking.type, "disabled");
+    const capturedFeedback = JSON.stringify(feedbackRequest.body);
+    for (const secret of ["13800138000", "wxTeacher88", "/tmp/private.pdf"]) assert.doesNotMatch(capturedFeedback, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const draft = generated.data.draft, styleMarker = "【本地风格】先回扣材料关键词，再按观点—材料—结论分层表达。";
+    result = await request("/api/feedback", { cookie, method: "POST", body: { ...draft, lessonId: Number(lesson.id), studentId: Number(student.id), classId: Number(lesson.classId), aiDraftId: Number(draft.aiDraftId), aiReviewed: true, type: "lesson", audience: "private", tone: "温和鼓励", status: "draft", content: styleMarker, parentAdvice: styleMarker } });
+    assert.equal(result.response.status, 201, JSON.stringify(result.data));
+
+    let settings = await request("/api/settings/ai", { cookie });
+    assert.equal(settings.response.status, 200);
+    assert.ok(Number(settings.data.learning?.activeCount || 0) >= 1);
+    const learningRecord = settings.data.learningRecords.find((item) => Number(item.feedbackId) === Number(result.data.feedback.id));
+    assert.ok(learningRecord?.id);
+
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    const learnedRequest = aiMock.requests.at(-1);
+    assert.match(JSON.stringify(learnedRequest.payload.teacherStyleExamples || []), /本地风格/);
+    assert.doesNotMatch(JSON.stringify(learnedRequest.payload.teacherStyleExamples || []), new RegExp(String(student.name)));
+    await request("/api/ai/feedback-drafts", { cookie, method: "DELETE", body: { id: result.data.draft.aiDraftId } });
+
+    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { action: "setLearningActive", id: Number(learningRecord.id), active: false } });
+    assert.equal(result.response.status, 200);
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    const disabledLearningRequest = aiMock.requests.at(-1);
+    assert.doesNotMatch(JSON.stringify(disabledLearningRequest.payload.teacherStyleExamples || []), /本地风格/);
+    await request("/api/ai/feedback-drafts", { cookie, method: "DELETE", body: { id: result.data.draft.aiDraftId } });
+    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { action: "clearLearning" } });
+    assert.equal(Number(result.data.learning?.count || 0), 0);
+
+    const unchangedBefore = rows(`SELECT (SELECT COUNT(*) FROM lessons) AS lessons,(SELECT COUNT(*) FROM assignments) AS assignments,(SELECT COUNT(*) FROM feedback) AS feedback`)[0];
+    aiMock.mode = "http402";
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    aiMock.mode = "ok";
+    assert.equal(result.response.status, 502, JSON.stringify(result.data));
+    assert.equal(result.data.code, "HTTP_402");
+    const unchangedAfter = rows(`SELECT (SELECT COUNT(*) FROM lessons) AS lessons,(SELECT COUNT(*) FROM assignments) AS assignments,(SELECT COUNT(*) FROM feedback) AS feedback`)[0];
+    assert.deepEqual(unchangedAfter, unchangedBefore);
+
+    const questionIds = rows("SELECT q.id FROM questions q JOIN demo_records d ON d.entity_type='question' AND d.entity_id=q.id LEFT JOIN ai_question_reviews r ON r.question_id=q.id WHERE r.id IS NULL ORDER BY q.id LIMIT 13").map((item) => Number(item.id));
+    assert.equal(questionIds.length, 13);
+    const firstBatch = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { questionIds: questionIds.slice(0, 12) } });
+    assert.equal(firstBatch.response.status, 200, JSON.stringify(firstBatch.data));
+    assert.equal(firstBatch.data.processed, 10);
+    assert.equal(firstBatch.data.task.status, "queued");
+    taskIds.add(String(firstBatch.data.task.id));
+    const secondBatch = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { taskId: firstBatch.data.task.id } });
+    assert.equal(secondBatch.response.status, 200, JSON.stringify(secondBatch.data));
+    assert.equal(secondBatch.data.processed, 2);
+    assert.equal(secondBatch.data.task.status, "completed");
+    const batchRequests = aiMock.requests.filter((item) => Array.isArray(item.payload?.questions) && item.body.model === "deepseek-v4-flash");
+    assert.equal(batchRequests.length, 2);
+    assert.ok(batchRequests.every((item) => item.body.thinking.type === "enabled" && item.payload.questions.length <= 10));
+
+    const deepReview = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { questionIds: [questionIds[12]], deepReview: true } });
+    assert.equal(deepReview.response.status, 200, JSON.stringify(deepReview.data));
+    assert.equal(deepReview.data.task.status, "completed");
+    taskIds.add(String(deepReview.data.task.id));
+    const proRequest = aiMock.requests.at(-1);
+    assert.equal(proRequest.body.model, "deepseek-v4-pro");
+    assert.equal(proRequest.body.thinking.type, "enabled");
+    assert.equal(proRequest.payload.questions.length, 1);
+
+    const reviewList = await request("/api/ai/question-reviews", { cookie });
+    assert.equal(reviewList.response.status, 200);
+    const taskReviews = reviewList.data.reviews.filter((item) => String(item.taskId) === String(firstBatch.data.task.id));
+    assert.equal(taskReviews.length, 12);
+    const eligible = taskReviews.find((item) => item.eligibleFields?.length && item.sensitiveSuggestions?.analysis);
+    assert.ok(eligible);
+    const safeField = String(eligible.eligibleFields[0]), safeColumn = safeColumns[safeField];
+    assert.ok(safeColumn);
+    restoreQuestion(Number(eligible.questionId), safeColumn);
+    const beforeApply = rows(`SELECT ${safeColumn} AS safeValue,analysis FROM questions WHERE id=${Number(eligible.questionId)}`)[0];
+    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [eligible.id], mode: "batch" } });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    assert.equal(result.data.applied.length, 1);
+    let afterApply = rows(`SELECT ${safeColumn} AS safeValue,analysis FROM questions WHERE id=${Number(eligible.questionId)}`)[0];
+    assert.equal(afterApply.safeValue, eligible.safeSuggestions[safeField]);
+    assert.equal(afterApply.analysis, beforeApply.analysis);
+    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [eligible.id], mode: "single", fields: ["analysis"] } });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    afterApply = rows(`SELECT analysis FROM questions WHERE id=${Number(eligible.questionId)}`)[0];
+    assert.equal(afterApply.analysis, eligible.sensitiveSuggestions.analysis);
+
+    const staleReview = taskReviews.find((item) => Number(item.id) !== Number(eligible.id) && item.sensitiveSuggestions?.analysis);
+    assert.ok(staleReview);
+    restoreQuestion(Number(staleReview.questionId));
+    const staleBefore = rows(`SELECT analysis FROM questions WHERE id=${Number(staleReview.questionId)}`)[0];
+    sql(`UPDATE questions SET updated_at='2099-01-01T00:00:00.000Z' WHERE id=${Number(staleReview.questionId)}`);
+    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [staleReview.id], mode: "single", fields: ["analysis"] } });
+    assert.ok(result.data.stale.includes(Number(staleReview.id)), JSON.stringify(result.data));
+    assert.equal(rows(`SELECT analysis FROM questions WHERE id=${Number(staleReview.questionId)}`)[0].analysis, staleBefore.analysis);
+
+    const deepPending = reviewList.data.reviews.find((item) => String(item.taskId) === String(deepReview.data.task.id));
+    assert.ok(deepPending?.id);
+    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [deepPending.id], mode: "single", fields: ["analysis"], action: "reject" } });
+    assert.equal(result.data.rejected, 1);
+
+    providerCalls = aiMock.requests.length;
+    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 1, emergencyDisabled: false } });
+    assert.equal(result.response.status, 200);
+    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.response.status, 429, JSON.stringify(result.data));
+    assert.equal(result.data.code, "DAILY_LIMIT");
+    assert.equal(aiMock.requests.length, providerCalls);
+
+    const usage = await request("/api/ai/usage", { cookie });
+    assert.equal(usage.response.status, 200);
+    assert.ok(Number(usage.data.today?.calls || 0) >= 6);
+    assert.ok(Number(usage.data.month?.tokens || 0) > 0);
+    const auditActions = new Set(rows(`SELECT action FROM audit_logs WHERE id>${baseline.audit}`).map((item) => String(item.action)));
+    for (const action of ["generate", "generate_failed", "apply_ai_suggestion", "reject", "delete_all"]) assert.ok(auditActions.has(action), `缺少 AI 审计动作 ${action}`);
+
+    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true }, proSingleReview: true, staleProtection: true, usageRecorded: true };
+  } finally {
+    aiMock.mode = "ok";
+    restoreLocalState();
+  }
+}
+
 async function exerciseRound(round, cookie) {
   cleanup();
   const { lessonId, studentIds, questionIds, topic, dueAt, today } = seed(round);
@@ -379,7 +638,8 @@ async function exerciseRound(round, cookie) {
 }
 
 try {
-  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\n`, { mode: 0o600 });
+  const aiMockBase = await startAiMock();
+  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\n`, { mode: 0o600 });
   server = spawn("pnpm", ["dev"], { cwd: root, env: { ...process.env, CLOUDFLARE_ENV: "e2e" }, stdio: ["ignore", "pipe", "pipe"] });
   for (const stream of [server.stdout, server.stderr]) stream.on("data", (chunk) => logs.push(String(chunk).trim()));
   await waitForServer();
@@ -389,14 +649,16 @@ try {
   } else {
     const cookie = await login();
     const demo = await exerciseComprehensiveDemo(cookie);
+    const ai = await exerciseAiWorkflows(cookie);
     const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
     cleanup();
     await mkdir(path.dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, demo, rounds, generatedAt: new Date().toISOString() }, null, 2));
-    console.log(`综合演示数据与今日教学闭环本地回归通过：演示数据幂等核验 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
+    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, demo, ai, rounds, generatedAt: new Date().toISOString() }, null, 2));
+    console.log(`综合演示数据、DeepSeek 本地模拟与今日教学闭环回归通过：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
   }
 } finally {
   try { cleanup(); } catch {}
   if (server && !server.killed) server.kill("SIGINT");
+  if (aiMockServer) await new Promise((resolve) => aiMockServer.close(resolve));
   await rm(devVars, { force: true });
 }
