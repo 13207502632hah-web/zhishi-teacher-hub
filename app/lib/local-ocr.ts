@@ -2,10 +2,10 @@ export type OcrProgress = { status: string; progress: number };
 
 export async function recognizeChineseImage(file: File, onProgress?: (progress: OcrProgress) => void) {
   const { createWorker } = await import("tesseract.js");
+  // Tesseract.js loads its version-pinned core and compact LSTM language data on demand.
+  // The selected image is still processed inside this browser worker and is never uploaded.
   const worker = await createWorker("chi_sim", 1, {
     workerPath: "/ocr/worker.min.js",
-    corePath: "/ocr",
-    langPath: "/ocr",
     logger: (event) => onProgress?.({ status: event.status, progress: event.progress || 0 }),
   });
   try {
