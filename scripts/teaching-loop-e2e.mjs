@@ -7,7 +7,8 @@ import path from "node:path";
 const root = process.cwd();
 const baseUrl = "http://localhost:3000";
 const marker = "__e2e__teaching_loop";
-const e2ePassword = randomBytes(24).toString("base64url");
+const serveOnly = process.argv.includes("--serve-only");
+const e2ePassword = process.env.TEACHING_E2E_PASSWORD || randomBytes(24).toString("base64url");
 const e2eSessionSecret = randomBytes(32).toString("base64url");
 const devVars = path.join(root, ".dev.vars.e2e");
 const reportPath = path.join(root, "outputs", "teaching-loop-e2e.json");
@@ -147,6 +148,49 @@ async function login() {
   const cookie = response.headers.get("set-cookie")?.split(";")[0];
   assert.ok(cookie?.startsWith("zhishi_teacher_admin="));
   return cookie;
+}
+
+async function exerciseComprehensiveDemo(cookie) {
+  const first = await request("/api/settings/demo", { cookie, method: "POST" });
+  assert.ok([200, 201].includes(first.response.status), JSON.stringify({ status: first.response.status, data: first.data, logs: logs.slice(-20) }));
+  assert.ok(first.data.summary.classes >= 2);
+  assert.ok(first.data.summary.students >= 10);
+  assert.ok(first.data.summary.lessons >= 12);
+  assert.ok(first.data.summary.questions >= 40);
+  assert.ok(first.data.summary.papers >= 3);
+  assert.ok(first.data.summary.assignments >= 7);
+  assert.ok(first.data.summary.submissions >= 35);
+  assert.ok(first.data.summary.finance >= 6);
+  assert.ok(first.data.summary.resources >= 3);
+
+  const repeated = await request("/api/settings/demo", { cookie, method: "POST" });
+  assert.equal(repeated.response.status, 200, JSON.stringify(repeated.data));
+  assert.equal(repeated.data.mode, "verified");
+  assert.deepEqual(repeated.data.summary, first.data.summary);
+
+  const coverage = rows(`SELECT
+    (SELECT COUNT(DISTINCT l.location) FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id) AS locations,
+    (SELECT COUNT(DISTINCT l.mode) FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id) AS lessonModes,
+    (SELECT COUNT(DISTINCT l.status) FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id) AS lessonStatuses,
+    (SELECT COUNT(DISTINCT a.status) FROM attendance a JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=a.lesson_id) AS attendanceStatuses,
+    (SELECT COUNT(DISTINCT s.status) FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=a.lesson_id) AS submissionStatuses,
+    (SELECT COUNT(DISTINCT f.status) FROM feedback f JOIN demo_records d ON d.entity_type='feedback' AND d.entity_id=f.id) AS feedbackStatuses,
+    (SELECT COUNT(DISTINCT q.question_type) FROM questions q JOIN demo_records d ON d.entity_type='question' AND d.entity_id=q.id) AS questionTypes,
+    (SELECT COUNT(*) FROM resources r JOIN demo_records d ON d.entity_type='resource' AND d.entity_id=r.id WHERE r.visibility='private') AS privateResources`)[0];
+  assert.ok(coverage.locations >= 4, JSON.stringify(coverage));
+  assert.equal(coverage.lessonModes, 2);
+  assert.ok(coverage.lessonStatuses >= 5);
+  assert.ok(coverage.attendanceStatuses >= 4);
+  assert.ok(coverage.submissionStatuses >= 4);
+  assert.equal(coverage.feedbackStatuses, 3);
+  assert.ok(coverage.questionTypes >= 9);
+  assert.ok(coverage.privateResources >= 3);
+
+  for (const pathname of ["/api/dashboard", "/api/analytics?range=month", "/api/classes", "/api/students", "/api/lessons", "/api/assignments", "/api/questions?status=active", "/api/papers", "/api/feedback", "/api/assessments", "/api/finance", "/api/resources"]) {
+    const result = await request(pathname, { cookie });
+    assert.equal(result.response.status, 200, `${pathname}: ${JSON.stringify(result.data)}`);
+  }
+  return { summary: first.data.summary, coverage, idempotent: true };
 }
 
 async function exerciseRound(round, cookie) {
@@ -329,12 +373,18 @@ try {
   server = spawn("pnpm", ["dev"], { cwd: root, env: { ...process.env, CLOUDFLARE_ENV: "e2e" }, stdio: ["ignore", "pipe", "pipe"] });
   for (const stream of [server.stdout, server.stderr]) stream.on("data", (chunk) => logs.push(String(chunk).trim()));
   await waitForServer();
-  const cookie = await login();
-  const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
-  cleanup();
-  await mkdir(path.dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, rounds, generatedAt: new Date().toISOString() }, null, 2));
-  console.log(`今日教学闭环本地回归通过：${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
+  if (serveOnly) {
+    console.log("本地浏览器验收服务器已就绪；按 Ctrl+C 停止。");
+    await new Promise((resolve) => process.once("SIGINT", resolve));
+  } else {
+    const cookie = await login();
+    const demo = await exerciseComprehensiveDemo(cookie);
+    const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
+    cleanup();
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, demo, rounds, generatedAt: new Date().toISOString() }, null, 2));
+    console.log(`综合演示数据与今日教学闭环本地回归通过：演示数据幂等核验 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
+  }
 } finally {
   try { cleanup(); } catch {}
   if (server && !server.killed) server.kill("SIGINT");

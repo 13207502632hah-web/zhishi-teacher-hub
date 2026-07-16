@@ -268,6 +268,32 @@ test("Word review tasks resume from D1 and demo data covers the teaching loop", 
   assert.match(masteryRoute, /adjust_mastery/);
 });
 
+test("comprehensive demo data is idempotent and covers end-to-end operating states", async () => {
+  const scenario = await loadTsModule("app/lib/demo-scenario.ts");
+  const [route, settingsPage] = await Promise.all([
+    readFile(new URL("../app/api/settings/demo/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/settings/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(scenario.DEMO_SCENARIO_VERSION, "demo-comprehensive-v2");
+  assert.ok(scenario.demoLessonScenarios.length >= 12);
+  assert.deepEqual(new Set(scenario.demoLessonScenarios.map((item) => item.mode)), new Set(["offline", "online"]));
+  assert.ok(new Set(scenario.demoLessonScenarios.map((item) => item.location)).size >= 4);
+  for (const status of ["completed", "scheduled", "rescheduled", "cancelled", "makeup"]) assert.ok(scenario.demoLessonScenarios.some((item) => item.status === status));
+  for (const status of ["present", "late", "leave", "absent"]) assert.ok(scenario.demoAttendanceStatuses.includes(status));
+  for (const status of ["pending", "submitted", "revision", "completed"]) assert.ok(scenario.demoSubmissionStatuses.includes(status));
+  for (const status of ["draft", "confirmed", "sent"]) assert.ok(scenario.demoFeedbackStatuses.includes(status));
+  for (const type of ["单选题", "多选题", "判断题", "填空题", "简答题", "材料题", "辨析题", "论述题", "探究实践题"]) assert.ok(scenario.demoQuestionScenarios.some((item) => item.type === type));
+  assert.ok(scenario.demoResourceScenarios.length >= 3);
+  for (const table of ["courses", "assignment_settings", "submission_versions", "feedback_evidence", "lesson_finance", "lesson_billing_items", "settlements", "lesson_packages", "resources", "feedback_templates"]) assert.match(route, new RegExp(table));
+  assert.match(route, /entity_type='scenario'/);
+  assert.match(route, /alreadyComplete/);
+  assert.match(route, /trackOnce/);
+  assert.match(settingsPage, /核验并补齐演示数据/);
+  assert.doesNotMatch(settingsPage, /disabled=\{Boolean\(demoRuns\.length\)\}/);
+  assert.match(settingsPage, /logs\.slice\(0, logLimit\)/);
+  assert.match(settingsPage, /再显示 30 条/);
+});
+
 test("paper, lesson and public-resource regressions remain covered", async () => {
   const [questionPage, questionApi, paperPage, paperDetail, printCss, lessonRoute, resourceApi, resourcePage] = await Promise.all([
     "app/questions/page.tsx",
