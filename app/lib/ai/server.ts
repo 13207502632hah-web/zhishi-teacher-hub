@@ -4,7 +4,7 @@ import { aiRoleAllowed, AiPayloadError, buildDeepSeekRequest, executeDeepSeekReq
 
 export { normalizeOptionalJsonObject, redactPrivateText, SAFE_QUESTION_FIELDS, sanitizeForAi, SENSITIVE_QUESTION_FIELDS } from "./policy";
 
-type AiFeature = "feedback_draft" | "question_review";
+type AiFeature = "feedback_draft" | "question_review" | "lesson_prep" | "paper_review" | "reflection_draft";
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number };
 
 export class AiServiceError extends Error {

@@ -145,6 +145,9 @@ test("AI routes enforce teacher-only access, privacy acknowledgement and no writ
   const server = await read("app/lib/ai/server.ts"), feedbackRoute = await read("app/api/ai/feedback-drafts/route.ts"), reviewRoute = await read("app/api/ai/question-reviews/route.ts");
   const protectedRoutes = await Promise.all([
     "app/api/ai/feedback-drafts/route.ts",
+    "app/api/ai/lesson-prep/route.ts",
+    "app/api/ai/paper-review/route.ts",
+    "app/api/ai/reflection-drafts/route.ts",
     "app/api/ai/question-reviews/route.ts",
     "app/api/ai/question-reviews/apply/route.ts",
     "app/api/ai/usage/route.ts",
@@ -216,7 +219,27 @@ test("AI usage and daily boundaries use Asia Shanghai time and include readiness
   assert.match(usage, /generate_failed/);
 });
 
+test("AI assistance now covers lesson prep, paper quality review and private reflection drafts without automatic writes", async () => {
+  const [lessonRoute, paperRoute, reflectionRoute, lessonPage, paperPage, reflectionPage, server] = await Promise.all([
+    "app/api/ai/lesson-prep/route.ts", "app/api/ai/paper-review/route.ts", "app/api/ai/reflection-drafts/route.ts", "app/lessons/[id]/page.tsx", "app/papers/[id]/page.tsx", "app/reflections/page.tsx", "app/lib/ai/server.ts",
+  ].map(read));
+  for (const route of [lessonRoute, paperRoute, reflectionRoute]) {
+    assert.match(route, /requireAiTeacher/);
+    assert.match(route, /callDeepSeekJson/);
+    assert.match(route, /audit\(access, "generate"/);
+    assert.match(route, /audit\(access, "generate_failed"/);
+  }
+  assert.match(server, /"lesson_prep"/); assert.match(server, /"paper_review"/); assert.match(server, /"reflection_draft"/);
+  assert.match(lessonRoute, /不得新增政策事实、时政材料、教材观点、知识点或标准答案/);
+  assert.match(lessonRoute, /学生姓名和联系方式/); assert.match(reflectionRoute, /学生姓名和联系方式/);
+  assert.match(paperRoute, /题目答案和解析正文/); assert.doesNotMatch(paperRoute, /q\.answer\s+AS\s+answer/); assert.match(paperRoute, /CASE WHEN TRIM\(COALESCE\(q\.answer/);
+  assert.doesNotMatch(lessonRoute, /UPDATE lessons/); assert.doesNotMatch(paperRoute, /UPDATE papers/); assert.doesNotMatch(reflectionRoute, /INSERT INTO reflections/);
+  assert.match(lessonPage, /生成 AI 备课草案/); assert.match(lessonPage, /尚未写入课时/);
+  assert.match(paperPage, /运行 AI 结构质检/); assert.match(paperPage, /不会改题/);
+  assert.match(reflectionPage, /生成 AI 反思草案/); assert.match(reflectionPage, /尚未私密保存/); assert.match(reflectionPage, /关联课时已改变，旧 AI 反思草案已清空/);
+});
+
 test("all AI generation, apply, reject and learning-clear operations are audited", async () => {
-  const sources = (await Promise.all(["app/api/ai/feedback-drafts/route.ts", "app/api/ai/question-reviews/route.ts", "app/api/ai/question-reviews/apply/route.ts", "app/api/settings/ai/route.ts"].map(read))).join("\n");
+  const sources = (await Promise.all(["app/api/ai/feedback-drafts/route.ts", "app/api/ai/lesson-prep/route.ts", "app/api/ai/paper-review/route.ts", "app/api/ai/reflection-drafts/route.ts", "app/api/ai/question-reviews/route.ts", "app/api/ai/question-reviews/apply/route.ts", "app/api/settings/ai/route.ts"].map(read))).join("\n");
   for (const action of ["generate", "generate_failed", "apply_ai_suggestion", "reject", "delete_all"]) assert.match(sources, new RegExp(`audit\\(access, [\"']${action}[\"']`));
 });

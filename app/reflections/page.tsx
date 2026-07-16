@@ -11,6 +11,7 @@ export default function ReflectionsPage() {
   const [rows, setRows] = useState<Row[]>([]), [lessons, setLessons] = useState<Row[]>([]), [classes, setClasses] = useState<Row[]>([]);
   const [q, setQ] = useState(""), [tag, setTag] = useState(""), [month, setMonth] = useState(""), [topic, setTopic] = useState(""), [problemType, setProblemType] = useState(""), [classId, setClassId] = useState("");
   const [form, setForm] = useState<any>(blank()), [open, setOpen] = useState(false), [editing, setEditing] = useState<number | null>(null), [message, setMessage] = useState(""), [view, setView] = useState<"list" | "calendar">("list");
+  const [aiBusy, setAiBusy] = useState(false), [aiMeta, setAiMeta] = useState<{ sentFields: string[]; excludedFields: string[]; uncertainty: string[] } | null>(null);
 
   const load = useCallback(async () => {
     const query = new URLSearchParams({ q, tag, month, topic, problemType, classId });
@@ -20,8 +21,8 @@ export default function ReflectionsPage() {
     Promise.all([fetch("/api/lessons").then((r) => r.json()), fetch("/api/classes").then((r) => r.json())]).then(([l, c]) => { setLessons(l.lessons || []); setClasses(c.classes || []); });
     void load();
     const params = new URLSearchParams(location.search);
-    if (params.get("lesson")) { setForm({ ...blank(), lessonId: params.get("lesson") }); setOpen(true); }
-    else if (params.get("new") === "1") setOpen(true);
+    if (params.get("lesson")) { setAiMeta(null); setForm({ ...blank(), lessonId: params.get("lesson") }); setOpen(true); }
+    else if (params.get("new") === "1") { setAiMeta(null); setOpen(true); }
   }, [load]);
 
   const save = async () => {
@@ -29,16 +30,18 @@ export default function ReflectionsPage() {
     if (!response.ok) { setMessage("保存失败，请检查日期和内容"); return; }
     setOpen(false); setEditing(null); setForm(blank()); setMessage("反思已私密保存"); load();
   };
-  const edit = (item: Row) => { setForm({ ...blank(), ...item, lessonId: String(item.lessonId || "") }); setEditing(item.id); setOpen(true); };
+  const edit = (item: Row) => { setAiMeta(null); setForm({ ...blank(), ...item, lessonId: String(item.lessonId || "") }); setEditing(item.id); setOpen(true); };
   const remove = async (id: number) => { if (!confirm("确认删除这条私密反思？删除后不可恢复。")) return; await fetch(`/api/reflections/${id}`, { method: "DELETE" }); load(); };
   const promote = async (id: number) => { if (!confirm("确认将有效做法、改进动作和可复用素材沉淀为“教学策略”资源？")) return; await fetch(`/api/reflections/${id}`, { method: "POST" }); setMessage("完整内容已沉淀为教学策略"); load(); };
+  const generateAiReflection = async () => { if (!form.lessonId) { setMessage("请先在反思表单中关联一节课"); return; } const hasContent = ["expectedVsActual", "effectivePractices", "difficulties", "studentEvidence", "nextAction", "reusableMaterial"].some((key) => String(form[key] || "").trim()); if (hasContent && !confirm("当前反思表单已有内容。确认用新的 AI 草案覆盖这些正文？日期、关联课时和已完成状态不会改变。")) return; setAiBusy(true); setMessage(""); const response = await fetch("/api/ai/reflection-drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: Number(form.lessonId) }) }), payload = await response.json(); setAiBusy(false); if (!response.ok) { setMessage(payload.error || "AI 反思草案生成失败"); return; } const draft = payload.draft || {}; setForm((current: any) => ({ ...current, problemType: draft.problemType || current.problemType, tags: draft.tags || current.tags, expectedVsActual: draft.expectedVsActual || "", effectivePractices: draft.effectivePractices || "", difficulties: draft.difficulties || "", studentEvidence: draft.studentEvidence || "", nextAction: draft.nextAction || "", reusableMaterial: draft.reusableMaterial || "" })); setAiMeta({ sentFields: payload.sentFields || [], excludedFields: payload.excludedFields || [], uncertainty: draft.uncertainty || [] }); setMessage("AI 反思草案已填入，尚未私密保存"); };
+  const changeReflectionLesson = (lessonId: string) => { if (!aiMeta) { setForm({ ...form, lessonId }); return; } setForm({ ...form, lessonId, problemType: "", tags: "", expectedVsActual: "", effectivePractices: "", difficulties: "", studentEvidence: "", nextAction: "", reusableMaterial: "" }); setAiMeta(null); setMessage("关联课时已改变，旧 AI 反思草案已清空，请重新生成或手动填写"); };
   const calendarMonth = month || new Date().toISOString().slice(0, 7);
   const calendar = useMemo(() => {
     const [year, m] = calendarMonth.split("-").map(Number), first = new Date(year, m - 1, 1), count = new Date(year, m, 0).getDate();
     return { offset: (first.getDay() + 6) % 7, days: Array.from({ length: count }, (_, i) => `${calendarMonth}-${String(i + 1).padStart(2, "0")}`) };
   }, [calendarMonth]);
 
-  return <AppShell title="教学反思" subtitle="默认私密的教学复盘与策略沉淀" actions={<button className="primaryButton" onClick={() => { setEditing(null); setForm(blank()); setOpen(true); }}>＋ 新建反思</button>}>
+  return <AppShell title="教学反思" subtitle="默认私密的教学复盘与策略沉淀" actions={<button className="primaryButton" onClick={() => { setAiMeta(null); setEditing(null); setForm(blank()); setOpen(true); }}>＋ 新建反思</button>}>
     {message && <div className="saveToast" role="status">{message}</div>}
     <div className="reflectionToolbar">
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="全文搜索做法、困难或改进动作" aria-label="全文搜索" />
@@ -59,9 +62,10 @@ export default function ReflectionsPage() {
     </article>)}</section>}
 
     {open && <div className="modalBackdrop"><div className="lessonModal" role="dialog" aria-modal="true" aria-labelledby="reflection-title"><div className="modalTitle"><div><p>完整内容默认私密</p><h2 id="reflection-title">{editing ? "编辑教学反思" : "新建教学反思"}</h2></div><button aria-label="关闭" onClick={() => setOpen(false)}>×</button></div>
+      <section className="aiWorkbenchCompact"><div><p>DeepSeek · 课后教研辅助</p><h2>从真实课时记录生成反思草案</h2><span>必须先关联课时；只填入表单，不会自动保存或沉淀为公开策略。</span></div><button className="aiButton" disabled={aiBusy || !form.lessonId} onClick={generateAiReflection}>{aiBusy ? "正在复盘…" : "生成 AI 反思草案"}</button></section>{aiMeta && <div className="aiUncertainty"><b>需要教师确认</b>{aiMeta.uncertainty.map((item) => <span key={item}>{item}</span>)}<details><summary>查看发送与排除字段</summary><p>发送：{aiMeta.sentFields.join("、")}</p><p>排除：{aiMeta.excludedFields.join("、")}</p></details></div>}
       <div className="formGrid">
         <label>日期<input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
-        <label>关联课时<select value={form.lessonId} onChange={(e) => setForm({ ...form, lessonId: e.target.value })}><option value="">独立反思</option>{lessons.map((l) => <option value={l.id} key={l.id}>{l.date} · {l.topic || l.courseName}</option>)}</select></label>
+        <label>关联课时<select value={form.lessonId} onChange={(e) => changeReflectionLesson(e.target.value)}><option value="">独立反思</option>{lessons.map((l) => <option value={l.id} key={l.id}>{l.date} · {l.topic || l.courseName}</option>)}</select></label>
         <label>问题类型<select value={form.problemType} onChange={(e) => setForm({ ...form, problemType: e.target.value })}><option value="">暂不归类</option>{problemTypes.map((x) => <option key={x}>{x}</option>)}</select></label>
         <label>主题标签<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="如：材料分析、课堂节奏" /></label>
         <label className="wide">预设与实际差异<textarea value={form.expectedVsActual} onChange={(e) => setForm({ ...form, expectedVsActual: e.target.value })} /></label>

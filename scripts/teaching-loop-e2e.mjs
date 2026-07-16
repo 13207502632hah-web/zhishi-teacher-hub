@@ -29,6 +29,14 @@ function aiEnvelope(model, content) {
 }
 
 function aiMockContent(body, payload) {
+  if (payload?.requiredJsonExample?.risks) return {
+    summary: "试卷结构总体可用，但仍需教师核对题型、难度与分值梯度。",
+    strengths: ["题型与知识点均有明确标注"],
+    risks: [{ level: "中", title: "难度梯度需复核", evidence: "现有题目难度分布存在集中区间", recommendation: "按由易到难顺序人工核对题目排列" }],
+    recommendedActions: ["先核对高分题与预计时长", "再核对知识点覆盖"],
+    evidenceSummary: ["题型分布", "难度分布", "分值与知识点"],
+    uncertainty: ["未读取答案与解析正文，无法判断答案正确性"],
+  };
   if (Array.isArray(payload?.questions)) {
     const reviews = payload.questions.map((question) => {
       let field = "questionType", suggestion = "";
@@ -48,6 +56,28 @@ function aiMockContent(body, payload) {
     });
     return { reviews };
   }
+  if (payload?.requiredJsonExample?.teachingGoals) return {
+    teachingGoals: "基于课时已有课题，形成可核对的知识理解与材料分析目标。",
+    keyPoints: "围绕已有知识点梳理材料与观点之间的对应关系。",
+    difficultPoints: "区分材料事实、教材观点与结论，避免跳步。",
+    materials: "使用课时已有教材目录、教师讲义和已关联正式题目。",
+    lessonFlow: "回顾上一节记录—呈现已有材料—分层设问—正式题目检测—教师总结。",
+    questionUsePlan: "先独立作答已关联题目，再根据错因进行针对性讲评。",
+    evidenceSummary: ["课时已有课题", "上一节真实记录", "已关联正式题目"],
+    uncertainty: [],
+  };
+  if (payload?.requiredJsonExample?.expectedVsActual) return {
+    problemType: "材料分析",
+    tags: "材料分析,规范表达",
+    expectedVsActual: "根据既有教学目标与实际内容，课堂完成主体内容，材料分析步骤仍需复盘。",
+    effectivePractices: "教师记录显示使用了材料关键词提取与分层表达。",
+    difficulties: "学生在材料信息与教材观点对应时仍有跳步。",
+    studentEvidence: "仅根据匿名课堂评分、出勤和教师备注整理。",
+    nextAction: "下节课先用一道已核对材料题复测，再针对错因讲评。",
+    reusableMaterial: "保留关键词—观点—材料—结论的四步提示语。",
+    evidenceSummary: ["实际教学内容", "匿名课堂记录", "作业完成汇总"],
+    uncertainty: [],
+  };
   return {
     classroomSummary: "已根据真实课时记录整理课堂内容。",
     highlights: "能够提取材料关键词并尝试分层表达。",
@@ -228,6 +258,9 @@ async function exerciseAnonymousAiBoundary() {
     request("/api/ai/question-reviews"),
     request("/api/ai/question-reviews", { method: "POST", body: { questionIds: [1] } }),
     request("/api/ai/question-reviews/apply", { method: "POST", body: { reviewIds: [1], mode: "single", fields: ["analysis"] } }),
+    request("/api/ai/lesson-prep", { method: "POST", body: { lessonId: 1 } }),
+    request("/api/ai/paper-review", { method: "POST", body: { paperId: 1 } }),
+    request("/api/ai/reflection-drafts", { method: "POST", body: { lessonId: 1 } }),
     request("/api/ai/usage"),
     request("/api/settings/ai"),
     request("/api/settings/ai", { method: "PATCH", body: { enabled: true, privacyAcknowledged: true } }),
@@ -400,6 +433,27 @@ async function exerciseAiWorkflows(cookie) {
     const capturedFeedback = JSON.stringify(feedbackRequest.body);
     for (const secret of ["13800138000", "wxTeacher88", "/tmp/private.pdf"]) assert.doesNotMatch(capturedFeedback, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     const draft = generated.data.draft, styleMarker = "【本地风格】先回扣材料关键词，再按观点—材料—结论分层表达。";
+    const paper = rows("SELECT p.id FROM papers p JOIN demo_records d ON d.entity_type='paper' AND d.entity_id=p.id JOIN paper_questions pq ON pq.paper_id=p.id GROUP BY p.id ORDER BY p.id LIMIT 1")[0];
+    assert.ok(paper?.id);
+    const immutableBefore = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections`)[0];
+    const lessonPrep = await request("/api/ai/lesson-prep", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
+    assert.equal(lessonPrep.response.status, 200, JSON.stringify(lessonPrep.data));
+    assert.ok(lessonPrep.data.draft.teachingGoals);
+    assert.ok(lessonPrep.data.excludedFields.includes("学生姓名和联系方式"));
+    const lessonPrepRequest = aiMock.requests.at(-1);
+    assert.doesNotMatch(JSON.stringify(lessonPrepRequest.payload), new RegExp(String(student.name)));
+    const paperReview = await request("/api/ai/paper-review", { cookie, method: "POST", body: { paperId: Number(paper.id) } });
+    assert.equal(paperReview.response.status, 200, JSON.stringify(paperReview.data));
+    assert.ok(paperReview.data.review.risks.length);
+    const paperReviewRequest = aiMock.requests.at(-1);
+    assert.ok(Array.isArray(paperReviewRequest.payload.questions));
+    assert.ok(paperReviewRequest.payload.questions.every((item) => !("answer" in item) && !("analysis" in item)));
+    const reflectionDraft = await request("/api/ai/reflection-drafts", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
+    assert.equal(reflectionDraft.response.status, 200, JSON.stringify(reflectionDraft.data));
+    assert.ok(reflectionDraft.data.draft.nextAction);
+    assert.ok(reflectionDraft.data.excludedFields.includes("学生姓名和联系方式"));
+    const immutableAfter = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections`)[0];
+    assert.deepEqual(immutableAfter, immutableBefore);
     result = await request("/api/feedback", { cookie, method: "POST", body: { ...draft, lessonId: Number(lesson.id), studentId: Number(student.id), classId: Number(lesson.classId), aiDraftId: Number(draft.aiDraftId), aiReviewed: true, type: "lesson", audience: "private", tone: "温和鼓励", status: "draft", content: styleMarker, parentAdvice: styleMarker } });
     assert.equal(result.response.status, 201, JSON.stringify(result.data));
 
@@ -446,7 +500,7 @@ async function exerciseAiWorkflows(cookie) {
     assert.equal(secondBatch.response.status, 200, JSON.stringify(secondBatch.data));
     assert.equal(secondBatch.data.processed, 2);
     assert.equal(secondBatch.data.task.status, "completed");
-    const batchRequests = aiMock.requests.filter((item) => Array.isArray(item.payload?.questions) && item.body.model === "deepseek-v4-flash");
+    const batchRequests = aiMock.requests.filter((item) => Array.isArray(item.payload?.questions) && Array.isArray(item.payload?.safeFields) && item.body.model === "deepseek-v4-flash");
     assert.equal(batchRequests.length, 2);
     assert.ok(batchRequests.every((item) => item.body.thinking.type === "enabled" && item.payload.questions.length <= 10));
 
@@ -509,7 +563,7 @@ async function exerciseAiWorkflows(cookie) {
     const auditActions = new Set(rows(`SELECT action FROM audit_logs WHERE id>${baseline.audit}`).map((item) => String(item.action)));
     for (const action of ["generate", "generate_failed", "apply_ai_suggestion", "reject", "delete_all"]) assert.ok(auditActions.has(action), `缺少 AI 审计动作 ${action}`);
 
-    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true }, proSingleReview: true, staleProtection: true, usageRecorded: true };
+    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, lessonPrep: true, paperReview: true, reflectionDraft: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true }, proSingleReview: true, staleProtection: true, usageRecorded: true };
   } finally {
     aiMock.mode = "ok";
     restoreLocalState();
