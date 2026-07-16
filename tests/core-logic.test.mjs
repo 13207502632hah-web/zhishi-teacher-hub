@@ -298,10 +298,13 @@ test("comprehensive demo data is idempotent and covers end-to-end operating stat
 
 test("display helpers keep demo identities and due dates readable", async () => {
   const { personInitial, taskDueLabel } = await loadTsModule("app/lib/display-format.ts");
+  const { lessonDisplay } = await loadTsModule("app/lib/lesson-display.ts");
   assert.equal(personInitial("【演示】九年级学生1"), "九");
   assert.equal(personInitial("  （莫同学"), "莫");
   assert.equal(personInitial(""), "学");
   assert.equal(taskDueLabel("2026-07-16T21:00", "2026-07-16"), "今天 21:00");
+  assert.deepEqual(lessonDisplay({ studentNames: "张同学、李同学", courseType: "一对二", startTime: "18:30", endTime: "20:00", location: "和平校区 A201" }), { studentNames: ["张同学", "李同学"], displaySubject: "张同学、李同学", displayLocation: "和平校区 A201", displayTime: "18:30-20:00", displayTitle: "张同学、李同学——和平校区 A201——18:30-20:00" });
+  assert.equal(lessonDisplay({ courseType: "小班课", startTime: "09:00", endTime: "11:00", location: "河西校区" }).displaySubject, "小班课");
   assert.equal(taskDueLabel("2026-07-21T21:00", "2026-07-16"), "7月21日 21:00");
   assert.equal(taskDueLabel("2027-01-02 09:30", "2026-07-16"), "2027年1月2日 09:30");
   assert.equal(taskDueLabel("", "2026-07-16"), "尽快处理");
@@ -434,8 +437,8 @@ test("XLSX compatibility reader handles prefixed worksheet XML and shared string
 
 test("calendar subscription keeps stable lesson UID and a 30 minute reminder", async () => {
   const { createCalendar } = await loadTsModule("app/lib/calendar.ts");
-  const ics = createCalendar([{ id: 12, date: "2026-07-20", startTime: "08:00", endTime: "10:00", courseName: "政治课", location: "教室A" }], 30);
-  assert.match(ics, /UID:lesson-12@zhishi-teacher-hub/); assert.match(ics, /TRIGGER:-PT30M/); assert.match(ics, /LOCATION:教室A/); assert.doesNotMatch(ics, /课时费|家长联系方式/);
+  const ics = createCalendar([{ id: 12, date: "2026-07-20", startTime: "08:00", endTime: "10:00", courseName: "政治课", topic: "依法治国", location: "教室A", studentNames: "张同学、李同学", courseType: "一对二" }, { id: 13, date: "2026-07-21", startTime: "09:00", endTime: "11:00", courseName: "政治课", location: "教室B", courseType: "小班课" }], 30);
+  assert.match(ics, /UID:lesson-12@zhishi-teacher-hub/); assert.match(ics, /TRIGGER:-PT30M/); assert.match(ics, /SUMMARY:张同学\、李同学 · 依法治国/); assert.match(ics, /SUMMARY:小班课 · 政治课/); assert.match(ics, /时间：08:00–10:00/); assert.match(ics, /LOCATION:教室A/); assert.doesNotMatch(ics, /课时费|家长联系方式/);
 });
 
 test("recognition blocks uncertain scores and uses four explainable mastery levels", async () => {

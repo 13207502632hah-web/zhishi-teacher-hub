@@ -298,7 +298,27 @@ async function exerciseComprehensiveDemo(cookie) {
     const result = await request(pathname, { cookie });
     assert.equal(result.response.status, 200, `${pathname}: ${JSON.stringify(result.data)}`);
   }
-  return { summary: first.data.summary, coverage, idempotent: true };
+  const dashboard = await request("/api/dashboard?days=30", { cookie });
+  const displayedLesson = [...(dashboard.data.todayLessons || []), ...(dashboard.data.upcomingLessons || [])].find((item) => String(item.displaySubject || "").startsWith("【演示】"));
+  assert.ok(displayedLesson?.studentNames?.length, JSON.stringify(displayedLesson));
+  assert.ok(displayedLesson.displaySubject);
+  assert.match(String(displayedLesson.displayTime || ""), /^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/);
+  assert.ok(displayedLesson.displayLocation);
+  const calendarSubscription = await request("/api/calendar/subscription", { cookie, method: "POST" });
+  assert.equal(calendarSubscription.response.status, 200, JSON.stringify(calendarSubscription.data));
+  const calendarFeed = await fetch(`${baseUrl}${String(calendarSubscription.data.path || "")}`), calendarText = await calendarFeed.text();
+  assert.equal(calendarFeed.status, 200, calendarText.slice(0, 300));
+  assert.match(calendarText, new RegExp(String(displayedLesson.displaySubject).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(calendarText, /时间：\d{2}:\d{2}–\d{2}:\d{2}/);
+  assert.match(calendarText, new RegExp(String(displayedLesson.displayLocation).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const question = rows("SELECT q.id,q.answer,q.analysis FROM questions q JOIN demo_records d ON d.entity_type='question' AND d.entity_id=q.id WHERE TRIM(COALESCE(q.answer,''))<>'' AND TRIM(COALESCE(q.analysis,''))<>'' ORDER BY q.id LIMIT 1")[0];
+  assert.ok(question?.id);
+  const content = await request(`/api/questions/${Number(question.id)}/content`, { cookie });
+  assert.equal(content.response.status, 200, JSON.stringify(content.data));
+  assert.equal(content.data.content.answer, question.answer);
+  assert.equal(content.data.content.analysis, question.analysis);
+  assert.match(content.response.headers.get("cache-control") || "", /no-store/);
+  return { summary: first.data.summary, coverage, idempotent: true, questionContent: true, scheduleDisplay: true, calendarDisplay: true };
 }
 
 async function exerciseAiWorkflows(cookie) {

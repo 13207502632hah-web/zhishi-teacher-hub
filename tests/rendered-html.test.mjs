@@ -163,7 +163,8 @@ test("comprehensive repairs connect lazy answers, imports, exams, promotion and 
     "app/questions/page.tsx", "app/api/questions/[id]/content/route.ts", "app/api/questions/[id]/review/route.ts", "app/api/question-sets/import/route.ts", "app/lib/lesson-display.ts", "app/lib/feedback-import.ts", "app/feedback-imports/page.tsx", "app/recognition/page.tsx", "app/exam-projects/page.tsx", "app/api/students/[id]/score-trends/route.ts", "app/lib/services/grade-promotion-service.ts", "app/api/dashboard/route.ts", "drizzle/0024_paper_feedback_workflow.sql", "drizzle/0025_academic_exam_analytics.sql", "mini-program/pages/home/index.wxml", "mini-program/pages/review/index.wxml",
   ].map(read));
   for (const state of ["加载中", "读取失败", "待补充", "重试题目"]) assert.match(questions, new RegExp(state));
-  assert.match(contentApi, /standardExpression/); assert.match(reviewApi, /expectedUpdatedAt/); assert.match(paperImport, /paperId/);
+  assert.match(questions, /questionContentRef/); assert.match(questions, /cache:\s*"no-store"/); assert.match(questions, /answer:\s*state\.answer/);
+  assert.match(contentApi, /standardExpression/); assert.match(contentApi, /private, no-store/); assert.match(reviewApi, /expectedUpdatedAt/); assert.match(paperImport, /paperId/);
   assert.match(lessonDisplay, /studentNames/); assert.match(lessonDisplay, /startTime/); assert.match(feedbackImport, /confidence/); assert.match(feedbackPage, /原文证据/); assert.match(feedbackPage, /未发布草稿/);
   assert.match(recognition, /【存疑】/); assert.match(recognition, /本机浏览器/); assert.match(examPage, /待录/); assert.match(examPage, /成绩波动度/); assert.match(trends, /movingAverage/); assert.match(trends, /数据不足/);
   assert.match(promotion, /INSERT OR IGNORE/); assert.match(dashboard, /today\.slice\(5, 7\) === "09"/); assert.match(dashboard, /核对新学年年级晋升/);
