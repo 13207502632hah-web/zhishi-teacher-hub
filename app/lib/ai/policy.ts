@@ -96,7 +96,11 @@ export async function executeDeepSeekRequest({ url, apiKey, body, fetcher = fetc
       }
       let result: unknown;
       try { result = await response.json(); } catch { throw new AiPayloadError("DeepSeek 响应不是有效 JSON，结果未保存", "INVALID_PROVIDER_RESPONSE"); }
-      return parseDeepSeekEnvelope(result);
+      try { return parseDeepSeekEnvelope(result); }
+      catch (error) {
+        if (error instanceof AiPayloadError && error.code === "FINISH_INSUFFICIENT_SYSTEM_RESOURCE" && attempt === 0) { lastError = error; continue; }
+        throw error;
+      }
     } catch (error) {
       if (error instanceof AiPayloadError) throw error;
       lastError = new AiPayloadError("DeepSeek 网络请求超时或中断", "NETWORK_ERROR");

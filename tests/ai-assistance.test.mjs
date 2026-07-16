@@ -63,6 +63,20 @@ test("mocked provider calls retry 429 and 5xx once, but never retry 401 or 402",
   }
 });
 
+test("provider resource interruption retries once but content and schema failures do not", async () => {
+  const { executeDeepSeekRequest } = await loadTsModule("app/lib/ai/policy.ts");
+  const response = (finishReason, content = '{"ok":true}') => new Response(JSON.stringify({ choices: [{ finish_reason: finishReason, message: { content } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  let calls = 0;
+  const recovered = await executeDeepSeekRequest({ url: "https://example.invalid", apiKey: "test", body: {}, fetcher: async () => { calls += 1; return calls === 1 ? response("insufficient_system_resource") : response("stop"); } });
+  assert.equal(calls, 2);
+  assert.deepEqual(recovered.parsed, { ok: true });
+  for (const [finishReason, code] of [["content_filter", "FINISH_CONTENT_FILTER"], ["length", "TRUNCATED_RESPONSE"]]) {
+    calls = 0;
+    await assert.rejects(() => executeDeepSeekRequest({ url: "https://example.invalid", apiKey: "test", body: {}, fetcher: async () => { calls += 1; return response(finishReason); } }), (error) => error.code === code);
+    assert.equal(calls, 1);
+  }
+});
+
 test("mocked provider timeout retries once then returns NETWORK_ERROR", async () => {
   const { executeDeepSeekRequest } = await loadTsModule("app/lib/ai/policy.ts");
   let calls = 0;
