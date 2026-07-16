@@ -4,7 +4,7 @@ export async function recognizeChineseImage(file: File, onProgress?: (progress: 
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("chi_sim", 1, {
     workerPath: "/ocr/worker.min.js",
-    corePath: "/ocr/tesseract-core-lstm.wasm.js",
+    corePath: "/ocr",
     langPath: "/ocr",
     logger: (event) => onProgress?.({ status: event.status, progress: event.progress || 0 }),
   });
