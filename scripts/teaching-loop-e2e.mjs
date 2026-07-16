@@ -214,6 +214,40 @@ async function login() {
   return cookie;
 }
 
+async function exerciseAnonymousAiBoundary() {
+  const before = rows(`SELECT
+    (SELECT COUNT(*) FROM ai_runs) AS runs,
+    (SELECT COUNT(*) FROM ai_feedback_drafts) AS drafts,
+    (SELECT COUNT(*) FROM ai_question_review_tasks) AS tasks,
+    (SELECT COUNT(*) FROM ai_question_reviews) AS reviews,
+    (SELECT COUNT(*) FROM feedback) AS feedback,
+    (SELECT COUNT(*) FROM audit_logs) AS audits`)[0];
+  const providerCalls = aiMock.requests.length;
+  const results = await Promise.all([
+    request("/api/ai/feedback-drafts", { method: "POST", body: { lessonId: 1, preview: true } }),
+    request("/api/ai/question-reviews"),
+    request("/api/ai/question-reviews", { method: "POST", body: { questionIds: [1] } }),
+    request("/api/ai/question-reviews/apply", { method: "POST", body: { reviewIds: [1], mode: "single", fields: ["analysis"] } }),
+    request("/api/ai/usage"),
+    request("/api/settings/ai"),
+    request("/api/settings/ai", { method: "PATCH", body: { enabled: true, privacyAcknowledged: true } }),
+  ]);
+  for (const result of results) {
+    assert.equal(result.response.status, 401, JSON.stringify(result.data));
+    assert.match(String(result.data?.error || ""), /教师管理员账号登录/);
+  }
+  assert.equal(aiMock.requests.length, providerCalls);
+  const after = rows(`SELECT
+    (SELECT COUNT(*) FROM ai_runs) AS runs,
+    (SELECT COUNT(*) FROM ai_feedback_drafts) AS drafts,
+    (SELECT COUNT(*) FROM ai_question_review_tasks) AS tasks,
+    (SELECT COUNT(*) FROM ai_question_reviews) AS reviews,
+    (SELECT COUNT(*) FROM feedback) AS feedback,
+    (SELECT COUNT(*) FROM audit_logs) AS audits`)[0];
+  assert.deepEqual(after, before);
+  return { endpoints: results.length, rejected: true, providerCalls: 0, databaseWrites: 0 };
+}
+
 async function exerciseComprehensiveDemo(cookie) {
   const first = await request("/api/settings/demo", { cookie, method: "POST" });
   assert.ok([200, 201].includes(first.response.status), JSON.stringify({ status: first.response.status, data: first.data, logs: logs.slice(-20) }));
@@ -647,13 +681,14 @@ try {
     console.log("本地浏览器验收服务器已就绪；按 Ctrl+C 停止。");
     await new Promise((resolve) => process.once("SIGINT", resolve));
   } else {
+    const access = await exerciseAnonymousAiBoundary();
     const cookie = await login();
     const demo = await exerciseComprehensiveDemo(cookie);
     const ai = await exerciseAiWorkflows(cookie);
     const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
     cleanup();
     await mkdir(path.dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, demo, ai, rounds, generatedAt: new Date().toISOString() }, null, 2));
+    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, ai, rounds, generatedAt: new Date().toISOString() }, null, 2));
     console.log(`综合演示数据、DeepSeek 本地模拟与今日教学闭环回归通过：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
   }
 } finally {

@@ -138,8 +138,19 @@ test("server keeps secrets server-side, uses current models and never sends a lo
 test("AI routes enforce teacher-only access, privacy acknowledgement and no write before validated output", async () => {
   const { aiRoleAllowed } = await loadTsModule("app/lib/ai/policy.ts");
   const server = await read("app/lib/ai/server.ts"), feedbackRoute = await read("app/api/ai/feedback-drafts/route.ts"), reviewRoute = await read("app/api/ai/question-reviews/route.ts");
+  const protectedRoutes = await Promise.all([
+    "app/api/ai/feedback-drafts/route.ts",
+    "app/api/ai/question-reviews/route.ts",
+    "app/api/ai/question-reviews/apply/route.ts",
+    "app/api/ai/usage/route.ts",
+    "app/api/settings/ai/route.ts",
+  ].map(read));
   assert.equal(aiRoleAllowed("teacher"), true);
   for (const role of ["assistant", "student", "parent", "anonymous", ""]) assert.equal(aiRoleAllowed(role), false);
+  for (const route of protectedRoutes) {
+    assert.match(route, /requirePermission/);
+    assert.match(route, /requireAiTeacher/);
+  }
   assert.match(server, /requireAiTeacher/);
   assert.match(server, /PRIVACY_ACK_REQUIRED/);
   assert.match(server, /DAILY_LIMIT/);
