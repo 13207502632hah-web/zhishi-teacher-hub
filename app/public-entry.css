@@ -1,2 +1,826 @@
-.resourceShortcuts{grid-template-columns:repeat(4,1fr)}
-@media(max-width:900px){.resourceShortcuts{grid-template-columns:repeat(2,1fr)}}
+.publicShell {
+  background: var(--zs-paper);
+  color: var(--zs-ink);
+}
+
+.publicHeader {
+  position: relative;
+  z-index: 12;
+  display: flex;
+  min-height: 4.5rem;
+  height: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgb(216 210 197 / 75%);
+  background: rgb(245 242 234 / 94%);
+  color: var(--zs-ink);
+  backdrop-filter: blur(1rem);
+}
+
+.publicBrand {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--zs-ink);
+}
+
+.publicBrand > span,
+.teacherLoginBrand > span {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--zs-pine);
+  color: var(--zs-surface);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.publicBrand b,
+.publicBrand small {
+  display: block;
+}
+
+.publicBrand b {
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.125rem;
+  letter-spacing: 0.08em;
+}
+
+.publicBrand small {
+  display: none;
+  margin-top: 0.1rem;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.publicHeader nav {
+  display: flex;
+  height: auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  border: 0;
+}
+
+.publicHeader nav a {
+  display: none;
+  min-height: 44px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.625rem 0.875rem;
+  color: var(--zs-ink);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.publicHeader nav a[href="/resources"],
+.publicHeader nav .workspaceEntry {
+  display: inline-flex;
+}
+
+.publicHeader nav a:hover {
+  background: var(--zs-paper-deep);
+  color: var(--zs-pine-deep);
+}
+
+.publicHeader nav .workspaceEntry {
+  border: 1px solid var(--zs-pine);
+  background: var(--zs-pine);
+  color: var(--zs-surface);
+  font-weight: 700;
+}
+
+.publicHeader nav .workspaceEntry:hover {
+  background: var(--zs-pine-deep);
+  color: var(--zs-surface);
+}
+
+.publicContent--landing {
+  padding: 0;
+}
+
+.publicHomeHero {
+  position: relative;
+  display: grid;
+  gap: 2.75rem;
+  overflow: hidden;
+  padding: 4rem 1.25rem 4.5rem;
+}
+
+.publicHomeHero::before {
+  position: absolute;
+  top: 1.5rem;
+  right: -5rem;
+  width: 15rem;
+  height: 15rem;
+  border: 1px solid rgb(197 154 69 / 30%);
+  border-radius: 50%;
+  content: "";
+}
+
+.publicHomeHero__copy {
+  position: relative;
+  z-index: 1;
+  max-width: 42rem;
+}
+
+.publicHomeEyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0 0 1.25rem;
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.publicHomeEyebrow i {
+  width: 3rem;
+  height: 1px;
+  background: var(--zs-gold);
+}
+
+.publicHomeHero h1 {
+  max-width: 12em;
+  margin: 0;
+  color: var(--zs-pine-deep);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(2.75rem, 12vw, 5.5rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.publicHomeLead {
+  max-width: 38rem;
+  margin: 1.75rem 0 0;
+  color: var(--zs-muted);
+  font-size: 1rem;
+  line-height: 1.9;
+}
+
+.publicHomeActions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  flex-direction: column;
+}
+
+.publicHomePrimary,
+.publicHomeSecondary {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.publicHomePrimary {
+  border: 1px solid var(--zs-pine);
+  background: var(--zs-pine);
+  color: var(--zs-surface);
+  box-shadow: 0.25rem 0.25rem 0 var(--zs-gold);
+}
+
+.publicHomePrimary:hover {
+  border-color: var(--zs-pine-deep);
+  background: var(--zs-pine-deep);
+  color: var(--zs-surface);
+  transform: translate(-1px, -1px);
+}
+
+.publicHomeSecondary {
+  border: 1px solid var(--zs-line);
+  background: transparent;
+  color: var(--zs-pine);
+}
+
+.publicHomeSecondary:hover {
+  border-color: var(--zs-pine);
+  background: var(--zs-surface);
+}
+
+.publicHomeTrust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  list-style: none;
+}
+
+.publicHomeTrust li::before {
+  margin-right: 0.5rem;
+  color: var(--zs-gold);
+  content: "◇";
+}
+
+.publicHomeDesk {
+  position: relative;
+  width: min(100%, 34rem);
+  justify-self: center;
+  border: 1px solid var(--zs-line);
+  border-top: 0.35rem solid var(--zs-pine);
+  background:
+    linear-gradient(90deg, transparent 3.25rem, rgb(197 154 69 / 20%) 3.25rem, rgb(197 154 69 / 20%) calc(3.25rem + 1px), transparent calc(3.25rem + 1px)),
+    repeating-linear-gradient(180deg, var(--zs-surface) 0, var(--zs-surface) 2.9rem, rgb(216 210 197 / 45%) calc(2.9rem + 1px));
+  box-shadow: 0.75rem 0.75rem 0 var(--zs-paper-deep), var(--zs-shadow-md);
+}
+
+.publicHomeDesk__folio {
+  padding: 1rem 1.25rem 0.75rem 4.25rem;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.06em;
+}
+
+.publicHomeDesk__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem 1.25rem 4.25rem;
+}
+
+.publicHomeDesk__heading span,
+.publicHomeDesk__heading strong {
+  display: block;
+}
+
+.publicHomeDesk__heading span {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.publicHomeDesk__heading strong {
+  margin-top: 0.25rem;
+  color: var(--zs-pine-deep);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.5rem;
+}
+
+.publicHomeDesk__heading .publicHomeDesk__sample {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.publicHomeLoop {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0.25rem 1.25rem 1.5rem 4.25rem;
+  list-style: none;
+}
+
+.publicHomeLoop li {
+  position: relative;
+  display: grid;
+  min-height: 3.75rem;
+  grid-template-columns: 2.5rem 1fr;
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.publicHomeLoop li > span {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--zs-gold);
+  border-radius: 50%;
+  background: var(--zs-surface);
+  color: var(--zs-warning);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.publicHomeLoop li > div {
+  padding-top: 0.1rem;
+}
+
+.publicHomeLoop b,
+.publicHomeLoop small {
+  display: block;
+}
+
+.publicHomeLoop b {
+  font-size: 1rem;
+}
+
+.publicHomeLoop small {
+  margin-top: 0.1rem;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.publicHomeLoop i {
+  position: absolute;
+  top: 2rem;
+  left: 1rem;
+  width: 1px;
+  height: 1.75rem;
+  background: var(--zs-gold);
+}
+
+.publicHomeDesk__note {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 1.25rem 1.5rem 4.25rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(197 154 69 / 45%);
+  background: rgb(245 242 234 / 88%);
+}
+
+.publicHomeDesk__note > span {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--zs-danger);
+  border-radius: 50%;
+  color: var(--zs-danger);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+}
+
+.publicHomeDesk__note p {
+  margin: 0;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.publicHomePrinciples {
+  padding: 4.5rem 1.25rem;
+  border-block: 1px solid var(--zs-line);
+  background: var(--zs-pine-deep);
+  color: var(--zs-surface);
+}
+
+.publicHomeSectionHead p,
+.publicHomeResource p,
+.teacherLoginStory > p {
+  margin: 0 0 0.5rem;
+  color: var(--zs-gold);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.publicHomeSectionHead h2,
+.publicHomeResource h2 {
+  max-width: 16em;
+  margin: 0;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(2rem, 8vw, 3.5rem);
+  line-height: 1.2;
+}
+
+.publicHomePrincipleGrid {
+  display: grid;
+  gap: 0;
+  margin-top: 2.5rem;
+  border-top: 1px solid rgb(255 254 250 / 20%);
+}
+
+.publicHomePrincipleGrid article {
+  position: relative;
+  padding: 1.75rem 0;
+  border-bottom: 1px solid rgb(255 254 250 / 20%);
+}
+
+.publicHomePrincipleGrid article > span {
+  color: var(--zs-gold);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.125rem;
+}
+
+.publicHomePrincipleGrid h3 {
+  margin: 0.65rem 0 0.5rem;
+  color: var(--zs-surface);
+  font-size: 1.125rem;
+}
+
+.publicHomePrincipleGrid p {
+  max-width: 28rem;
+  margin: 0;
+  color: #C7D0CC;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.publicHomeResource {
+  display: grid;
+  gap: 2rem;
+  align-items: end;
+  padding: 4.5rem 1.25rem;
+}
+
+.publicHomeResource h2 {
+  color: var(--zs-pine-deep);
+}
+
+.publicHomeResource > div > span {
+  display: block;
+  max-width: 42rem;
+  margin-top: 1rem;
+  color: var(--zs-muted);
+  font-size: 1rem;
+}
+
+.publicHomeResource > a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  border-bottom: 1px solid var(--zs-pine);
+  padding: 0.75rem 0;
+  color: var(--zs-pine);
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.publicFooter {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1.75rem 1.25rem;
+  background: var(--zs-pine);
+  color: var(--zs-surface);
+}
+
+.publicFooter span {
+  color: #CED7D3;
+}
+
+.publicFooter a {
+  min-height: 44px;
+  align-items: center;
+  color: #F1D99D;
+}
+
+.resourceShortcuts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.teacherLogin {
+  position: relative;
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  place-items: initial;
+  padding: 1rem;
+  overflow: hidden;
+  background: var(--zs-paper);
+  color: var(--zs-ink);
+}
+
+.teacherLogin::before {
+  position: absolute;
+  top: -8rem;
+  right: -8rem;
+  width: 20rem;
+  height: 20rem;
+  border: 1px solid rgb(197 154 69 / 30%);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.teacherLoginBrand {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.75rem;
+  color: var(--zs-ink);
+  text-decoration: none;
+}
+
+.teacherLoginBrand b,
+.teacherLoginBrand small {
+  display: block;
+}
+
+.teacherLoginBrand b {
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.125rem;
+  letter-spacing: 0.08em;
+}
+
+.teacherLoginBrand small {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.teacherLoginLayout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(100%, 70rem);
+  gap: 2.5rem;
+  margin: auto;
+  padding: 3rem 0;
+}
+
+.teacherLoginStory {
+  display: none;
+}
+
+.teacherLoginCard {
+  width: min(100%, 30rem);
+  justify-self: center;
+  border: 1px solid var(--zs-line);
+  border-top: 0.35rem solid var(--zs-pine);
+  border-radius: 0;
+  padding: clamp(1.5rem, 7vw, 2.75rem);
+  background: var(--zs-surface);
+  box-shadow: 0.6rem 0.6rem 0 var(--zs-paper-deep);
+}
+
+.teacherLoginCard > p {
+  margin: 0 0 0.5rem;
+  color: var(--zs-warning);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.teacherLoginCard h1 {
+  margin: 0;
+  color: var(--zs-pine-deep);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(2rem, 8vw, 2.75rem);
+  line-height: 1.2;
+}
+
+.teacherLoginCard > .teacherLoginIntro {
+  display: block;
+  width: auto;
+  height: auto;
+  margin: 1rem 0 1.75rem;
+  border-radius: 0;
+  background: transparent;
+  color: var(--zs-muted);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.75;
+  place-items: initial;
+}
+
+.teacherLoginCard form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.teacherLoginCard label {
+  display: block;
+  margin-top: 0.75rem;
+  color: var(--zs-ink);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.teacherLoginCard input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--zs-line);
+  border-radius: 0.375rem;
+  padding: 0.75rem 0.875rem;
+  background: var(--zs-surface);
+  color: var(--zs-ink);
+  font-size: 1rem;
+}
+
+.teacherLoginCard input:focus {
+  border-color: var(--zs-pine);
+  box-shadow: 0 0 0 3px rgb(49 83 70 / 12%);
+  outline: none;
+}
+
+.teacherLoginCard form > small {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.teacherLoginCard .formError {
+  margin-top: 0.75rem;
+  border-left: 0.25rem solid var(--zs-danger);
+  border-radius: 0;
+  padding: 0.75rem;
+  background: #FAEEEB;
+  color: #74352F;
+  font-size: 0.875rem;
+}
+
+.teacherLoginCard .publicHomePrimary {
+  width: 100%;
+  margin-top: 1rem;
+  cursor: pointer;
+}
+
+.teacherLoginCard .publicHomePrimary:disabled {
+  box-shadow: none;
+  transform: none;
+}
+
+.teacherLoginLinks {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.75rem;
+  border-top: 1px solid var(--zs-line);
+  padding-top: 1rem;
+}
+
+.teacherLoginLinks a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+}
+
+.teacherLoginPrivacy {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+@media (min-width: 48rem) {
+  .publicHeader {
+    padding-inline: clamp(1.5rem, 5vw, 4rem);
+  }
+
+  .publicBrand small {
+    display: block;
+  }
+
+  .publicHeader nav {
+    gap: 0.5rem;
+  }
+
+  .publicHeader nav a {
+    display: inline-flex;
+  }
+
+  .publicHomeActions {
+    flex-direction: row;
+  }
+
+  .publicHomePrimary,
+  .publicHomeSecondary {
+    min-width: 10rem;
+  }
+
+  .publicHomePrincipleGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .publicHomePrincipleGrid article {
+    padding: 2rem;
+    border-right: 1px solid rgb(255 254 250 / 20%);
+  }
+
+  .publicHomePrincipleGrid article:first-child {
+    padding-left: 0;
+  }
+
+  .publicHomePrincipleGrid article:last-child {
+    border-right: 0;
+  }
+
+  .publicHomeResource {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .publicFooter {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .publicHeader {
+    position: sticky;
+    top: 0;
+  }
+
+  .publicHomeHero {
+    min-height: calc(100svh - 4.5rem);
+    grid-template-columns: minmax(0, 1.12fr) minmax(26rem, 0.88fr);
+    align-items: center;
+    gap: clamp(3rem, 7vw, 7rem);
+    padding: 5rem clamp(2rem, 7vw, 7rem);
+  }
+
+  .publicHomeDesk {
+    transform: rotate(1.25deg);
+  }
+
+  .publicHomePrinciples,
+  .publicHomeResource {
+    padding: 6rem clamp(2rem, 7vw, 7rem);
+  }
+
+  .resourceShortcuts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .teacherLogin {
+    padding: 1.5rem 2rem;
+  }
+
+  .teacherLoginLayout {
+    grid-template-columns: minmax(0, 1fr) minmax(25rem, 30rem);
+    align-items: center;
+    gap: clamp(4rem, 9vw, 8rem);
+  }
+
+  .teacherLoginStory {
+    display: block;
+  }
+
+  .teacherLoginStory h2 {
+    max-width: 9em;
+    margin: 0;
+    color: var(--zs-pine-deep);
+    font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+    font-size: clamp(3rem, 5vw, 4.75rem);
+    line-height: 1.1;
+  }
+
+  .teacherLoginStory > span {
+    display: block;
+    max-width: 34rem;
+    margin-top: 1.5rem;
+    color: var(--zs-muted);
+    font-size: 1rem;
+    line-height: 1.9;
+  }
+
+  .teacherLoginStory ol {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    margin: 2.75rem 0 0;
+    padding: 0;
+    border-block: 1px solid var(--zs-line);
+    list-style: none;
+  }
+
+  .teacherLoginStory li {
+    padding: 1rem 0.5rem;
+    border-right: 1px solid var(--zs-line);
+  }
+
+  .teacherLoginStory li:last-child {
+    border-right: 0;
+  }
+
+  .teacherLoginStory li b,
+  .teacherLoginStory li span {
+    display: block;
+  }
+
+  .teacherLoginStory li b {
+    color: var(--zs-gold);
+    font-size: 0.75rem;
+  }
+
+  .teacherLoginStory li span {
+    margin-top: 0.35rem;
+    font-weight: 700;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .publicHomePrimary:hover {
+    transform: none;
+  }
+}

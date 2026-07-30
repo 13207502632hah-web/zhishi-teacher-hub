@@ -4,7 +4,6 @@ import Link from "@/app/components/HardNavigationLink";
 import { useEffect, useState } from "react";
 import { AppShell, EmptyState } from "./components/AppShell";
 import { taskDueLabel } from "./lib/display-format";
-import ResourcesPage from "./resources/page";
 
 type LessonCard = Record<string, unknown> & { id: number; date: string; status: string };
 type DashboardData = {
@@ -95,4 +94,64 @@ export function Dashboard() {
   </AppShell>;
 }
 
-export default function PublicHome() { return <ResourcesPage />; }
+const teachingLoop = [
+  { number: "01", label: "备课", note: "目标、重难点与题目" },
+  { number: "02", label: "上课", note: "课堂过程与学生表现" },
+  { number: "03", label: "作业", note: "任务、提交与批改" },
+  { number: "04", label: "反馈", note: "教师确认后再发送" },
+  { number: "05", label: "结算", note: "课时依据清晰可查" },
+];
+
+export default function PublicHome() {
+  return <AppShell title="知师研室" publicLanding>
+    <section className="publicHomeHero">
+      <div className="publicHomeHero__copy">
+        <p className="publicHomeEyebrow"><span>莫老师的政治教学工作室</span><i aria-hidden="true" /></p>
+        <h1>把一节课，做成<br />可积累的教学资产。</h1>
+        <p className="publicHomeLead">从备课、上课到作业、反馈与结算，把真实教学过程安静地收进一个工作台。数据归教师管理，重要结果始终由教师确认。</p>
+        <div className="publicHomeActions">
+          <Link className="publicHomePrimary" href="/teacher-login?return_to=%2Fworkspace">教师登录 <span aria-hidden="true">→</span></Link>
+          <Link className="publicHomeSecondary" href="/resources">浏览公开资源</Link>
+        </div>
+        <ul className="publicHomeTrust" aria-label="工作台原则">
+          <li>私人数据不公开</li>
+          <li>教师确认后生效</li>
+          <li>初高中政治教学</li>
+        </ul>
+      </div>
+
+      <div className="publicHomeDesk" aria-label="一节课的教学闭环示意">
+        <div className="publicHomeDesk__folio">知师研室 · 第 07 册</div>
+        <div className="publicHomeDesk__heading">
+          <div><span>今日课题</span><strong>理解权利与义务</strong></div>
+          <span className="publicHomeDesk__sample">示例课时<br />教学手记</span>
+        </div>
+        <ol className="publicHomeLoop">
+          {teachingLoop.map((step, index) => <li key={step.label}>
+            <span>{step.number}</span>
+            <div><b>{step.label}</b><small>{step.note}</small></div>
+            {index < teachingLoop.length - 1 && <i aria-hidden="true" />}
+          </li>)}
+        </ol>
+        <div className="publicHomeDesk__note"><span aria-hidden="true">批</span><p>系统可以整理草稿，教学判断由教师完成。</p></div>
+      </div>
+    </section>
+
+    <section className="publicHomePrinciples" aria-labelledby="public-principles-title">
+      <div className="publicHomeSectionHead">
+        <p>不是再多一个工具</p>
+        <h2 id="public-principles-title">让日常教学留下可复用的脉络</h2>
+      </div>
+      <div className="publicHomePrincipleGrid">
+        <article><span>一</span><h3>从今天的课开始</h3><p>先处理临近课程和真实待办，不要求一次补齐所有历史资料。</p></article>
+        <article><span>二</span><h3>题目有出处，反馈有依据</h3><p>保留题目原文和校对状态；生成内容先作为草稿，由教师决定是否采用。</p></article>
+        <article><span>三</span><h3>学生信息保持私密</h3><p>公开资源与班级、学生、评价严格分开，权限在服务端再次核验。</p></article>
+      </div>
+    </section>
+
+    <section className="publicHomeResource">
+      <div><p>公开阅览室</p><h2>想先看看？从教学资源开始。</h2><span>公开资源无需登录；课时、学生、反馈和结算只在教师工作台中显示。</span></div>
+      <Link href="/resources">进入公开资源中心 <span aria-hidden="true">↗</span></Link>
+    </section>
+  </AppShell>;
+}

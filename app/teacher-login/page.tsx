@@ -1,7 +1,11 @@
 "use client";
 
+import Link from "@/app/components/HardNavigationLink";
+import { HttpError, requestJson } from "@/app/lib/http-client";
 import { FormEvent, useState } from "react";
 import { useSearchParams } from "next/navigation";
+
+type LoginResponse = { returnTo?: string };
 
 export default function TeacherLoginPage() {
   const searchParams = useSearchParams();
@@ -16,16 +20,48 @@ export default function TeacherLoginPage() {
     if (submitting) return;
     setSubmitting(true); setMessage("");
     try {
-      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account, password, returnTo: requestedReturnTo }) });
-      const payload = await response.json() as { error?: string; returnTo?: string };
-      if (!response.ok) { setMessage(payload.error || "暂时无法登录，请稍后重试"); return; }
+      const payload = await requestJson<LoginResponse>("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account, password, returnTo: requestedReturnTo }),
+      });
+      if (!payload) throw new HttpError(200, "登录响应为空，请重试");
       window.location.assign(payload.returnTo || "/workspace");
-    } catch {
-      setMessage("网络连接异常，请检查后重试");
+    } catch (error) {
+      setMessage(error instanceof HttpError ? error.message : "暂时无法登录，请稍后重试");
     } finally {
       setSubmitting(false);
     }
   };
 
-  return <main className="teacherLogin"><section className="teacherLoginCard" aria-labelledby="teacher-login-title"><span aria-hidden="true">知</span><p>知师研室 · 教师专用入口</p><h1 id="teacher-login-title">教师管理员登录</h1><small>登录后可管理课时、学生、题库、反馈和教学数据。</small><form onSubmit={submit}><label>管理员账号<input value={account} onChange={(event) => setAccount(event.target.value)} autoComplete="username" inputMode="numeric" required /></label><label>登录密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{message && <div className="formError" role="alert">{message}</div>}<button className="primaryButton" disabled={submitting}>{submitting ? "正在登录…" : "进入教师工作台"}</button></form><a href="/resources">返回公开资源中心</a></section></main>;
+  return <main className="teacherLogin">
+    <Link className="teacherLoginBrand" href="/" aria-label="返回知师研室首页"><span aria-hidden="true">知</span><div><b>知师研室</b><small>政治教学工作台</small></div></Link>
+    <div className="teacherLoginLayout">
+      <section className="teacherLoginStory" aria-labelledby="teacher-login-story-title">
+        <p>静雅备课室</p>
+        <h2 id="teacher-login-story-title">回到今天的教学现场。</h2>
+        <span>这里保存课时、题目、学生表现与教师反馈。每一条教学结论都保留依据，重要操作都需要教师确认。</span>
+        <ol aria-label="教学闭环">
+          {["备课", "上课", "作业", "反馈", "结算"].map((item, index) => <li key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></li>)}
+        </ol>
+      </section>
+
+      <section className="teacherLoginCard" aria-labelledby="teacher-login-title">
+        <p>教师专用入口</p>
+        <h1 id="teacher-login-title">教师管理员登录</h1>
+        <span className="teacherLoginIntro">登录后进入个人工作区。学生、家长和公开访客无法通过此入口查看教师数据。</span>
+        <form onSubmit={submit}>
+          <label htmlFor="teacher-account">管理员账号</label>
+          <input id="teacher-account" type="text" value={account} onChange={(event) => setAccount(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} aria-describedby="teacher-login-account-hint" required />
+          <small id="teacher-login-account-hint">请输入配置的教师管理员账号，可包含字母、数字或符号。</small>
+          <label htmlFor="teacher-password">登录密码</label>
+          <input id="teacher-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+          {message && <div className="formError" role="alert">{message}</div>}
+          <button className="publicHomePrimary" disabled={submitting}>{submitting ? "正在验证…" : "进入教师工作台"}<span aria-hidden="true">→</span></button>
+        </form>
+        <div className="teacherLoginLinks"><Link href="/">返回首页</Link><Link href="/resources">浏览公开资源</Link></div>
+      </section>
+    </div>
+    <p className="teacherLoginPrivacy">公开资源与私人教学记录严格分离</p>
+  </main>;
 }
