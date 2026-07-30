@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const root = process.cwd();
 const baseUrl = "http://localhost:3000";
@@ -133,6 +134,18 @@ async function startAiMock() {
   return `http://127.0.0.1:${address.port}`;
 }
 
+function databaseHasTeachingTables(file) {
+  const candidate = new DatabaseSync(file, { readOnly: true });
+  try {
+    const tables = candidate
+      .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name IN ('lessons','lesson_finance')")
+      .all();
+    return tables.length === 2;
+  } finally {
+    candidate.close();
+  }
+}
+
 async function findDatabase(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const full = path.join(directory, entry.name);
@@ -140,8 +153,7 @@ async function findDatabase(directory) {
       const found = await findDatabase(full);
       if (found) return found;
     } else if (entry.name.endsWith(".sqlite") && !entry.name.startsWith("metadata")) {
-      const tables = execFileSync("sqlite3", [full, ".tables"], { encoding: "utf8" });
-      if (tables.includes("lessons") && tables.includes("lesson_finance")) return full;
+      if (databaseHasTeachingTables(full)) return full;
     }
   }
   return null;
@@ -149,14 +161,15 @@ async function findDatabase(directory) {
 
 const database = await findDatabase(path.join(root, ".wrangler", "state", "v3", "d1"));
 assert.ok(database?.includes(`${path.sep}.wrangler${path.sep}state${path.sep}`), "只允许使用项目本地 D1");
+const sqlite = new DatabaseSync(database);
+sqlite.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
 
 function sql(statement) {
-  return execFileSync("sqlite3", [database, ".timeout 5000", statement], { encoding: "utf8" }).trim();
+  sqlite.exec(statement);
 }
 
 function rows(statement) {
-  const output = execFileSync("sqlite3", ["-json", database, ".timeout 5000", statement], { encoding: "utf8" }).trim();
-  return output ? JSON.parse(output) : [];
+  return sqlite.prepare(statement).all().map((row) => ({ ...row }));
 }
 
 function cleanup() {
@@ -245,8 +258,11 @@ async function request(pathname, { cookie, method = "GET", body } = {}) {
 }
 
 async function waitForServer() {
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
+    if (server && server.exitCode !== null) {
+      throw new Error(`本地服务提前退出（code ${server.exitCode}）：${logs.slice(-8).join("\n")}`);
+    }
     try {
       const response = await fetch(baseUrl);
       if (response.ok) return;
@@ -786,7 +802,16 @@ async function exerciseRound(round, cookie) {
 try {
   const aiMockBase = await startAiMock();
   await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\n`, { mode: 0o600 });
-  server = spawn("pnpm", ["dev"], { cwd: root, env: { ...process.env, CLOUDFLARE_ENV: "e2e" }, stdio: ["ignore", "pipe", "pipe"] });
+  const devServerCli = path.join(root, "node_modules", "vinext", "dist", "cli.js");
+  server = spawn(process.execPath, [devServerCli, "dev"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      CLOUDFLARE_ENV: "e2e",
+      WRANGLER_LOG_PATH: ".wrangler/wrangler.log",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   for (const stream of [server.stdout, server.stderr]) stream.on("data", (chunk) => logs.push(String(chunk).trim()));
   await waitForServer();
   if (serveOnly) {
@@ -805,6 +830,7 @@ try {
   }
 } finally {
   try { cleanup(); } catch {}
+  sqlite.close();
   if (server && !server.killed) server.kill("SIGINT");
   if (aiMockServer) await new Promise((resolve) => aiMockServer.close(resolve));
   await rm(devVars, { force: true });
