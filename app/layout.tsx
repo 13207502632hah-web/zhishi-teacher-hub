@@ -10,6 +10,7 @@ import "./public-entry.css";
 import "./dashboard.css";
 import "./lessons.css";
 import "./lesson-detail.css";
+import "./assignments.css";
 
 export const metadata: Metadata = {
   title: "知师研室｜初高中教师教学工作台",

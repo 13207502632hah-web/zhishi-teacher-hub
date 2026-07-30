@@ -1,0 +1,385 @@
+.assignmentLoading,
+.assignmentLoadError,
+.assignmentReviewError {
+  align-items: flex-start;
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  display: flex;
+  font-size: 1rem;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.assignmentLoading {
+  color: var(--zs-muted);
+}
+
+.assignmentLoadError,
+.assignmentReviewError {
+  border-left: 4px solid var(--zs-danger);
+  flex-direction: column;
+}
+
+.assignmentLoadError strong {
+  color: var(--zs-danger);
+}
+
+.assignmentLoadError p,
+.assignmentReviewError span {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  margin: 0.25rem 0 0;
+}
+
+.assignmentMetrics {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
+.assignmentMetrics .zs-metric {
+  min-height: 8rem;
+}
+
+.assignmentMetrics .zs-metric:last-child {
+  grid-column: 1 / -1;
+}
+
+.assignmentMetrics .zs-metric footer {
+  background: transparent;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+}
+
+.assignmentFilterPanel,
+.assignmentListPanel {
+  margin-bottom: 1rem;
+}
+
+.assignmentToolbar {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.assignmentToolbar label {
+  color: var(--zs-muted);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+}
+
+.assignmentToolbar input,
+.assignmentToolbar select,
+.assignmentToolbar button {
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  width: 100%;
+}
+
+.assignmentToolbar input,
+.assignmentToolbar select {
+  background: var(--zs-surface);
+}
+
+.assignmentToolbar button {
+  align-self: end;
+}
+
+.assignmentList {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.assignmentList > article {
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  padding: 1rem;
+}
+
+.assignmentList > article > header {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.assignmentList > article > header > div {
+  min-width: 0;
+}
+
+.assignmentList h3 {
+  font-size: 1.125rem;
+  line-height: 1.45;
+  margin: 0.5rem 0 0;
+}
+
+.assignmentList > article > p {
+  color: var(--zs-muted);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  margin: 1rem 0;
+  white-space: pre-line;
+}
+
+.assignmentFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.assignmentFacts span,
+.assignmentList > article > footer span {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: 999px;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.assignmentList > article > footer {
+  background: transparent;
+  border-top: 1px solid var(--zs-line);
+  color: inherit;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  padding: 1rem 0 0;
+}
+
+.assignmentList .secondaryButton {
+  min-height: 44px;
+}
+
+.assignmentModalBackdrop {
+  z-index: 80;
+}
+
+.assignmentModal {
+  background: var(--zs-surface);
+  border-radius: var(--zs-radius-lg);
+  color: var(--zs-ink);
+  max-height: calc(100vh - 2rem);
+  padding: 1rem;
+  width: min(60rem, 100%);
+}
+
+.assignmentModal .formGrid {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.assignmentModal .formGrid label,
+.assignmentModal .reviewLayout label {
+  color: var(--zs-muted);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+}
+
+.assignmentModal input,
+.assignmentModal select,
+.assignmentModal textarea,
+.assignmentModal button {
+  font-size: 1rem;
+}
+
+.assignmentModal input:not([type="checkbox"]),
+.assignmentModal select:not([multiple]),
+.assignmentModal button {
+  min-height: 44px;
+}
+
+.assignmentModal select[multiple] {
+  min-height: 10rem;
+}
+
+.assignmentModal textarea {
+  min-height: 7rem;
+}
+
+.assignmentModal .checkLabel {
+  align-items: center;
+  display: flex;
+  font-size: 0.9375rem;
+  min-height: 44px;
+}
+
+.assignmentModal .checkLabel input {
+  min-height: 1.25rem;
+  width: 1.25rem;
+}
+
+.assignmentModal .modalTitle button {
+  min-width: 44px;
+}
+
+.assignmentModal .modalActions {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reviewLayout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reviewLayout aside {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.reviewLayout aside > button {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-ink);
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+}
+
+.reviewLayout aside > button.active {
+  background: var(--zs-paper-deep);
+  border-color: var(--zs-pine);
+}
+
+.reviewLayout aside b,
+.reviewLayout aside span {
+  display: block;
+}
+
+.reviewLayout aside span {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.reviewLayout > section {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reviewLayout fieldset {
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.875rem;
+}
+
+.reviewLayout legend {
+  color: var(--zs-pine);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  padding: 0 0.25rem;
+}
+
+.assignmentModal button:disabled,
+.assignmentList button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+@media (min-width: 40rem) {
+  .assignmentLoadError,
+  .assignmentReviewError {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .assignmentMetrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .assignmentMetrics .zs-metric:last-child {
+    grid-column: auto;
+  }
+
+  .assignmentToolbar {
+    grid-template-columns: minmax(12rem, 2fr) auto repeat(2, minmax(8rem, 1fr));
+  }
+
+  .assignmentList > article > header {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .assignmentModal {
+    padding: 1.5rem;
+  }
+
+  .assignmentModal .formGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .assignmentModal .formGrid .wide {
+    grid-column: 1 / -1;
+  }
+
+  .assignmentModal .modalActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .reviewLayout > section {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reviewLayout fieldset,
+  .reviewLayout .modalActions,
+  .reviewLayout .zs-empty {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 64rem) {
+  .assignmentList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reviewLayout {
+    grid-template-columns: minmax(14rem, 0.7fr) minmax(0, 2fr);
+  }
+
+  .reviewLayout aside {
+    align-content: start;
+    max-height: 38rem;
+  }
+}
+
+@media (min-width: 80rem) {
+  .assignmentToolbar {
+    grid-template-columns: minmax(14rem, 2fr) auto repeat(4, minmax(8rem, 1fr));
+  }
+}
+
+@media print {
+  .assignmentMetrics,
+  .assignmentFilterPanel,
+  .assignmentLoadError,
+  .assignmentList button {
+    display: none !important;
+  }
+}
