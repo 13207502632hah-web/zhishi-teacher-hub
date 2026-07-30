@@ -67,10 +67,10 @@ test("every literal internal hyperlink resolves to an existing page or API route
   assert.deepEqual(unresolved, []);
 });
 
-test("zero-cost usability optimizations add quick navigation, resilient route states and cheaper question search", async () => {
+test("zero-cost usability optimizations add quick navigation, resilient route states and explicit question search", async () => {
   const [shell, questions, loading, error, notFound, design] = await Promise.all(["app/components/AppShell.tsx", "app/questions/page.tsx", "app/loading.tsx", "app/error.tsx", "app/not-found.tsx", "app/design-system.css"].map(read));
   assert.match(shell, /Command 或 Control 加 K/); assert.match(shell, /quickSwitcher/); assert.match(shell, /搜索工作台入口/);
-  assert.match(questions, /useDebouncedValue/); assert.match(questions, /AbortController/); assert.match(questions, /AbortError/); assert.match(questions, /signal: controller\.signal/);
+  assert.match(questions, /submitSearch/); assert.match(questions, /requestJson/); assert.match(questions, /AbortController/); assert.match(questions, /AbortError/); assert.match(questions, /signal: controller\.signal/);
   assert.match(loading, /正在整理教学工作台/); assert.match(error, /不会因为本次失败自动重复提交/); assert.match(error, /reset/); assert.match(notFound, /没有找到这个页面/);
   assert.match(design, /\.quickSwitcher/); assert.match(design, /\.routeState/); assert.match(design, /prefers-reduced-motion/);
 });
