@@ -21,7 +21,8 @@ test("dashboard uses the political-teaching workspace navigation", async () => {
   assert.match(shell, /WorkspaceNavigation/);
   for (const label of ["今日教学工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "今天建议先完成的3件事", "集中待办"]) assert.match(page, new RegExp(label));
   assert.match(page,/\[7,14,30\]/);
-  assert.match(page,/horizonDays: days/);
+  assert.match(page,/\/api\/dashboard\?days=\$\{days\}/);
+  assert.match(page,/工作台暂时无法读取/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
   assert.match(layout, /知师研室｜初高中教师教学工作台/);
   assert.match(dashboardApi, /l\.topic,l\.mode,l\.location,l\.online_link AS onlineLink,l\.status/);
