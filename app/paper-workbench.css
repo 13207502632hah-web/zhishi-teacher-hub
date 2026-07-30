@@ -1,0 +1,266 @@
+.paperBuilder {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.paperBuilder .panel {
+  min-width: 0;
+  border-color: #d8d2c4;
+  border-radius: 1rem;
+  background: #fffdf8;
+}
+
+.filterPanel {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+}
+
+.paperScopeFilters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.625rem;
+}
+
+.paperScopeFilters > * {
+  min-width: 0;
+}
+
+.paperScopeFilters span {
+  color: #675f51;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.filterPanel label,
+.paperSave label {
+  color: #3f4f48;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.filterPanel input,
+.filterPanel select,
+.filterPanel button,
+.paperSave input,
+.paperSave select,
+.paperSave textarea,
+.paperSave button,
+.paperScopeFilters input,
+.paperScopeFilters button,
+.candidateList button,
+.selectedList button,
+.selectedList input {
+  min-height: 44px;
+  border-radius: 0.625rem;
+  font: inherit;
+  font-size: 1rem;
+}
+
+.filterPanel input,
+.filterPanel select,
+.paperSave input,
+.paperSave select,
+.paperSave textarea,
+.paperScopeFilters input,
+.selectedList input {
+  border: 1px solid #c9c2b3;
+  background: #fff;
+  color: #22372f;
+  padding: 0.625rem 0.75rem;
+}
+
+.candidatePanel,
+.selectedPanel {
+  min-height: 20rem;
+}
+
+.candidateList,
+.selectedList {
+  max-height: 38rem;
+  margin-top: 1rem;
+}
+
+.candidateList article {
+  gap: 0.875rem;
+  padding: 1rem 0;
+}
+
+.candidateList span,
+.paperStats {
+  color: #675f51;
+  font-size: 0.875rem;
+}
+
+.candidateList p,
+.selectedList p {
+  margin: 0.35rem 0;
+  color: #22372f;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.candidateList button {
+  flex: 0 0 44px;
+  width: 44px;
+  border-radius: 50%;
+  background: #315346;
+  color: #fff;
+}
+
+.selectedList article {
+  grid-template-columns: 2rem minmax(10rem, 1fr) 4.5rem repeat(3, 44px);
+  gap: 0.5rem;
+  padding: 0.875rem 0;
+}
+
+.selectedList article > b {
+  width: 2rem;
+  height: 2rem;
+  background: #e7eee9;
+  color: #315346;
+  font-size: 0.875rem;
+}
+
+.selectedList button {
+  border: 1px solid #c9c2b3;
+  background: #fff;
+}
+
+.paperSave {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.paperSave textarea {
+  min-height: 6rem;
+}
+
+.paperList article {
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+
+.paperList a b {
+  color: #22372f;
+  font-size: 1rem;
+}
+
+.paperList a span,
+.paperList em {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.paperList button {
+  min-height: 44px;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+.paperWorkbenchState {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.875rem;
+  background: #f5f2ea;
+  color: #315346;
+  font-size: 1rem;
+}
+
+.paperWorkbenchState.error {
+  border-color: #d5afa5;
+  background: #fff8f5;
+  color: #753e31;
+}
+
+.paperWorkbenchState button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 0.625rem;
+  background: #315346;
+  color: #fff;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 40rem) {
+  .selectedList article {
+    grid-template-columns: 2rem minmax(0, 1fr) 4rem;
+  }
+
+  .selectedList article button {
+    grid-row: 2;
+  }
+
+  .selectedList article button:first-of-type {
+    grid-column: 1;
+  }
+}
+
+@media (min-width: 48rem) {
+  .filterPanel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filterPanel .panelTitle {
+    grid-column: 1 / -1;
+  }
+
+  .paperScopeFilters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .paperScopeFilters span {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 64rem) {
+  .paperBuilder {
+    grid-template-columns: minmax(14rem, 0.75fr) minmax(0, 1fr);
+  }
+
+  .filterPanel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .selectedPanel {
+    grid-column: 1 / -1;
+  }
+
+  .paperSave {
+    grid-template-columns: minmax(12rem, 1fr) 8rem 9rem auto;
+  }
+
+  .paperSave textarea {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 80rem) {
+  .paperBuilder {
+    grid-template-columns: minmax(13rem, 0.68fr) minmax(18rem, 1fr) minmax(22rem, 1.15fr);
+  }
+
+  .paperScopeFilters {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .selectedPanel {
+    grid-column: auto;
+  }
+
+  .selectedPanel .paperSave {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .selectedPanel .paperSave textarea {
+    grid-column: auto;
+  }
+}

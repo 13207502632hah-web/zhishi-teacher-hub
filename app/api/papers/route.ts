@@ -27,7 +27,6 @@ export async function POST(request: Request) {
   if (actual.results.length !== ids.length) return Response.json({ error: "所选题目中包含不存在或未正式入库的题目" }, { status: 400 });
   const total = selected.reduce((sum, item) => sum + item.score, 0), db = getDb(), [paper] = await db.insert(papers).values({ title, type: value(body.type) || "练习", stage: value(body.stage), grade: value(body.grade), textbookVersion: value(body.textbookVersion), durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null, instructions: value(body.instructions), totalScore: total, academicYear: value(body.academicYear), examCategory: value(body.examCategory), semester: value(body.semester), province: value(body.province), city: value(body.city), district: value(body.district), examDate: value(body.examDate), school: value(body.school), status: "draft" }).returning();
   for (let index = 0; index < selected.length; index += 20) await db.insert(paperQuestions).values(selected.slice(index, index + 20).map((item, offset) => ({ paperId: paper.id, questionId: item.id, position: index + offset + 1, score: item.score, groupTitle: item.groupTitle, answerSpace: item.answerSpace })));
-  await env.DB.batch(selected.map((item) => env.DB.prepare("UPDATE questions SET use_count=use_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(item.id)));
   await audit(access, "create", "paper", paper.id, { questionCount: selected.length, totalScore: total });
   return Response.json({ paper }, { status: 201 });
 }
