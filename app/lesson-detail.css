@@ -1,0 +1,666 @@
+.lessonDetailLoadError,
+.lessonDetailInlineError {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-left: 4px solid var(--zs-danger);
+  border-radius: var(--zs-radius-md);
+  font-size: 1rem;
+}
+
+.lessonDetailLoadError {
+  padding: 1rem;
+}
+
+.lessonDetailInlineError {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.lessonDetailInlineError strong {
+  color: var(--zs-danger);
+}
+
+.lessonDetailInlineError p {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  margin: 0.25rem 0 0;
+}
+
+.lessonIdentity {
+  align-items: flex-start;
+  background: var(--zs-pine);
+  border-left: 5px solid var(--zs-gold);
+  border-radius: var(--zs-radius-md);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.lessonIdentity b {
+  font-family: KaiTi, STKaiti, "楷体", serif;
+  font-size: clamp(1.25rem, 5vw, 1.75rem);
+  line-height: 1.35;
+}
+
+.lessonIdentity span {
+  color: rgb(255 255 255 / 78%);
+  font-size: 0.9375rem;
+}
+
+.lessonLoopOverview {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.lessonDetailJumpNav {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.lessonDetailJumpNav a {
+  align-items: center;
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-pine);
+  display: inline-flex;
+  font-size: 0.9375rem;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  text-decoration: none;
+}
+
+.lessonDetailJumpNav a:hover {
+  border-color: var(--zs-pine);
+}
+
+.lessonDetailGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.lessonDetailGrid > .panel,
+.prepCockpit,
+.aiReviewPanel,
+.completionReceipt {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  min-height: 0;
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+}
+
+.prepCockpit,
+.aiReviewPanel,
+.completionReceipt {
+  margin-bottom: 1rem;
+}
+
+.lessonDetailGrid .panelTitle,
+.prepCockpit .panelTitle,
+.aiReviewPanel .panelTitle,
+.completionReceipt .panelTitle {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--zs-line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding-bottom: 0.875rem;
+}
+
+.lessonDetailGrid .panelTitle p,
+.prepCockpit .panelTitle p,
+.aiReviewPanel .panelTitle p,
+.completionReceipt .panelTitle p {
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.25rem;
+}
+
+.lessonDetailGrid .panelTitle h2,
+.prepCockpit .panelTitle h2,
+.aiReviewPanel .panelTitle h2,
+.completionReceipt .panelTitle h2 {
+  font-size: clamp(1.125rem, 3vw, 1.375rem);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.lessonDetailGrid p,
+.prepCockpit p,
+.aiReviewPanel p,
+.completionReceipt p,
+.lessonDetailGrid span,
+.prepCockpit span,
+.aiReviewPanel span,
+.completionReceipt span {
+  font-size: 0.875rem;
+}
+
+.lessonSummary dl {
+  margin: 1rem 0 0;
+}
+
+.lessonSummary dl div {
+  border-bottom: 1px solid var(--zs-line);
+  display: grid;
+  gap: 0.25rem;
+  grid-template-columns: 1fr;
+  padding: 0.75rem 0;
+}
+
+.lessonSummary dt {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.lessonSummary dd {
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prepContextGrid,
+.receiptGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 1rem 0;
+}
+
+.prepContextGrid article,
+.receiptGrid > * {
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-ink);
+  min-height: 0;
+  padding: 0.875rem;
+  text-decoration: none;
+}
+
+.prepContextGrid b,
+.prepContextGrid span {
+  display: block;
+  font-size: 0.875rem;
+}
+
+.prepContextGrid p,
+.prepContextGrid span {
+  color: var(--zs-muted);
+  line-height: 1.65;
+  margin: 0.5rem 0 0;
+  white-space: pre-line;
+}
+
+.prepCockpit .formGrid,
+.lessonClosure .formGrid {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.prepCockpit .formGrid label,
+.lessonClosure .formGrid label,
+.performanceList label {
+  color: var(--zs-muted);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+}
+
+.prepCockpit textarea,
+.lessonClosure textarea,
+.lessonClosure select,
+.lessonClosure button,
+.performanceList input,
+.performanceList select,
+.performanceList button,
+.compactForm input,
+.compactForm textarea,
+.compactForm select,
+.compactForm button,
+.quickRecordBar button,
+.quickRecordBar select {
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+}
+
+.prepCockpit textarea,
+.lessonClosure textarea,
+.performanceList input,
+.performanceList select,
+.compactForm input,
+.compactForm textarea,
+.compactForm select,
+.quickRecordBar select {
+  background: var(--zs-surface);
+  color: var(--zs-ink);
+}
+
+.prepCockpit textarea,
+.lessonClosure textarea,
+.compactForm textarea {
+  min-height: 7rem;
+}
+
+.lessonClosure .stepLabel {
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+  letter-spacing: 0;
+}
+
+.lessonClosure .saveState {
+  background: var(--zs-paper);
+  border-radius: 999px;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  margin-left: 0;
+  padding: 0.35rem 0.75rem;
+}
+
+.lessonClosure .saveState.dirty {
+  background: rgb(197 154 69 / 15%);
+  color: var(--zs-warning);
+}
+
+.closureSteps {
+  display: grid;
+  gap: 0.375rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.closureSteps li {
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  min-width: 0;
+  padding: 0.625rem;
+  text-align: center;
+}
+
+.closureSteps li.done,
+.closureSteps li:first-child {
+  border-color: var(--zs-success);
+  color: var(--zs-success);
+  font-weight: 700;
+}
+
+.lessonClosure .ratingGrid {
+  background: var(--zs-paper);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.875rem;
+}
+
+.lessonClosure .modalActions {
+  align-items: stretch;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.lessonClosure .modalActions > * {
+  min-height: 44px;
+}
+
+.quickRecordBar {
+  align-items: stretch;
+  background: var(--zs-paper);
+  border-radius: var(--zs-radius-sm);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 1rem 0;
+  padding: 0.875rem;
+}
+
+.performanceList {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.performanceList article {
+  align-items: stretch;
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.875rem;
+}
+
+.performanceList .studentName,
+.performanceList .noteField,
+.performanceList .checkLabel,
+.performanceList article > button {
+  grid-column: 1 / -1;
+}
+
+.performanceList .studentName b {
+  font-size: 1rem;
+}
+
+.performanceList .studentName span {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.performanceList .checkLabel {
+  align-items: center;
+  display: flex;
+  font-size: 0.875rem;
+  min-height: 44px;
+}
+
+.performanceList .checkLabel input {
+  min-height: 1.25rem;
+  width: 1.25rem;
+}
+
+.compactForm {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.compactForm button,
+.quickRecordBar button,
+.performanceList button {
+  background: var(--zs-surface);
+  color: var(--zs-pine);
+}
+
+.compactForm button:last-child,
+.performanceList article > button {
+  background: var(--zs-pine);
+  border-color: var(--zs-pine);
+  color: #fff;
+}
+
+.savedItem {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--zs-line);
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+  gap: 0.25rem;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0.75rem 0;
+}
+
+.savedItem span {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.detailActions {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.detailActions a {
+  align-items: center;
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-pine);
+  display: inline-flex;
+  font-size: 0.9375rem;
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  text-decoration: none;
+}
+
+.prepQuestionList label,
+.linkedQuestions article {
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  font-size: 0.875rem;
+  padding: 0.875rem;
+}
+
+.prepQuestionList label {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.prepQuestionList label input {
+  min-height: 1.25rem;
+  width: 1.25rem;
+}
+
+.prepQuestionList b,
+.prepQuestionList span,
+.linkedQuestions p,
+.linkedQuestions span,
+.linkedQuestions em {
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.linkedQuestions article {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin-top: 0.75rem;
+}
+
+.linkedQuestions article > em {
+  color: var(--zs-pine);
+  grid-column: 2;
+}
+
+.aiReviewPanel .cardActions,
+.prepCockpit .cardActions {
+  align-items: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.aiReviewPanel .cardActions > *,
+.prepCockpit .cardActions > *,
+.aiReviewPanel > button {
+  min-height: 44px;
+}
+
+.aiReviewPanel details,
+.aiUncertainty,
+.privacyNote {
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.aiUncertainty {
+  background: rgb(197 154 69 / 12%);
+  border-left: 4px solid var(--zs-gold);
+}
+
+.lessonDetailGrid button:disabled,
+.prepCockpit button:disabled,
+.aiReviewPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+#lesson-prep,
+#lesson-close,
+#lesson-students,
+#lesson-homework,
+#lesson-feedback {
+  scroll-margin-top: 1rem;
+}
+
+@media (min-width: 40rem) {
+  .lessonDetailInlineError,
+  .lessonIdentity {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .lessonDetailJumpNav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .prepContextGrid,
+  .receiptGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prepCockpit .formGrid,
+  .lessonClosure .formGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prepCockpit .formGrid .wide,
+  .lessonClosure .formGrid .wide {
+    grid-column: 1 / -1;
+  }
+
+  .closureSteps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .lessonClosure .modalActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quickRecordBar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .performanceList article {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .performanceList .studentName,
+  .performanceList .noteField {
+    grid-column: 1 / -1;
+  }
+
+  .performanceList .checkLabel,
+  .performanceList article > button {
+    grid-column: auto;
+  }
+
+  .savedItem {
+    align-items: center;
+    flex-direction: row;
+  }
+}
+
+@media (min-width: 64rem) {
+  .lessonDetailGrid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr);
+  }
+
+  .lessonDetailGrid .widePanel,
+  .lessonDetailGrid .prepCockpit,
+  .lessonDetailGrid .completionReceipt {
+    grid-column: 1 / -1;
+  }
+
+  .lessonDetailGrid .panelTitle,
+  .prepCockpit .panelTitle,
+  .aiReviewPanel .panelTitle,
+  .completionReceipt .panelTitle {
+    align-items: flex-start;
+    flex-direction: row;
+  }
+
+  .prepContextGrid,
+  .receiptGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .closureSteps {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .lessonClosure .modalActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .quickRecordBar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  #lesson-prep,
+  #lesson-close,
+  #lesson-students,
+  #lesson-homework,
+  #lesson-feedback {
+    scroll-margin-top: 5rem;
+  }
+}
+
+@media (min-width: 80rem) {
+  .performanceList article {
+    grid-template-columns: minmax(7rem, 1.1fr) repeat(4, minmax(5.25rem, 0.7fr)) minmax(10rem, 1.5fr) minmax(8rem, 1fr);
+  }
+
+  .performanceList .studentName,
+  .performanceList .noteField,
+  .performanceList .checkLabel,
+  .performanceList article > button {
+    grid-column: auto;
+  }
+
+  .performanceList .checkLabel,
+  .performanceList article > button {
+    grid-column: span 2;
+  }
+}
+
+@media print {
+  .lessonLoopOverview,
+  .lessonDetailInlineError,
+  .aiReviewPanel,
+  .lessonDetailJumpNav,
+  .quickRecordBar,
+  .modalActions,
+  .compactForm,
+  .detailActions {
+    display: none !important;
+  }
+}

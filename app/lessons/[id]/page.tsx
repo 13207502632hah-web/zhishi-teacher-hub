@@ -3,7 +3,9 @@
 import Link from "@/app/components/HardNavigationLink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { AppShell, EmptyState } from "../../components/AppShell";
+import { AppShell } from "../../components/AppShell";
+import { EmptyState, StatusBadge, TeachingLoopTrack } from "../../components/ui/Primitives";
+import { HttpError, requestJson } from "../../lib/http-client";
 
 type Lesson = Record<string, any>;
 type Member = Record<string, any> & { id: number; name: string };
@@ -26,42 +28,66 @@ export default function LessonDetail() {
   const [closure, setClosure] = useState(blankClosure), [templates, setTemplates] = useState<WorkflowTemplate[]>([]), [batchScore, setBatchScore] = useState("4");
   const [dirty, setDirty] = useState(false), [hydrated, setHydrated] = useState(false), [busy, setBusy] = useState(false), [autosave, setAutosave] = useState("已保存");
   const [, setRevision] = useState(0), revisionRef = useRef(0), savingRef = useRef(false);
-  const [message, setMessage] = useState(""), [error, setError] = useState(""), [remainingTodos, setRemainingTodos] = useState<string[]>([]), [completionResult, setCompletionResult] = useState<Record<string, any> | null>(null);
+  const [message, setMessage] = useState(""), [detailLoadError, setDetailLoadError] = useState(""), [reloadKey, setReloadKey] = useState(0), [remainingTodos, setRemainingTodos] = useState<string[]>([]), [completionResult, setCompletionResult] = useState<Record<string, any> | null>(null);
   const [aiPrep, setAiPrep] = useState<AiLessonPrep | null>(null), [aiPrepBusy, setAiPrepBusy] = useState(false), [aiPrepMeta, setAiPrepMeta] = useState<{ sentFields: string[]; excludedFields: string[] } | null>(null);
   const [aiReschedule, setAiReschedule] = useState<AiReschedule | null>(null), [aiRescheduleBusy, setAiRescheduleBusy] = useState(false), [aiRescheduleMeta, setAiRescheduleMeta] = useState<{ sentFields: string[]; excludedFields: string[] } | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setHydrated(false);
-    const [lessonResponse, activityResponse, prepResponse, workflowResponse, templateResponse] = await Promise.all([
-      fetch(`/api/lessons/${id}`), fetch(`/api/lessons/${id}/activity`), fetch(`/api/lessons/${id}/prep`), fetch(`/api/lessons/${id}/workflow-state`), fetch("/api/workflow-templates"),
-    ]);
-    const lessonData = await lessonResponse.json(), activityData = await activityResponse.json(), prepData = await prepResponse.json(), workflowData = await workflowResponse.json(), templateData = await templateResponse.json();
-    if (!lessonData.lesson) { setError(lessonData.error || "读取失败"); return; }
-    const baseClosure = { actualContent: String(lessonData.lesson.actualContent || ""), homework: String(lessonData.lesson.homework || ""), nextPlan: String(lessonData.lesson.nextPlan || ""), participation: String(lessonData.lesson.participation || ""), understanding: String(lessonData.lesson.understanding || ""), completion: String(lessonData.lesson.completion || ""), discipline: String(lessonData.lesson.discipline || "") };
-    const baseRecords: Record<number, Record<string, string | boolean>> = {};
-    for (const member of activityData.members || []) baseRecords[member.id] = { attendanceStatus: String(member.attendanceStatus || ""), attendanceNote: String(member.attendanceNote || ""), participation: String(member.participation || ""), understanding: String(member.understanding || ""), completion: String(member.completion || ""), teacherNote: String(member.teacherNote || ""), riskTags: String(member.riskTags || ""), riskConfirmed: Boolean(member.riskConfirmed) };
-    const saved = workflowData.state?.payload || {};
-    setLesson(lessonData.lesson); setActivity({ ...empty, ...activityData }); setPrep({ ...emptyPrep, ...prepData });
-    setPrepForm({ teachingGoals: String(prepData.lesson?.teachingGoals || ""), keyPoints: String(prepData.lesson?.keyPoints || ""), difficultPoints: String(prepData.lesson?.difficultPoints || ""), materials: String(prepData.lesson?.materials || ""), knowledgePoints: String(prepData.lesson?.knowledgePoints || "") });
-    setClosure({ ...baseClosure, ...(saved.closure || {}) }); setRecords({ ...baseRecords, ...(saved.records || {}) }); setAssignment({ title: "课后作业", requirements: "", dueAt: "", ...(saved.assignment || {}) }); setFeedback({ studentId: "", tone: "专业简洁", content: "", ...(saved.feedback || {}) });
-    const nextRevision = Number(workflowData.state?.revision || 0); setRevision(nextRevision); revisionRef.current = nextRevision; setTemplates(templateData.templates || []);
-    setDirty(false); setAutosave("已保存"); setError(""); setHydrated(true);
+    setDetailLoadError("");
+    try {
+      const [lessonData, activityData, prepData, workflowData, templateData] = await Promise.all([
+        requestJson<{ lesson?: Lesson }>(`/api/lessons/${id}`, { signal }),
+        requestJson<Activity>(`/api/lessons/${id}/activity`, { signal }),
+        requestJson<Prep>(`/api/lessons/${id}/prep`, { signal }),
+        requestJson<{ state?: { payload?: Record<string, any>; revision?: number } }>(`/api/lessons/${id}/workflow-state`, { signal }),
+        requestJson<{ templates?: WorkflowTemplate[] }>("/api/workflow-templates", { signal }),
+      ]);
+      if (!lessonData?.lesson || !activityData || !prepData || !workflowData || !templateData) throw new HttpError(200, "课时详情数据不完整，请重新读取");
+      const baseClosure = { actualContent: String(lessonData.lesson.actualContent || ""), homework: String(lessonData.lesson.homework || ""), nextPlan: String(lessonData.lesson.nextPlan || ""), participation: String(lessonData.lesson.participation || ""), understanding: String(lessonData.lesson.understanding || ""), completion: String(lessonData.lesson.completion || ""), discipline: String(lessonData.lesson.discipline || "") };
+      const baseRecords: Record<number, Record<string, string | boolean>> = {};
+      for (const member of activityData.members || []) baseRecords[member.id] = { attendanceStatus: String(member.attendanceStatus || ""), attendanceNote: String(member.attendanceNote || ""), participation: String(member.participation || ""), understanding: String(member.understanding || ""), completion: String(member.completion || ""), teacherNote: String(member.teacherNote || ""), riskTags: String(member.riskTags || ""), riskConfirmed: Boolean(member.riskConfirmed) };
+      const saved = workflowData.state?.payload || {};
+      setLesson(lessonData.lesson); setActivity({ ...empty, ...activityData }); setPrep({ ...emptyPrep, ...prepData });
+      setPrepForm({ teachingGoals: String(prepData.lesson?.teachingGoals || ""), keyPoints: String(prepData.lesson?.keyPoints || ""), difficultPoints: String(prepData.lesson?.difficultPoints || ""), materials: String(prepData.lesson?.materials || ""), knowledgePoints: String(prepData.lesson?.knowledgePoints || "") });
+      setClosure({ ...baseClosure, ...(saved.closure || {}) }); setRecords({ ...baseRecords, ...(saved.records || {}) }); setAssignment({ title: "课后作业", requirements: "", dueAt: "", ...(saved.assignment || {}) }); setFeedback({ studentId: "", tone: "专业简洁", content: "", ...(saved.feedback || {}) });
+      const nextRevision = Number(workflowData.state?.revision || 0); setRevision(nextRevision); revisionRef.current = nextRevision; setTemplates(templateData.templates || []);
+      setDirty(false); setAutosave("已保存"); setHydrated(true);
+    } catch (reason) {
+      if (!signal?.aborted) setDetailLoadError(reason instanceof HttpError ? reason.message : "暂时无法读取课时详情");
+    }
   }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load, reloadKey]);
   const payload = useCallback(() => ({ closure, records, assignment, feedback }), [assignment, closure, feedback, records]);
   const persistDraft = useCallback(async (keepalive = false) => {
     if (!hydrated || savingRef.current) return; savingRef.current = true; setAutosave("正在自动保存…");
     try {
-      const response = await fetch(`/api/lessons/${id}/workflow-state`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: revisionRef.current, payload: payload() }), keepalive }), data = await response.json();
-      if (response.status === 409) { setAutosave("保存冲突"); setMessage(data.error || "草稿在其他页面更新，请重新载入"); return; }
-      if (!response.ok) throw new Error(data.error || "自动保存失败");
+      const data = await requestJson<{ revision?: number }>(`/api/lessons/${id}/workflow-state`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: revisionRef.current, payload: payload() }), keepalive, timeoutMs: keepalive ? 0 : undefined });
+      if (!data?.revision) throw new HttpError(200, "自动保存响应为空");
       revisionRef.current = Number(data.revision); setRevision(Number(data.revision)); setDirty(false); setAutosave("已自动保存");
-    } catch (reason) { setAutosave("自动保存失败"); if (!keepalive) setMessage(reason instanceof Error ? reason.message : "自动保存失败"); }
+    } catch (reason) {
+      if (reason instanceof HttpError && reason.status === 409) {
+        setAutosave("保存冲突");
+        setMessage(reason.message || "草稿在其他页面更新，请重新载入");
+        return;
+      }
+      setAutosave("自动保存失败");
+      if (!keepalive) setMessage(reason instanceof HttpError ? reason.message : "自动保存失败");
+    }
     finally { savingRef.current = false; }
   }, [hydrated, id, payload]);
   useEffect(() => { if (!dirty || !hydrated) return; setAutosave("等待自动保存"); const timer = window.setTimeout(() => void persistDraft(), 2000); return () => clearTimeout(timer); }, [dirty, hydrated, persistDraft]);
   useEffect(() => { const flush = () => { if (dirty) void persistDraft(true); }; addEventListener("pagehide", flush); addEventListener("visibilitychange", flush); return () => { removeEventListener("pagehide", flush); removeEventListener("visibilitychange", flush); }; }, [dirty, persistDraft]);
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    addEventListener("beforeunload", warnBeforeUnload);
+    return () => removeEventListener("beforeunload", warnBeforeUnload);
+  }, [dirty]);
 
   const setClosureField = (key: keyof typeof closure, value: string) => { setClosure((current) => ({ ...current, [key]: value })); setDirty(true); };
   const setRecord = (studentId: number, key: string, value: string | boolean) => { setRecords((current) => ({ ...current, [studentId]: { ...current[studentId], [key]: value } })); setDirty(true); };
@@ -72,37 +98,161 @@ export default function LessonDetail() {
   const steps = useMemo(() => [["签到", attendanceReady], ["教学内容", Boolean(closure.actualContent.trim())], ["课堂表现", Boolean(closure.participation || closure.understanding || closure.completion)], ["作业", Boolean(assignment.requirements || assignment.dueAt || activity.assignments.length)], ["反馈", Boolean(feedback.content || activity.feedback.length)], ["下节计划", Boolean(closure.nextPlan.trim())]] as const, [activity.assignments.length, activity.feedback.length, assignment.dueAt, assignment.requirements, attendanceReady, closure, feedback.content]);
 
   const saveWorkflow = async (action: "saveDraft" | "completeLesson") => {
-    setBusy(true); setMessage(""); setRemainingTodos([]); if (dirty) await persistDraft();
-    const body: Record<string, unknown> = { action, ...closure, records: serializedRecords() };
-    if (action === "completeLesson") { body.assignment = assignment.requirements || assignment.dueAt ? assignment : null; body.feedback = feedback.content ? feedback : null; }
-    const response = await fetch(`/api/lessons/${id}/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), data = await response.json(); setBusy(false);
-    if (!response.ok) { setMessage(data.errors?.join("；") || data.error || "保存失败，已填写内容仍保留在页面中"); return; }
-    setDirty(false); setRemainingTodos(data.todos || []);
-    if (action === "saveDraft") setMessage("草稿已保存，课时状态未改变");
-    else { setMessage(`本节课已完成；作业、反馈与结算已同步${data.artifacts?.financeLocked ? "（已确认账目保持不变）" : ""}`); setCompletionResult(data); }
-    await load();
+    if (busy) return;
+    setBusy(true); setMessage(""); setRemainingTodos([]);
+    try {
+      if (dirty) await persistDraft();
+      const body: Record<string, unknown> = { action, ...closure, records: serializedRecords() };
+      if (action === "completeLesson") { body.assignment = assignment.requirements || assignment.dueAt ? assignment : null; body.feedback = feedback.content ? feedback : null; }
+      const data = await requestJson<Record<string, any>>(`/api/lessons/${id}/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!data) throw new HttpError(200, "保存响应为空，请重试");
+      setDirty(false); setRemainingTodos(data.todos || []);
+      if (action === "saveDraft") setMessage("草稿已保存，课时状态未改变");
+      else { setMessage(`本节课已完成；作业、反馈与结算已同步${data.artifacts?.financeLocked ? "（已确认账目保持不变）" : ""}`); setCompletionResult(data); }
+      await load();
+    } catch (reason) {
+      const data = reason instanceof HttpError && reason.payload && typeof reason.payload === "object" ? reason.payload as Record<string, any> : null;
+      setMessage(data?.errors?.join("；") || (reason instanceof HttpError ? reason.message : "保存失败，已填写内容仍保留在页面中"));
+    } finally {
+      setBusy(false);
+    }
   };
-  const post = async (body: Record<string, unknown>) => { const response = await fetch(`/api/lessons/${id}/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), data = await response.json().catch(() => ({})); setMessage(response.ok ? "已保存" : data.error || "保存失败，请检查后重试"); if (response.ok) await load(); };
-  const savePrep = async () => { const response = await fetch(`/api/lessons/${id}/prep`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prepForm) }), data = await response.json(); setMessage(response.ok ? "备课内容已保存" : data.error || "备课保存失败"); if (response.ok) await load(); };
-  const generateAiPrep = async () => { setAiPrepBusy(true); setMessage(""); const response = await fetch("/api/ai/lesson-prep", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: Number(id) }) }), data = await response.json(); setAiPrepBusy(false); if (!response.ok) { setMessage(data.error || "AI 备课草案生成失败"); return; } setAiPrep(data.draft); setAiPrepMeta({ sentFields: data.sentFields || [], excludedFields: data.excludedFields || [] }); setMessage("AI 备课草案已生成，尚未写入课时"); };
+  const post = async (body: Record<string, unknown>) => {
+    if (busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const data = await requestJson<Record<string, any>>(`/api/lessons/${id}/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!data) throw new HttpError(200, "保存响应为空，请重试");
+      setMessage("已保存");
+      await load();
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "保存失败，请检查后重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const savePrep = async () => {
+    if (busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const data = await requestJson<Record<string, any>>(`/api/lessons/${id}/prep`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prepForm) });
+      if (!data) throw new HttpError(200, "备课保存响应为空，请重试");
+      setMessage("备课内容已保存");
+      await load();
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "备课保存失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const generateAiPrep = async () => {
+    if (aiPrepBusy) return;
+    setAiPrepBusy(true); setMessage("");
+    try {
+      const data = await requestJson<Record<string, any>>("/api/ai/lesson-prep", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: Number(id) }) });
+      if (!data?.draft) throw new HttpError(200, "AI 备课草案响应为空，请重试");
+      setAiPrep(data.draft); setAiPrepMeta({ sentFields: data.sentFields || [], excludedFields: data.excludedFields || [] }); setMessage("AI 备课草案已生成，尚未写入课时");
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "AI 备课草案生成失败");
+    } finally {
+      setAiPrepBusy(false);
+    }
+  };
   const applyAiPrep = () => { if (!aiPrep) return; const hasExisting = Object.entries(prepForm).some(([key, value]) => key !== "knowledgePoints" && String(value || "").trim()); if (hasExisting && !confirm("当前备课表单已有内容。确认用 AI 草案覆盖目标、重点、难点和资料清单？已有知识点不会被修改。")) return; const usable = (value: string, current: string) => value && value !== "信息不足" ? value : current; setPrepForm((current) => ({ ...current, teachingGoals: usable(aiPrep.teachingGoals, current.teachingGoals), keyPoints: usable(aiPrep.keyPoints, current.keyPoints), difficultPoints: usable(aiPrep.difficultPoints, current.difficultPoints), materials: usable([aiPrep.materials, `课堂流程：${aiPrep.lessonFlow}`, `题目使用：${aiPrep.questionUsePlan}`].filter((item) => item && !item.endsWith("信息不足")).join("\n\n"), current.materials) })); setMessage("AI 草案已填入备课表单；请核对后点击“保存备课”"); };
-  const generateAiReschedule = async () => { setAiRescheduleBusy(true); setMessage(""); const response = await fetch("/api/ai/schedule-reschedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: Number(id) }) }), data = await response.json(); setAiRescheduleBusy(false); if (!response.ok) { setMessage(data.error || "AI 调课建议生成失败"); return; } setAiReschedule(data.draft); setAiRescheduleMeta({ sentFields: data.sentFields || [], excludedFields: data.excludedFields || [] }); setMessage("AI 已对真实空档完成排序，课时尚未修改"); };
-  const addQuestions = async (target: "class" | "homework") => { if (!selectedQuestions.length) { setMessage("请先勾选题目"); return; } setBusy(true); const url = target === "class" ? `/api/lessons/${id}/questions/batch` : `/api/lessons/${id}/homework-draft`, response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ questionIds: selectedQuestions, purpose: "课堂练习" }) }), data = await response.json(); setBusy(false); if (!response.ok) { setMessage(data.error || "题目加入失败"); return; } setMessage(target === "class" ? `已将${data.linked}道题加入课堂练习` : `已加入作业草稿，新增${data.added}道题；作业仍未发布`); setSelectedQuestions([]); await load(); };
+  const generateAiReschedule = async () => {
+    if (aiRescheduleBusy) return;
+    setAiRescheduleBusy(true); setMessage("");
+    try {
+      const data = await requestJson<Record<string, any>>("/api/ai/schedule-reschedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: Number(id) }) });
+      if (!data?.draft) throw new HttpError(200, "AI 调课建议响应为空，请重试");
+      setAiReschedule(data.draft); setAiRescheduleMeta({ sentFields: data.sentFields || [], excludedFields: data.excludedFields || [] }); setMessage("AI 已对真实空档完成排序，课时尚未修改");
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "AI 调课建议生成失败");
+    } finally {
+      setAiRescheduleBusy(false);
+    }
+  };
+  const addQuestions = async (target: "class" | "homework") => {
+    if (busy) return;
+    if (!selectedQuestions.length) { setMessage("请先勾选题目"); return; }
+    setBusy(true); setMessage("");
+    try {
+      const url = target === "class" ? `/api/lessons/${id}/questions/batch` : `/api/lessons/${id}/homework-draft`;
+      const data = await requestJson<Record<string, any>>(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ questionIds: selectedQuestions, purpose: "课堂练习" }) });
+      if (!data) throw new HttpError(200, "题目加入响应为空，请重试");
+      setMessage(target === "class" ? `已将${data.linked}道题加入课堂练习` : `已加入作业草稿，新增${data.added}道题；作业仍未发布`);
+      setSelectedQuestions([]);
+      await load();
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "题目加入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
   const allPresent = () => { setRecords((current) => Object.fromEntries(activity.members.map((member) => [member.id, { ...current[member.id], attendanceStatus: current[member.id]?.attendanceStatus || "present" }]))); setDirty(true); };
   const applyBatchScore = (field: "participation" | "understanding" | "completion") => { setRecords((current) => Object.fromEntries(activity.members.map((member) => [member.id, { ...current[member.id], [field]: current[member.id]?.[field] || batchScore }]))); setDirty(true); };
   const applyTemplate = (type: string, templateId: string) => { const template = templates.find((item) => item.id === Number(templateId)); if (!template) return; if (type === "assignment") setAssignment((current) => ({ ...current, ...template.payload })); if (type === "feedback") setFeedback((current) => ({ ...current, ...template.payload })); if (type === "next_plan") setClosure((current) => ({ ...current, nextPlan: String(template.payload.nextPlan || "") })); setDirty(true); };
-  const saveTemplate = async (type: string, templatePayload: Record<string, unknown>) => { const name = prompt("请输入模板名称"); if (!name?.trim()) return; const response = await fetch("/api/workflow-templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, name, payload: templatePayload }) }), data = await response.json(); setMessage(response.ok ? "常用模板已保存" : data.error || "模板保存失败"); if (response.ok) await load(); };
+  const saveTemplate = async (type: string, templatePayload: Record<string, unknown>) => {
+    if (busy) return;
+    const name = prompt("请输入模板名称");
+    if (!name?.trim()) return;
+    setBusy(true); setMessage("");
+    try {
+      const data = await requestJson<Record<string, any>>("/api/workflow-templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, name, payload: templatePayload }) });
+      if (!data) throw new HttpError(200, "模板保存响应为空，请重试");
+      setMessage("常用模板已保存");
+      await load();
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "模板保存失败");
+    } finally {
+      setBusy(false);
+    }
+  };
   const buildFeedbackDraft = () => { const parts = [closure.actualContent && `本节实际内容：${closure.actualContent}`, closure.homework && `课后作业：${closure.homework}`, closure.nextPlan && `下节计划：${closure.nextPlan}`].filter(Boolean); setFeedback((current) => ({ ...current, content: parts.join("\n") })); setDirty(true); setMessage(parts.length ? "已整理现有记录，请教师核对后确认" : "暂无可整理的真实记录，请先填写课堂内容"); };
-  const undoCompletion = async () => { if (!confirm("确认撤销最近一次完成？系统只回滚24小时内且未确认、未发布、未被后续修改的产物。")) return; setBusy(true); const response = await fetch(`/api/lessons/${id}/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "undoLatestCompletion" }) }), data = await response.json(); setBusy(false); if (!response.ok) { setMessage(data.blockers?.length ? `${data.error}：${data.blockers.join("、")}` : data.error || "撤销失败"); return; } setMessage("最近一次完成已安全撤销，课堂记录仍保留为草稿"); setCompletionResult(null); await load(); };
+  const undoCompletion = async () => {
+    if (busy) return;
+    if (!confirm("确认撤销最近一次完成？系统只回滚24小时内且未确认、未发布、未被后续修改的产物。")) return;
+    setBusy(true); setMessage("");
+    try {
+      const data = await requestJson<Record<string, any>>(`/api/lessons/${id}/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "undoLatestCompletion" }) });
+      if (!data) throw new HttpError(200, "撤销响应为空，请重试");
+      setMessage("最近一次完成已安全撤销，课堂记录仍保留为草稿"); setCompletionResult(null);
+      await load();
+    } catch (reason) {
+      const data = reason instanceof HttpError && reason.payload && typeof reason.payload === "object" ? reason.payload as Record<string, any> : null;
+      setMessage(data?.blockers?.length ? `${reason instanceof HttpError ? reason.message : "撤销失败"}：${data.blockers.join("、")}` : reason instanceof HttpError ? reason.message : "撤销失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const printLesson = async () => {
+    if (busy) return;
+    if (!confirm("确认打印或导出当前课时记录？打印预览中可选择“另存为 PDF”。")) return;
+    setBusy(true); setMessage("");
+    try {
+      await requestJson<Record<string, any>>("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "print", entityType: "lesson", entityId: id }) });
+      window.print();
+    } catch (reason) {
+      setMessage(reason instanceof HttpError ? reason.message : "暂时无法记录本次导出操作");
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  if (error) return <AppShell title="课时详情"><EmptyState title="无法打开课时" description={error} /></AppShell>;
+  if (!lesson && detailLoadError) return <AppShell title="课时详情"><div className="lessonDetailLoadError" role="alert"><EmptyState title="无法打开课时" description={detailLoadError} action={<button className="secondaryButton" onClick={() => setReloadKey((value) => value + 1)}>重新读取课时详情</button>} /></div></AppShell>;
   if (!lesson) return <AppShell title="课时详情"><EmptyState title="正在读取课时" description="请稍候…" /></AppShell>;
   const financeLabel = activity.finance?.status === "review" ? "待核对" : activity.finance?.status === "settled" ? "已结算" : activity.finance?.status ? "已确认" : "完成时生成";
   const byType = (type: string) => templates.filter((item) => item.type === type);
+  const activeLoopStage: "备课" | "上课" | "作业" | "反馈" | "结算" = lesson.status === "completed" ? "反馈" : closure.actualContent.trim() ? "作业" : "上课";
 
-  return <AppShell title={String(lesson.displayTitle || lesson.topic || lesson.courseName)} subtitle={`${lesson.date} · ${lesson.grade} · ${lesson.status === "completed" ? "已完成" : "待记录"}`} actions={<><Link href={`/lessons?edit=${id}`} className="secondaryButton">编辑课时</Link>{lesson.status === "completed" && <button className="secondaryButton" disabled={busy} onClick={undoCompletion}>撤销本次完成</button>}<button className="primaryButton" onClick={async () => { if (!confirm("确认打印或导出当前课时记录？打印预览中可选择“另存为 PDF”。")) return; await fetch("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "print", entityType: "lesson", entityId: id }) }); window.print(); }}>打印 / 导出 PDF</button></>}>
+  return <AppShell title={String(lesson.displayTitle || lesson.topic || lesson.courseName)} subtitle={`${lesson.date} · ${lesson.grade} · ${lesson.status === "completed" ? "已完成" : "待记录"}`} actions={<><Link href={`/lessons?edit=${id}`} className="secondaryButton">编辑课时</Link>{lesson.status === "completed" && <button className="secondaryButton" disabled={busy} onClick={undoCompletion}>撤销本次完成</button>}<button className="primaryButton" disabled={busy} onClick={printLesson}>打印 / 导出 PDF</button></>}>
     {message && <div className="saveToast" role="status">{message}</div>}
+    {detailLoadError && <div className="lessonDetailInlineError" role="alert"><div><strong>部分课时信息暂时没有更新</strong><p>{detailLoadError}。页面保留了上次成功读取的内容。</p></div><button className="secondaryButton" onClick={() => setReloadKey((value) => value + 1)}>重新读取课时详情</button></div>}
     <section className="lessonIdentity" aria-label="课时统一信息"><b>{String(lesson.displayTitle || "学生——地点——时间待补")}</b><span>{lesson.topic || lesson.courseName}</span></section>
+    <section className="lessonLoopOverview" aria-label="本节课教学闭环">
+      <TeachingLoopTrack activeStage={activeLoopStage} />
+      <nav className="lessonDetailJumpNav" aria-label="课时详情快捷导航"><a href="#lesson-prep">备课</a><a href="#lesson-close">完成课时</a><a href="#lesson-students">学生表现</a><a href="#lesson-homework">作业</a><a href="#lesson-feedback">反馈</a></nav>
+    </section>
     {remainingTodos.length > 0 && <div className="noticeStrip"><b>本节课仍有待办</b><span>{remainingTodos.join("、")}</span></div>}
     {completionResult && <section className="panel completionReceipt"><div className="panelTitle"><div><p>本次完成结果</p><h2>已经生成和仍需处理的内容</h2></div></div><div className="receiptGrid"><Link href={`/assignments?lessonId=${id}`}>作业：{completionResult.artifacts?.assignmentId ? "已生成草稿" : "未生成"}</Link><Link href={`/feedback?lessonId=${id}`}>反馈：{completionResult.artifacts?.feedbackId ? "已生成草稿" : "未生成"}</Link><Link href={`/finance?lessonId=${id}`}>结算：{completionResult.artifacts?.financeId ? completionResult.artifacts.financeStatus : "未生成"}</Link><span>剩余待办：{completionResult.todos?.length ? completionResult.todos.join("、") : "无"}</span></div></section>}
 
@@ -110,18 +260,18 @@ export default function LessonDetail() {
 
     <section className="panel aiReviewPanel"><div className="panelTitle"><div><p>DeepSeek · 课前辅助</p><h2>基于真实记录生成备课草案</h2></div><div className="cardActions"><button className="aiButton" disabled={aiPrepBusy} onClick={generateAiPrep}>{aiPrepBusy ? "正在分析…" : aiPrep ? "重新生成" : "生成 AI 备课草案"}</button>{aiPrep && <button className="primaryButton" onClick={applyAiPrep}>采用到备课表单</button>}</div></div><p className="privacyNote">只整理当前课时、上一节记录、匿名作业与关注汇总、已关联正式题目；不会补写政策事实、教材观点、知识点或答案，也不会自动保存。</p>{aiPrep && <><div className="prepContextGrid"><article><b>教学目标</b><span>{aiPrep.teachingGoals}</span></article><article><b>重点与难点</b><span>{aiPrep.keyPoints}\n{aiPrep.difficultPoints}</span></article><article><b>课堂流程</b><span>{aiPrep.lessonFlow}</span></article><article><b>题目使用</b><span>{aiPrep.questionUsePlan}</span></article></div>{aiPrep.uncertainty?.length > 0 && <div className="aiUncertainty"><b>需要教师确认</b>{aiPrep.uncertainty.map((item) => <span key={item}>{item}</span>)}</div>}{aiPrepMeta && <details><summary>查看本次发送与排除字段</summary><p>发送：{aiPrepMeta.sentFields.join("、")}</p><p>排除：{aiPrepMeta.excludedFields.join("、")}</p></details>}</>}</section>
 
-    <section className="panel prepCockpit"><div className="panelTitle"><div><p>下一节课备课驾驶舱</p><h2>从上一节真实记录到本节资料和练习</h2></div><button className="primaryButton" onClick={savePrep}>保存备课</button></div><div className="prepContextGrid"><article><b>上一节实际完成</b><p>{prep.previousLesson?.actualContent || "暂无上一节已完成记录"}</p></article><article><b>遗留问题与下节计划</b><p>{[prep.previousLesson?.nextPlan, prep.previousReflection?.actionCompleted ? "" : prep.previousReflection?.nextAction, prep.previousReflection?.difficulties].filter(Boolean).join("\n") || "暂无已记录的遗留事项"}</p></article><article><b>未完成作业</b><p>{prep.pendingAssignments.length ? prep.pendingAssignments.map((item) => `${item.title}（${item.pendingCount}人）`).join("、") : "当前没有未完成作业"}</p></article><article><b>需要关注的学生</b><p>{prep.attentionStudents.length ? prep.attentionStudents.map((item) => `${item.name}：${item.reason || "教师已确认关注"}`).join("；") : "当前没有有证据的关注事项"}</p></article></div><div className="formGrid"><label className="wide">教学目标<textarea value={prepForm.teachingGoals} onChange={(event) => setPrepForm({ ...prepForm, teachingGoals: event.target.value })} /></label><label>教学重点<textarea value={prepForm.keyPoints} onChange={(event) => setPrepForm({ ...prepForm, keyPoints: event.target.value })} /></label><label>教学难点<textarea value={prepForm.difficultPoints} onChange={(event) => setPrepForm({ ...prepForm, difficultPoints: event.target.value })} /></label><label>资料清单<textarea value={prepForm.materials} onChange={(event) => setPrepForm({ ...prepForm, materials: event.target.value })} /></label><label>知识点（只填已有目录或教师确认内容）<textarea value={prepForm.knowledgePoints} onChange={(event) => setPrepForm({ ...prepForm, knowledgePoints: event.target.value })} /></label></div><div className="panelTitle recommendationTitle"><div><p>只从正式题库推荐</p><h2>匹配本节课的题目</h2></div><div className="cardActions"><button disabled={busy || !selectedQuestions.length} onClick={() => addQuestions("class")}>加入课堂练习</button><button disabled={busy || !selectedQuestions.length} onClick={() => addQuestions("homework")}>加入试卷＋作业草稿</button><Link href={`/questions?lesson=${id}`}>打开完整题库</Link></div></div>{prep.recommendedQuestions.length ? <div className="prepQuestionList">{prep.recommendedQuestions.map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestions.includes(Number(question.id))} onChange={(event) => setSelectedQuestions((current) => event.target.checked ? [...current, Number(question.id)] : current.filter((value) => value !== Number(question.id)))} /><div><b>{question.stem}</b><span>{question.questionType} · 匹配{question.score}分 · {question.reasons.join("、")} · 使用{question.useCount || 0}次</span></div></label>)}</div> : <EmptyState title="暂无可靠匹配题目" description="系统不会因为题量不足而补写教材观点、答案或知识点。可补充课时分类，或进入正式题库人工选择。" />}</section>
+    <section className="panel prepCockpit" id="lesson-prep"><div className="panelTitle"><div><p>下一节课备课驾驶舱</p><h2>从上一节真实记录到本节资料和练习</h2></div><button className="primaryButton" disabled={busy} onClick={savePrep}>保存备课</button></div><div className="prepContextGrid"><article><b>上一节实际完成</b><p>{prep.previousLesson?.actualContent || "暂无上一节已完成记录"}</p></article><article><b>遗留问题与下节计划</b><p>{[prep.previousLesson?.nextPlan, prep.previousReflection?.actionCompleted ? "" : prep.previousReflection?.nextAction, prep.previousReflection?.difficulties].filter(Boolean).join("\n") || "暂无已记录的遗留事项"}</p></article><article><b>未完成作业</b><p>{prep.pendingAssignments.length ? prep.pendingAssignments.map((item) => `${item.title}（${item.pendingCount}人）`).join("、") : "当前没有未完成作业"}</p></article><article><b>需要关注的学生</b><p>{prep.attentionStudents.length ? prep.attentionStudents.map((item) => `${item.name}：${item.reason || "教师已确认关注"}`).join("；") : "当前没有有证据的关注事项"}</p></article></div><div className="formGrid"><label className="wide">教学目标<textarea value={prepForm.teachingGoals} onChange={(event) => setPrepForm({ ...prepForm, teachingGoals: event.target.value })} /></label><label>教学重点<textarea value={prepForm.keyPoints} onChange={(event) => setPrepForm({ ...prepForm, keyPoints: event.target.value })} /></label><label>教学难点<textarea value={prepForm.difficultPoints} onChange={(event) => setPrepForm({ ...prepForm, difficultPoints: event.target.value })} /></label><label>资料清单<textarea value={prepForm.materials} onChange={(event) => setPrepForm({ ...prepForm, materials: event.target.value })} /></label><label>知识点（只填已有目录或教师确认内容）<textarea value={prepForm.knowledgePoints} onChange={(event) => setPrepForm({ ...prepForm, knowledgePoints: event.target.value })} /></label></div><div className="panelTitle recommendationTitle"><div><p>只从正式题库推荐</p><h2>匹配本节课的题目</h2></div><div className="cardActions"><button disabled={busy || !selectedQuestions.length} onClick={() => addQuestions("class")}>加入课堂练习</button><button disabled={busy || !selectedQuestions.length} onClick={() => addQuestions("homework")}>加入试卷＋作业草稿</button><Link href={`/questions?lesson=${id}`}>打开完整题库</Link></div></div>{prep.recommendedQuestions.length ? <div className="prepQuestionList">{prep.recommendedQuestions.map((question) => <label key={question.id}><input type="checkbox" checked={selectedQuestions.includes(Number(question.id))} onChange={(event) => setSelectedQuestions((current) => event.target.checked ? [...current, Number(question.id)] : current.filter((value) => value !== Number(question.id)))} /><div><b>{question.stem}</b><span>{question.questionType} · 匹配{question.score}分 · {question.reasons.join("、")} · 使用{question.useCount || 0}次</span></div></label>)}</div> : <EmptyState title="暂无可靠匹配题目" description="系统不会因为题量不足而补写教材观点、答案或知识点。可补充课时分类，或进入正式题库人工选择。" />}</section>
 
     <div className="lessonDetailGrid">
-      <section className="panel lessonSummary"><div className="panelTitle"><div><p>课程信息</p><h2>{String(lesson.courseName)}</h2></div><span className={`statusBadge ${lesson.status}`}>{lesson.status === "completed" ? "已完成" : "待记录"}</span></div><dl><div><dt>时间</dt><dd>{lesson.date}　{lesson.startTime || "待定"}–{lesson.endTime || "待定"}</dd></div><div><dt>授课</dt><dd>{lesson.mode === "online" ? `线上 · ${lesson.onlineLink || "未填写链接"}` : `线下 · ${lesson.location || "未填写地点"}`}</dd></div><div><dt>教材</dt><dd>{lesson.textbookVersion || "未填写"} · {lesson.volume || "未填写"} · {lesson.unit || "未填写单元"}</dd></div><div><dt>结算</dt><dd>{financeLabel}{activity.finance?.expectedAmount != null ? ` · ¥${Number(activity.finance.expectedAmount).toFixed(2)}` : ""}</dd></div></dl></section>
+      <section className="panel lessonSummary"><div className="panelTitle"><div><p>课程信息</p><h2>{String(lesson.courseName)}</h2></div><StatusBadge tone={lesson.status === "completed" ? "success" : "warning"}>{lesson.status === "completed" ? "已完成" : "待记录"}</StatusBadge></div><dl><div><dt>时间</dt><dd>{lesson.date}　{lesson.startTime || "待定"}–{lesson.endTime || "待定"}</dd></div><div><dt>授课</dt><dd>{lesson.mode === "online" ? `线上 · ${lesson.onlineLink || "未填写链接"}` : `线下 · ${lesson.location || "未填写地点"}`}</dd></div><div><dt>教材</dt><dd>{lesson.textbookVersion || "未填写"} · {lesson.volume || "未填写"} · {lesson.unit || "未填写单元"}</dd></div><div><dt>结算</dt><dd>{financeLabel}{activity.finance?.expectedAmount != null ? ` · ¥${Number(activity.finance.expectedAmount).toFixed(2)}` : ""}</dd></div></dl></section>
 
-      <section className="panel widePanel lessonClosure"><div className="panelTitle"><div><p>自动保存，目标90秒完成</p><h2>完成本节课</h2></div><span className={dirty ? "saveState dirty" : "saveState"}>{autosave}</span></div><ol className="closureSteps" aria-label="完成课时步骤">{steps.map(([label, done]) => <li className={done ? "done" : ""} key={label}>{done ? "✓ " : ""}{label}</li>)}</ol><div className="formGrid"><label className="wide"><b className="stepLabel">必填 · 教学内容</b>实际教学内容<textarea value={closure.actualContent} onChange={(event) => setClosureField("actualContent", event.target.value)} placeholder="记录本节实际完成的知识、问题和活动" /></label><label><b className="stepLabel">可稍后补充 · 作业</b>本节作业<textarea value={closure.homework} onChange={(event) => setClosureField("homework", event.target.value)} /></label><label><b className="stepLabel">可稍后补充 · 计划</b>下节课计划<textarea value={closure.nextPlan} onChange={(event) => setClosureField("nextPlan", event.target.value)} /><select defaultValue="" onChange={(event) => applyTemplate("next_plan", event.target.value)}><option value="">套用常用计划</option>{byType("next_plan").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button onClick={() => saveTemplate("next_plan", { nextPlan: closure.nextPlan })}>保存为模板</button></label><div className="wide ratingGrid">{[["participation", "参与度"], ["understanding", "理解度"], ["completion", "完成度"], ["discipline", "课堂纪律"]].map(([key, label]) => <label key={key}>{label}<select value={closure[key as keyof typeof closure]} onChange={(event) => setClosureField(key as keyof typeof closure, event.target.value)}><option value="">待评</option>{[1, 2, 3, 4, 5].map((number) => <option key={number}>{number}</option>)}</select></label>)}</div></div><p className="privacyNote">完成前必须填写实际教学内容，并明确选择每名学生的出勤状态。系统只整理本页已有记录，不补写教学观点或学生结论。</p><div className="modalActions"><Link className="secondaryButton" href={`/questions?lesson=${id}`}>关联课堂题目</Link><button className="secondaryButton" onClick={buildFeedbackDraft}>整理为反馈草稿</button><button disabled={busy || !dirty} className="secondaryButton" onClick={() => saveWorkflow("saveDraft")}>{busy ? "正在保存…" : "保存草稿"}</button><button disabled={busy} className="primaryButton" onClick={() => saveWorkflow("completeLesson")}>{busy ? "正在完成…" : "一键完成本节课"}</button></div></section>
+      <section className="panel widePanel lessonClosure" id="lesson-close"><div className="panelTitle"><div><p>自动保存，目标90秒完成</p><h2>完成本节课</h2></div><span className={dirty ? "saveState dirty" : "saveState"}>{autosave}</span></div><ol className="closureSteps" aria-label="完成课时步骤">{steps.map(([label, done]) => <li className={done ? "done" : ""} key={label}>{done ? "✓ " : ""}{label}</li>)}</ol><div className="formGrid"><label className="wide"><b className="stepLabel">必填 · 教学内容</b>实际教学内容<textarea value={closure.actualContent} onChange={(event) => setClosureField("actualContent", event.target.value)} placeholder="记录本节实际完成的知识、问题和活动" /></label><label><b className="stepLabel">可稍后补充 · 作业</b>本节作业<textarea value={closure.homework} onChange={(event) => setClosureField("homework", event.target.value)} /></label><label><b className="stepLabel">可稍后补充 · 计划</b>下节课计划<textarea value={closure.nextPlan} onChange={(event) => setClosureField("nextPlan", event.target.value)} /><select defaultValue="" onChange={(event) => applyTemplate("next_plan", event.target.value)}><option value="">套用常用计划</option>{byType("next_plan").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button disabled={busy} onClick={() => saveTemplate("next_plan", { nextPlan: closure.nextPlan })}>保存为模板</button></label><div className="wide ratingGrid">{[["participation", "参与度"], ["understanding", "理解度"], ["completion", "完成度"], ["discipline", "课堂纪律"]].map(([key, label]) => <label key={key}>{label}<select value={closure[key as keyof typeof closure]} onChange={(event) => setClosureField(key as keyof typeof closure, event.target.value)}><option value="">待评</option>{[1, 2, 3, 4, 5].map((number) => <option key={number}>{number}</option>)}</select></label>)}</div></div><p className="privacyNote">完成前必须填写实际教学内容，并明确选择每名学生的出勤状态。系统只整理本页已有记录，不补写教学观点或学生结论。</p><div className="modalActions"><Link className="secondaryButton" href={`/questions?lesson=${id}`}>关联课堂题目</Link><button className="secondaryButton" disabled={busy} onClick={buildFeedbackDraft}>整理为反馈草稿</button><button disabled={busy || !dirty} className="secondaryButton" onClick={() => saveWorkflow("saveDraft")}>{busy ? "正在保存…" : "保存草稿"}</button><button disabled={busy} className="primaryButton" onClick={() => saveWorkflow("completeLesson")}>{busy ? "正在完成…" : "一键完成本节课"}</button></div></section>
 
-      <section className="panel widePanel"><div className="panelTitle"><div><p>只处理例外，再单独调整</p><h2>学生出勤与课堂表现</h2></div><span>{activity.members.length} 名学生</span></div><div className="quickRecordBar"><button onClick={allPresent}>全员出勤（保留已填例外）</button><select value={batchScore} onChange={(event) => setBatchScore(event.target.value)}>{[1,2,3,4,5].map((value) => <option key={value}>{value}分</option>)}</select><button onClick={() => applyBatchScore("participation")}>批量参与度</button><button onClick={() => applyBatchScore("understanding")}>批量理解度</button><button onClick={() => applyBatchScore("completion")}>批量完成度</button></div>{activity.members.length === 0 ? <EmptyState title="没有关联学生" description="本节课完成时只要求填写实际教学内容；如需学生学情，请先关联班级成员。" action={<Link className="secondaryButton" href="/classes">管理班级成员</Link>} /> : <div className="performanceList">{activity.members.map((member) => { const row = records[member.id] || {}; return <article key={member.id}><div className="studentName"><b>{member.name}</b><span>{member.grade}</span></div><label>出勤<select value={String(row.attendanceStatus || "")} onChange={(event) => setRecord(member.id, "attendanceStatus", event.target.value)}><option value="">请选择</option><option value="present">出勤</option><option value="late">迟到</option><option value="absent">缺勤</option><option value="leave">请假</option></select></label>{[["participation", "参与"], ["understanding", "理解"], ["completion", "完成"]].map(([key, label]) => <label key={key}>{label}<select value={String(row[key] || "")} onChange={(event) => setRecord(member.id, key, event.target.value)}><option value="">待评</option>{[1,2,3,4,5].map((number) => <option key={number}>{number}</option>)}</select></label>)}<label className="noteField">教师备注<input value={String(row.teacherNote || "")} onChange={(event) => setRecord(member.id, "teacherNote", event.target.value)} /></label><label>关注标签<select value={String(row.riskTags || "")} onChange={(event) => setRecord(member.id, "riskTags", event.target.value)}><option value="">无</option><option>缺勤</option><option>作业拖延</option><option>知识漏洞</option><option>情绪/沟通关注</option></select></label><label className="checkLabel"><input type="checkbox" checked={Boolean(row.riskConfirmed)} onChange={(event) => setRecord(member.id, "riskConfirmed", event.target.checked)} />教师确认关注</label><button onClick={() => post({ action: "studentRecord", studentId: member.id, ...row })}>单独保存</button></article>; })}</div>}</section>
+      <section className="panel widePanel" id="lesson-students"><div className="panelTitle"><div><p>只处理例外，再单独调整</p><h2>学生出勤与课堂表现</h2></div><span>{activity.members.length} 名学生</span></div><div className="quickRecordBar"><button disabled={busy} onClick={allPresent}>全员出勤（保留已填例外）</button><select value={batchScore} onChange={(event) => setBatchScore(event.target.value)}>{[1,2,3,4,5].map((value) => <option key={value}>{value}分</option>)}</select><button disabled={busy} onClick={() => applyBatchScore("participation")}>批量参与度</button><button disabled={busy} onClick={() => applyBatchScore("understanding")}>批量理解度</button><button disabled={busy} onClick={() => applyBatchScore("completion")}>批量完成度</button></div>{activity.members.length === 0 ? <EmptyState title="没有关联学生" description="本节课完成时只要求填写实际教学内容；如需学生学情，请先关联班级成员。" action={<Link className="secondaryButton" href="/classes">管理班级成员</Link>} /> : <div className="performanceList">{activity.members.map((member) => { const row = records[member.id] || {}; return <article key={member.id}><div className="studentName"><b>{member.name}</b><span>{member.grade}</span></div><label>出勤<select value={String(row.attendanceStatus || "")} onChange={(event) => setRecord(member.id, "attendanceStatus", event.target.value)}><option value="">请选择</option><option value="present">出勤</option><option value="late">迟到</option><option value="absent">缺勤</option><option value="leave">请假</option></select></label>{[["participation", "参与"], ["understanding", "理解"], ["completion", "完成"]].map(([key, label]) => <label key={key}>{label}<select value={String(row[key] || "")} onChange={(event) => setRecord(member.id, key, event.target.value)}><option value="">待评</option>{[1,2,3,4,5].map((number) => <option key={number}>{number}</option>)}</select></label>)}<label className="noteField">教师备注<input value={String(row.teacherNote || "")} onChange={(event) => setRecord(member.id, "teacherNote", event.target.value)} /></label><label>关注标签<select value={String(row.riskTags || "")} onChange={(event) => setRecord(member.id, "riskTags", event.target.value)}><option value="">无</option><option>缺勤</option><option>作业拖延</option><option>知识漏洞</option><option>情绪/沟通关注</option></select></label><label className="checkLabel"><input type="checkbox" checked={Boolean(row.riskConfirmed)} onChange={(event) => setRecord(member.id, "riskConfirmed", event.target.checked)} />教师确认关注</label><button disabled={busy} onClick={() => post({ action: "studentRecord", studentId: member.id, ...row })}>单独保存</button></article>; })}</div>}</section>
 
-      <section className="panel"><div className="panelTitle"><div><p>未发布草稿</p><h2>课后作业</h2></div><b>{activity.assignments.length}</b></div><div className="compactForm"><select defaultValue="" onChange={(event) => applyTemplate("assignment", event.target.value)}><option value="">套用常用作业模板</option>{byType("assignment").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input value={assignment.title} onChange={(event) => setAssignmentField("title", event.target.value)} placeholder="作业名称" /><textarea value={assignment.requirements} onChange={(event) => setAssignmentField("requirements", event.target.value)} placeholder="完成要求" /><input type="date" value={assignment.dueAt} onChange={(event) => setAssignmentField("dueAt", event.target.value)} /><button onClick={() => saveTemplate("assignment", assignment)}>保存当前为模板</button><button onClick={() => post({ action: "assignment", ...assignment })}>单独保存作业草稿</button></div>{activity.assignments.map((item) => <p className="savedItem" key={String(item.id)}><b>{String(item.title)}</b><span>{String(item.due_at || "未设截止日期")}</span></p>)}</section>
+      <section className="panel" id="lesson-homework"><div className="panelTitle"><div><p>未发布草稿</p><h2>课后作业</h2></div><b>{activity.assignments.length}</b></div><div className="compactForm"><select defaultValue="" onChange={(event) => applyTemplate("assignment", event.target.value)}><option value="">套用常用作业模板</option>{byType("assignment").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input value={assignment.title} onChange={(event) => setAssignmentField("title", event.target.value)} placeholder="作业名称" /><textarea value={assignment.requirements} onChange={(event) => setAssignmentField("requirements", event.target.value)} placeholder="完成要求" /><input type="date" value={assignment.dueAt} onChange={(event) => setAssignmentField("dueAt", event.target.value)} /><button disabled={busy} onClick={() => saveTemplate("assignment", assignment)}>保存当前为模板</button><button disabled={busy} onClick={() => post({ action: "assignment", ...assignment })}>单独保存作业草稿</button></div>{activity.assignments.map((item) => <p className="savedItem" key={String(item.id)}><b>{String(item.title)}</b><span>{String(item.due_at || "未设截止日期")}</span></p>)}</section>
 
-      <section className="panel"><div className="panelTitle"><div><p>教师确认前不对外使用</p><h2>反馈草稿</h2></div><b>{activity.feedback.length}</b></div><div className="compactForm"><select defaultValue="" onChange={(event) => applyTemplate("feedback", event.target.value)}><option value="">套用常用反馈模板</option>{byType("feedback").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={feedback.studentId} onChange={(event) => setFeedbackField("studentId", event.target.value)}><option value="">班级整体反馈</option>{activity.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select><select value={feedback.tone} onChange={(event) => setFeedbackField("tone", event.target.value)}><option>专业简洁</option><option>温和鼓励</option><option>重点提醒</option></select><textarea value={feedback.content} onChange={(event) => setFeedbackField("content", event.target.value)} placeholder="只填写有课堂记录支持的内容" /><button onClick={() => saveTemplate("feedback", { tone: feedback.tone, content: feedback.content })}>保存当前为模板</button><button onClick={() => post({ action: "feedback", ...feedback, classId: lesson.classId, type: "lesson" })}>单独保存反馈</button></div><div className="detailActions"><Link className="aiButton" href={`/feedback?lesson=${id}&ai=1`}>DeepSeek 课后闭环草稿</Link><Link href={`/feedback?lesson=${id}`}>进入反馈中心编辑</Link><Link href={`/reflections?lesson=${id}`}>新建教学反思</Link></div></section>
+      <section className="panel" id="lesson-feedback"><div className="panelTitle"><div><p>教师确认前不对外使用</p><h2>反馈草稿</h2></div><b>{activity.feedback.length}</b></div><div className="compactForm"><select defaultValue="" onChange={(event) => applyTemplate("feedback", event.target.value)}><option value="">套用常用反馈模板</option>{byType("feedback").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={feedback.studentId} onChange={(event) => setFeedbackField("studentId", event.target.value)}><option value="">班级整体反馈</option>{activity.members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select><select value={feedback.tone} onChange={(event) => setFeedbackField("tone", event.target.value)}><option>专业简洁</option><option>温和鼓励</option><option>重点提醒</option></select><textarea value={feedback.content} onChange={(event) => setFeedbackField("content", event.target.value)} placeholder="只填写有课堂记录支持的内容" /><button disabled={busy} onClick={() => saveTemplate("feedback", { tone: feedback.tone, content: feedback.content })}>保存当前为模板</button><button disabled={busy} onClick={() => post({ action: "feedback", ...feedback, classId: lesson.classId, type: "lesson" })}>单独保存反馈</button></div><div className="detailActions"><Link className="aiButton" href={`/feedback?lesson=${id}&ai=1`}>DeepSeek 课后闭环草稿</Link><Link href={`/feedback?lesson=${id}`}>进入反馈中心编辑</Link><Link href={`/reflections?lesson=${id}`}>新建教学反思</Link></div></section>
 
       <section className="panel widePanel"><div className="panelTitle"><div><p>课堂题目</p><h2>已关联题目</h2></div><Link href={`/questions?lesson=${id}`} className="secondaryButton">＋ 从题库关联</Link></div>{activity.questions.length === 0 ? <EmptyState title="还没有关联题目" description="可从正式题库选择课堂练习、作业或测验题。" /> : <div className="linkedQuestions">{activity.questions.map((question, index) => <article key={String(question.id)}><b>{index + 1}</b><div><span>{String(question.questionType)} · 难度{String(question.difficulty)}</span><p>{String(question.stem)}</p></div><em>{String(question.purpose)}</em></article>)}</div>}</section>
     </div>
