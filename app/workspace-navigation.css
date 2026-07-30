@@ -1,0 +1,393 @@
+.appShell {
+  background: var(--zs-paper);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100vh;
+  padding-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+}
+
+.workspaceSidebar {
+  display: none;
+}
+
+.mobileTabBar {
+  align-items: stretch;
+  background: rgb(255 254 250 / 96%);
+  border-top: 1px solid var(--zs-line);
+  bottom: 0;
+  box-shadow: 0 -0.5rem 1.5rem rgb(34 55 47 / 8%);
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  left: 0;
+  padding: 0.35rem max(0.35rem, env(safe-area-inset-left))
+    max(0.35rem, env(safe-area-inset-bottom))
+    max(0.35rem, env(safe-area-inset-right));
+  position: fixed;
+  right: 0;
+  z-index: 45;
+}
+
+.mobileTabBar a,
+.mobileTabBar button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-muted);
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  font-weight: 680;
+  gap: 0.1rem;
+  justify-content: center;
+  min-height: 2.75rem;
+  min-width: 0;
+  padding: 0.2rem;
+  position: relative;
+  text-decoration: none;
+}
+
+.mobileTabBar a.active,
+.mobileTabBar button.active {
+  color: var(--zs-pine);
+}
+
+.mobileTabBar a.active::before,
+.mobileTabBar button.active::before {
+  background: var(--zs-gold);
+  border-radius: 999px;
+  content: "";
+  height: 0.2rem;
+  left: 28%;
+  position: absolute;
+  right: 28%;
+  top: -0.35rem;
+}
+
+.workspaceNavIcon {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 800;
+  height: 1.75rem;
+  justify-content: center;
+  width: 1.75rem;
+}
+
+.mobileNavBackdrop {
+  align-items: end;
+  background: rgb(20 36 30 / 62%);
+  display: grid;
+  inset: 0;
+  padding-top: 4rem;
+  position: fixed;
+  z-index: 70;
+}
+
+.mobileNavDrawer {
+  background: var(--zs-paper);
+  border-radius: 1.25rem 1.25rem 0 0;
+  box-shadow: 0 -1.5rem 4rem rgb(20 36 30 / 22%);
+  max-height: min(82dvh, 48rem);
+  overflow-y: auto;
+  padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+
+.mobileNavDrawer::before {
+  background: var(--zs-line);
+  border-radius: 999px;
+  content: "";
+  display: block;
+  height: 0.25rem;
+  margin: -0.5rem auto 0.85rem;
+  width: 2.75rem;
+}
+
+.mobileNavDrawer > header {
+  align-items: center;
+  border-bottom: 1px solid var(--zs-line);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 1rem;
+}
+
+.mobileNavDrawer > header p,
+.mobileNavDrawer > header h2 {
+  margin: 0;
+}
+
+.mobileNavDrawer > header p {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.mobileNavDrawer > header h2 {
+  font-size: 1.375rem;
+  margin-top: 0.15rem;
+}
+
+.mobileNavDrawer > header button {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: 50%;
+  font-size: 1.5rem;
+  height: 2.75rem;
+  padding: 0;
+  width: 2.75rem;
+}
+
+.mobileNavDrawer__groups {
+  display: grid;
+  gap: 1.25rem;
+  padding-top: 1rem;
+}
+
+.mobileNavDrawer__groups h3 {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.5rem;
+}
+
+.mobileNavDrawer__groups section > div {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mobileNavDrawer__groups a {
+  align-items: center;
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  color: var(--zs-ink);
+  display: flex;
+  font-size: 0.875rem;
+  font-weight: 680;
+  gap: 0.65rem;
+  min-height: 3.25rem;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  text-decoration: none;
+}
+
+.mobileNavDrawer__groups a.active {
+  background: #EBEFE9;
+  border-color: var(--zs-pine);
+  color: var(--zs-pine);
+}
+
+.mobileNavDrawer__groups a span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48rem) {
+  .mobileNavDrawer {
+    border-radius: var(--zs-radius-lg);
+    margin: 0 auto 1rem;
+    max-width: 46rem;
+    width: calc(100% - 2rem);
+  }
+
+  .mobileNavDrawer__groups section > div {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .appShell {
+    grid-template-columns: 17rem minmax(0, 1fr);
+    padding-bottom: 0;
+  }
+
+  .workspaceSidebar {
+    background: var(--zs-pine-deep);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    padding: 1.4rem 1rem 1rem;
+    position: sticky;
+    top: 0;
+  }
+
+  .workspaceBrand {
+    align-items: center;
+    color: #fff;
+    display: flex;
+    gap: 0.75rem;
+    min-height: 3.5rem;
+    padding: 0 0.6rem 1rem;
+    text-decoration: none;
+  }
+
+  .workspaceBrand > span {
+    align-items: center;
+    background: var(--zs-gold);
+    border-radius: 50%;
+    color: var(--zs-ink);
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-family: "STKaiti", "KaiTi", "楷体", serif;
+    font-size: 1.125rem;
+    font-weight: 800;
+    height: 2.5rem;
+    justify-content: center;
+    width: 2.5rem;
+  }
+
+  .workspaceBrand b,
+  .workspaceBrand small {
+    display: block;
+  }
+
+  .workspaceBrand b {
+    font-size: 1rem;
+  }
+
+  .workspaceBrand small {
+    color: #BCCBC5;
+    font-size: 0.875rem;
+    margin-top: 0.1rem;
+  }
+
+  .workspaceSidebar__nav {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.35rem 0.2rem;
+    scrollbar-color: rgb(255 255 255 / 24%) transparent;
+  }
+
+  .workspaceNavGroup {
+    display: grid;
+    gap: 0.2rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .workspaceNavGroup > b {
+    color: #9FB3AA;
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 0 0.7rem 0.25rem;
+  }
+
+  .workspaceSidebar__nav a,
+  .workspaceSidebar__utilities a {
+    align-items: center;
+    border-radius: var(--zs-radius-sm);
+    color: #CCD8D3;
+    display: flex;
+    font-size: 0.9375rem;
+    font-weight: 630;
+    gap: 0.7rem;
+    min-height: 2.75rem;
+    padding: 0.45rem 0.65rem;
+    position: relative;
+    text-decoration: none;
+  }
+
+  .workspaceSidebar__nav a:hover,
+  .workspaceSidebar__utilities a:hover,
+  .workspaceSidebar__nav a.active,
+  .workspaceSidebar__utilities a.active {
+    background: rgb(255 255 255 / 9%);
+    color: #fff;
+  }
+
+  .workspaceSidebar__nav a.active::before,
+  .workspaceSidebar__utilities a.active::before {
+    background: var(--zs-gold);
+    border-radius: 999px;
+    bottom: 0.55rem;
+    content: "";
+    left: -0.2rem;
+    position: absolute;
+    top: 0.55rem;
+    width: 0.2rem;
+  }
+
+  .workspaceSidebar__nav .workspaceNavIcon,
+  .workspaceSidebar__utilities .workspaceNavIcon {
+    border-color: rgb(255 255 255 / 28%);
+  }
+
+  .workspaceSidebar__utilities {
+    border-top: 1px solid rgb(255 255 255 / 12%);
+    display: grid;
+    gap: 0.2rem;
+    margin-top: auto;
+    padding: 0.65rem 0.2rem 0;
+  }
+
+  .workspaceProfile {
+    align-items: center;
+    border-top: 1px solid rgb(255 255 255 / 12%);
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    margin-top: 0.65rem;
+    padding: 0.85rem 0.55rem 0;
+  }
+
+  .workspaceProfile > span {
+    align-items: center;
+    background: var(--zs-paper-deep);
+    border-radius: 50%;
+    color: var(--zs-ink);
+    display: inline-flex;
+    font-weight: 800;
+    height: 2.25rem;
+    justify-content: center;
+    width: 2.25rem;
+  }
+
+  .workspaceProfile b,
+  .workspaceProfile small {
+    display: block;
+    min-width: 0;
+  }
+
+  .workspaceProfile b {
+    font-size: 0.875rem;
+  }
+
+  .workspaceProfile small {
+    color: #9FB3AA;
+    font-size: 0.875rem;
+    line-height: 1.35;
+    margin-top: 0.1rem;
+  }
+
+  .workspaceProfile > a {
+    color: #CCD8D3;
+    font-size: 0.875rem;
+  }
+
+  .mobileTabBar,
+  .mobileNavBackdrop {
+    display: none;
+  }
+}
+
+@media print {
+  .workspaceSidebar,
+  .mobileTabBar,
+  .mobileNavBackdrop {
+    display: none !important;
+  }
+
+  .appShell {
+    display: block;
+    padding: 0;
+  }
+}

@@ -20,11 +20,11 @@ test("migration adds binding, targets, idempotency, sync, leases and confirmed r
 });
 
 test("website and mini assignment routes call the same assignment service", async () => {
-  const [website, mini, service, page, shell] = await Promise.all(["app/api/assignments/route.ts", "app/api/mini/assignments/route.ts", "app/lib/services/assignment-service.ts", "app/assignments/page.tsx", "app/components/AppShell.tsx"].map(read));
+  const [website, mini, service, page, navigation] = await Promise.all(["app/api/assignments/route.ts", "app/api/mini/assignments/route.ts", "app/lib/services/assignment-service.ts", "app/assignments/page.tsx", "app/components/navigation.ts"].map(read));
   assert.match(website, /createAssignment/); assert.match(mini, /createAssignment/);
   assert.match(service, /assignment_targets/); assert.match(service, /studentIds/); assert.match(service, /idempotency/);
   for (const label of ["作业中心", "指定学生", "保存批改草稿", "确认批改并回传"]) assert.match(page, new RegExp(label));
-  assert.match(shell, /href: "\/assignments"/);
+  assert.match(navigation, /href: "\/assignments"/);
 });
 
 test("binding is two-step and disabled links are rechecked server-side", async () => {

@@ -5,6 +5,7 @@ import "./globals.css";
 import "./responsive-fixes.css";
 import "./question-bank.css";
 import "./ui-foundations.css";
+import "./workspace-navigation.css";
 
 export const metadata: Metadata = {
   title: "知师研室｜初高中教师教学工作台",
