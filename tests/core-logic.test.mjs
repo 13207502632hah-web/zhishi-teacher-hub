@@ -463,8 +463,9 @@ test("recognition blocks uncertain scores and uses four explainable mastery leve
 });
 
 test("new teacher workflows keep private files, mini binding and audit boundaries", async () => {
-  const paths = ["db/schema.ts","app/api/files/[id]/route.ts","app/api/schedule-imports/[id]/confirm/route.ts","app/api/finance/route.ts","app/api/recognition/route.ts","app/api/mini/bind/route.ts","app/api/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
-  const [schema,files,schedule,finance,recognition,bind,excellent,miniReadme,migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const paths = ["db/schema.ts","app/api/files/[id]/route.ts","app/api/schedule-imports/[id]/confirm/route.ts","app/lib/schedule-import-preview.ts","app/api/finance/route.ts","app/api/recognition/route.ts","app/api/mini/bind/route.ts","app/api/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
+  const [schema,files,scheduleConfirm,schedulePreview,finance,recognition,bind,excellent,miniReadme,migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const schedule = `${scheduleConfirm}\n${schedulePreview}`;
   for (const entity of ["scheduleImports","lessonFinance","packageLedger","recognitionJobs","assessmentQuestionResults","parentStudentLinks","submissionVersions","excellentSubmissions"]) assert.match(schema,new RegExp(entity));
   assert.match(files,/requirePermission/); assert.match(files,/private, no-store/); assert.match(schedule,/同名档案/); assert.match(finance,/preview/); assert.match(finance,/confirm/); assert.match(recognition,/仍有.*题存疑/); assert.match(bind,/邀请码无效或已过期/); assert.match(excellent,/masking_status='confirmed'/); assert.match(miniReadme,/生产环境禁止开启/); assert.match(migration,/lesson_finance/);
 });
