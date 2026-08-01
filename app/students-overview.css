@@ -1,0 +1,621 @@
+.studentOverviewPage {
+  color: var(--zs-ink);
+  font-size: 1rem;
+  min-width: 0;
+}
+
+.studentOverviewNotice,
+.studentOverviewError,
+.studentOverviewLoading {
+  align-items: center;
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  display: flex;
+  font-size: 1rem;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.studentOverviewNotice {
+  border-left: 4px solid var(--zs-gold);
+}
+
+.studentOverviewError {
+  border-left: 4px solid var(--zs-danger);
+}
+
+.studentOverviewError strong {
+  color: var(--zs-danger);
+}
+
+.studentOverviewError p {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0.25rem 0 0;
+}
+
+.studentGrowthRail {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-bottom: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-lg);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  height: auto;
+  margin-bottom: 1rem;
+  padding: 0.625rem;
+}
+
+.studentGrowthRail button,
+.studentGrowthRail a {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--zs-radius-md);
+  color: var(--zs-muted);
+  display: grid;
+  gap: 0.125rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  text-decoration: none;
+}
+
+.studentGrowthRail span {
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.studentGrowthRail b {
+  color: var(--zs-ink);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.studentGrowthRail .isActive {
+  background: var(--zs-pine);
+  border-color: var(--zs-pine);
+  color: #fff;
+}
+
+.studentGrowthRail .isActive b {
+  color: #fff;
+}
+
+.studentOverviewMetrics {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 1rem;
+}
+
+.studentOverviewMetrics .zs-metric footer {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  height: auto;
+  padding: 0;
+}
+
+.studentAttentionBasis {
+  background: var(--zs-pine-deep);
+  border: 1px solid var(--zs-pine-deep);
+  border-radius: var(--zs-radius-lg);
+  color: #fff;
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.studentAttentionBasis > div > span {
+  color: var(--zs-gold);
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.studentAttentionBasis strong {
+  display: block;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(1.25rem, 6vw, 1.625rem);
+  line-height: 1.35;
+  margin-top: 0.25rem;
+}
+
+.studentAttentionBasis p {
+  color: color-mix(in srgb, #fff 76%, var(--zs-pine));
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0.5rem 0 0;
+}
+
+.studentAttentionBasis ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.studentAttentionBasis li {
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  padding: 0.45rem 0.75rem;
+}
+
+.studentFilterPanel,
+.studentGrowthPanel {
+  margin-bottom: 1rem;
+  min-width: 0;
+}
+
+.studentFilterForm {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.studentFilterForm label {
+  color: var(--zs-muted);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.studentFilterForm input,
+.studentFilterForm select {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-ink);
+  font: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  width: 100%;
+}
+
+.studentFilterForm select:disabled {
+  background: var(--zs-paper-deep);
+  color: var(--zs-muted);
+}
+
+.studentFilterActions {
+  align-items: stretch;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.studentFilterActions .zs-button {
+  min-height: 44px;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.studentClassError {
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--zs-danger) 7%, var(--zs-surface));
+  border-left: 4px solid var(--zs-danger);
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+}
+
+.studentGrowthGrid,
+.studentAttentionList {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.studentGrowthCard {
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-lg);
+  color: var(--zs-ink);
+  display: grid;
+  gap: 1rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 1rem;
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.studentGrowthCard:hover {
+  border-color: var(--zs-pine);
+  box-shadow: var(--zs-shadow-md);
+  transform: translateY(-2px);
+}
+
+.studentGrowthCard > header,
+.studentAttentionCard > header {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.studentGrowthCard > header .zs-status,
+.studentAttentionCard > header .zs-status {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.studentAvatar {
+  align-items: center;
+  background: var(--zs-gold);
+  border: 3px solid var(--zs-surface);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--zs-line);
+  color: var(--zs-ink);
+  display: inline-flex;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.125rem;
+  font-weight: 760;
+  height: 2.75rem;
+  justify-content: center;
+  width: 2.75rem;
+}
+
+.studentGrowthCard h3,
+.studentAttentionCard h3 {
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(1.25rem, 5vw, 1.5rem);
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.studentGrowthCard h3 small {
+  color: var(--zs-muted);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.studentGrowthCard header p,
+.studentAttentionCard header p {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0.125rem 0 0;
+}
+
+.studentGrowthCard dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.studentGrowthCard dl > div {
+  border-top: 1px solid var(--zs-line);
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 0;
+}
+
+.studentGrowthCard dt {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.studentGrowthCard dd {
+  font-size: 1rem;
+  line-height: 1.55;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.studentGrowthCard > footer {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--zs-line);
+  color: var(--zs-pine);
+  display: flex;
+  font-size: 0.875rem;
+  font-weight: 750;
+  height: auto;
+  justify-content: space-between;
+  padding: 0.75rem 0 0;
+}
+
+.studentGrowthCard > footer b {
+  font-size: 1.25rem;
+}
+
+.studentAttentionCard {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-left: 4px solid var(--zs-gold);
+  border-radius: var(--zs-radius-md);
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.studentAttentionCard ul {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.studentAttentionCard li {
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  padding: 0.75rem;
+}
+
+.studentAttentionCard li strong {
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+}
+
+.studentAttentionCard li p {
+  font-size: 1rem;
+  line-height: 1.55;
+  margin: 0.25rem 0 0;
+}
+
+.studentAttentionCard > .zs-button {
+  min-height: 44px;
+  width: 100%;
+}
+
+.studentOverviewDialog {
+  max-height: min(48rem, calc(100dvh - 2rem));
+  overflow: auto;
+  width: min(50rem, calc(100% - 2rem));
+}
+
+.studentOverviewDialog .modalTitle button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.studentFormError {
+  background: color-mix(in srgb, var(--zs-danger) 8%, var(--zs-surface));
+  border-left: 4px solid var(--zs-danger);
+  color: var(--zs-danger);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+}
+
+.studentOverviewForm {
+  display: grid;
+  gap: 1rem;
+}
+
+.studentOverviewForm fieldset {
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  margin: 0;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.studentOverviewForm legend {
+  color: var(--zs-pine);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.125rem;
+  font-weight: 760;
+  padding: 0 0.5rem;
+}
+
+.studentFormGrid {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.studentFormGrid label {
+  color: var(--zs-muted);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.studentFormGrid input,
+.studentFormGrid select,
+.studentFormGrid textarea {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-ink);
+  font: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  width: 100%;
+}
+
+.studentFormGrid textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.studentPrivacyNote {
+  background: var(--zs-paper-deep);
+  border-left: 3px solid var(--zs-gold);
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+}
+
+.studentDialogActions {
+  align-items: stretch;
+  border-top: 1px solid var(--zs-line);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  padding-top: 1rem;
+}
+
+.studentDialogActions > span {
+  align-items: center;
+  color: var(--zs-muted);
+  display: inline-flex;
+  font-size: 0.875rem;
+  min-height: 44px;
+}
+
+.studentDialogActions > span.isDirty {
+  color: var(--zs-danger);
+  font-weight: 700;
+}
+
+.studentDialogActions .zs-button {
+  min-height: 44px;
+  width: 100%;
+}
+
+@media (min-width: 40rem) {
+  .studentGrowthRail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .studentOverviewMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .studentAttentionBasis {
+    grid-template-columns: minmax(15rem, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .studentFilterForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .studentSearchField,
+  .studentFilterActions {
+    grid-column: 1 / -1;
+  }
+
+  .studentFilterActions {
+    align-items: center;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .studentFilterActions .zs-button {
+    width: auto;
+  }
+
+  .studentClassError {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .studentGrowthGrid,
+  .studentAttentionList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .studentAttentionCard > header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .studentAttentionCard > header .zs-status {
+    grid-column: auto;
+    justify-self: end;
+  }
+
+  .studentGrowthCard > header .zs-status {
+    grid-column: 2;
+  }
+
+  .studentFormGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .studentFormGrid .isWide,
+  .studentDialogActions {
+    grid-column: 1 / -1;
+  }
+
+  .studentDialogActions {
+    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .studentDialogActions .zs-button {
+    width: auto;
+  }
+}
+
+@media (min-width: 80rem) {
+  .studentOverviewMetrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .studentFilterForm {
+    align-items: end;
+    grid-template-columns: minmax(15rem, 1.6fr) repeat(3, minmax(8rem, 1fr)) auto;
+  }
+
+  .studentSearchField,
+  .studentFilterActions {
+    grid-column: auto;
+  }
+
+  .studentGrowthGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .studentAttentionCard > .zs-button {
+    justify-self: start;
+    width: auto;
+  }
+}
+
+@media print {
+  .studentGrowthRail,
+  .studentFilterPanel,
+  .studentOverviewNotice,
+  .studentAttentionCard > .zs-button {
+    display: none !important;
+  }
+
+  .studentGrowthCard,
+  .studentAttentionCard {
+    break-inside: avoid;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studentOverviewPage *,
+  .studentOverviewDialog * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
