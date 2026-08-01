@@ -36,14 +36,22 @@ export async function miniAccountState(access: MiniAccess, expiresAt?: string | 
 
 export async function requestMiniBinding(access: MiniAccess, code: string) {
   if (access.role === "teacher") return Response.json({ error: "教师账号不能改绑为学生或家长" }, { status: 400 });
-  const hash = await miniTokenHash(code.trim());
+  const normalizedCode = code.trim();
+  if (!normalizedCode) return Response.json({ error: "请输入邀请码" }, { status: 400 });
+  const hash = await miniTokenHash(normalizedCode);
   const invite = await env.DB.prepare("SELECT id,role,student_id AS studentId FROM mini_invites WHERE code_hash=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP")
     .bind(hash).first<{ id: number; role: string; studentId: number }>();
   if (!invite) return Response.json({ error: "邀请码无效或已过期，也可能已经使用" }, { status: 400 });
+
+  // Claim the invite before writing the binding. The conditional update makes a
+  // reused or concurrently submitted code fail without opening student data.
+  const consumed = await env.DB.prepare("UPDATE mini_invites SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP")
+    .bind(invite.id).run();
+  if (Number(consumed.meta?.changes || 0) !== 1) return Response.json({ error: "邀请码无效或已过期，也可能已经使用" }, { status: 409 });
+
   await env.DB.batch([
     env.DB.prepare("INSERT INTO mini_bindings(account_id,student_id,role,invite_id,status) VALUES(?,?,?,?, 'pending') ON CONFLICT(account_id,student_id,role) DO UPDATE SET invite_id=excluded.invite_id,status='pending',confirmed_by=NULL,confirmed_at=NULL,disabled_at=NULL,updated_at=CURRENT_TIMESTAMP")
       .bind(access.accountId, invite.studentId, invite.role, invite.id),
-    env.DB.prepare("UPDATE mini_invites SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(invite.id),
     env.DB.prepare("UPDATE wechat_accounts SET role=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(invite.role, access.accountId),
   ]);
   await recordSyncEvent({ eventType: "binding.requested", entityType: "student", entityId: invite.studentId, audienceRole: "teacher", accountId: access.accountId, payload: { role: invite.role } });
@@ -59,8 +67,11 @@ export async function decideBinding(access: AccessContext, bindingId: number, de
   const binding = await env.DB.prepare("SELECT id,account_id AS accountId,student_id AS studentId,role,status FROM mini_bindings WHERE id=?").bind(bindingId).first<Record<string, unknown>>();
   if (!binding) return Response.json({ error: "绑定申请不存在" }, { status: 404 });
   const status = decision === "confirm" ? "active" : decision === "reject" ? "rejected" : "disabled";
-  await env.DB.prepare("UPDATE mini_bindings SET status=?,confirmed_by=?,confirmed_at=CASE WHEN ?='active' THEN CURRENT_TIMESTAMP ELSE confirmed_at END,disabled_at=CASE WHEN ?='disabled' THEN CURRENT_TIMESTAMP ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-    .bind(status, access.id, status, status, bindingId).run();
+  const expectedStatus = decision === "disable" ? "active" : "pending";
+  if (binding.status !== expectedStatus) return Response.json({ error: `当前绑定已是${binding.status === "active" ? "已生效" : binding.status === "rejected" ? "已拒绝" : binding.status === "disabled" ? "已停用" : "待确认"}，不能重复处理` }, { status: 409 });
+  const updated = await env.DB.prepare("UPDATE mini_bindings SET status=?,confirmed_by=?,confirmed_at=CASE WHEN ?='active' THEN CURRENT_TIMESTAMP ELSE confirmed_at END,disabled_at=CASE WHEN ?='disabled' THEN CURRENT_TIMESTAMP ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?")
+    .bind(status, access.id, status, status, bindingId, expectedStatus).run();
+  if (Number(updated.meta?.changes || 0) !== 1) return Response.json({ error: "绑定状态已变化，不能重复处理，请刷新后重试" }, { status: 409 });
   if (status === "active" && binding.role === "student") {
     await env.DB.prepare("UPDATE wechat_accounts SET student_id=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(binding.studentId, binding.accountId).run();
   }
