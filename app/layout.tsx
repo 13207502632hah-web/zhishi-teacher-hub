@@ -21,6 +21,7 @@ import "./questions-list.css";
 import "./paper-workbench.css";
 import "./paper-detail.css";
 import "./classes-overview.css";
+import "./class-detail.css";
 
 export const metadata: Metadata = {
   title: "知师研室｜初高中教师教学工作台",
