@@ -1,0 +1,706 @@
+.page {
+  width: 100%;
+  max-width: 90rem;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+  color: #203f36;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.page :focus-visible {
+  outline: 3px solid #b17b24;
+  outline-offset: 3px;
+}
+
+.page button,
+.page a,
+.page input,
+.page select,
+.page textarea {
+  font: inherit;
+}
+
+.page button,
+.page a[role="button"],
+.page input,
+.page select {
+  min-height: 44px;
+}
+
+.primaryButton,
+.secondaryButton,
+.textButton,
+.dangerButton,
+.closeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  padding: 0.65rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.primaryButton {
+  background: #1f4a3e;
+  color: #fff;
+  font-weight: 700;
+}
+
+.primaryButton:hover {
+  background: #153a30;
+}
+
+.secondaryButton,
+.textButton {
+  background: #fff;
+  border-color: #b8c9bf;
+  color: #244f41;
+  font-weight: 700;
+}
+
+.secondaryButton:hover,
+.textButton:hover {
+  background: #f0f5ee;
+}
+
+.dangerButton {
+  background: #fff7f4;
+  border-color: #e0b8ab;
+  color: #9a4539;
+  font-weight: 700;
+}
+
+.dangerButton:hover {
+  background: #fbe9e3;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.textButton:disabled,
+.dangerButton:disabled,
+.closeButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.hero,
+.searchSection,
+.resourceSection,
+.methodSection,
+.boundarySection {
+  border: 1px solid #dce5dc;
+  border-radius: 0.9rem;
+  background: #fff;
+  box-shadow: 0 0.8rem 2.5rem rgb(31 74 62 / 5%);
+}
+
+.hero {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1.1rem, 4vw, 2.5rem);
+  background: linear-gradient(135deg, #edf4e8 0%, #fff 64%);
+}
+
+.heroCopy {
+  max-width: 46rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.45rem;
+  color: #55776a;
+  font-size: 0.875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.hero h2,
+.sectionHeading h2,
+.boundarySection h2,
+.dialog h2 {
+  margin: 0;
+  color: #173f35;
+  font-size: clamp(1.35rem, 3vw, 2.1rem);
+  line-height: 1.2;
+}
+
+.heroCopy > p:not(.eyebrow) {
+  max-width: 60ch;
+  margin: 1rem 0 0;
+  color: #52675e;
+}
+
+.heroTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.2rem;
+}
+
+.heroTags span,
+.badge,
+.badgeMuted,
+.visibilityBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.heroTags span {
+  background: #dcebd3;
+  color: #2d5a45;
+}
+
+.shortcutGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem;
+}
+
+.shortcut {
+  display: grid;
+  gap: 0.25rem;
+  min-height: 5.4rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #d8e4d6;
+  border-radius: 0.65rem;
+  background: #f8fbf5;
+  color: #244f41;
+  text-decoration: none;
+}
+
+.shortcut:hover {
+  border-color: #9dbca8;
+  background: #f0f7ed;
+}
+
+.shortcut strong {
+  font-size: 1rem;
+}
+
+.shortcut span,
+.sectionHeading > span,
+.boundaryHint span,
+.statePanel span,
+.methodGrid span,
+.boundaryList span,
+.dialogDescription,
+.publicWarning span {
+  color: #5d7168;
+  font-size: 0.875rem;
+}
+
+.searchSection,
+.resourceSection,
+.methodSection,
+.boundarySection {
+  padding: clamp(1rem, 3vw, 1.75rem);
+}
+
+.sectionHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sectionHeading > span {
+  max-width: 42ch;
+}
+
+.searchForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.searchField {
+  display: grid;
+  gap: 0.35rem;
+  flex: 1;
+  color: #39594e;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.searchField input,
+.dialogForm input,
+.dialogForm select,
+.dialogForm textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #b9cbbf;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #203f36;
+}
+
+.searchField input::placeholder,
+.dialogForm input::placeholder {
+  color: #87988f;
+}
+
+.searchForm > .primaryButton {
+  align-self: stretch;
+}
+
+.boundaryHint {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-left: 0.3rem solid #c39b4d;
+  border-radius: 0.45rem;
+  background: #fff8e9;
+}
+
+.boundaryHint strong,
+.boundaryList strong {
+  color: #765321;
+}
+
+.resourceSection {
+  min-width: 0;
+}
+
+.resourceGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+}
+
+.resourceCard {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #dce5dc;
+  border-radius: 0.7rem;
+  background: #fbfcf9;
+}
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.badge {
+  background: #e1eee0;
+  color: #315c47;
+}
+
+.badgeMuted {
+  background: #eef1ed;
+  color: #61746a;
+}
+
+.visibilityBadge {
+  margin-left: auto;
+  background: #f5ead6;
+  color: #765321;
+}
+
+.resourceCard h3 {
+  margin: 0.9rem 0 0.45rem;
+  color: #1f473b;
+  font-size: 1.2rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.cardContent {
+  margin: 0;
+  color: #52675e;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cardTags {
+  margin: 0.8rem 0 0;
+  color: #6b7e74;
+  font-size: 0.875rem;
+}
+
+.linkWarning {
+  margin: 0.8rem 0 0;
+  color: #9a5a31;
+  font-size: 0.875rem;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #e1e8e0;
+}
+
+.emptyState,
+.statePanel {
+  display: grid;
+  justify-items: start;
+  gap: 0.55rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px dashed #b8cbbd;
+  border-radius: 0.7rem;
+  background: #f8fbf6;
+}
+
+.emptyState {
+  justify-items: center;
+  text-align: center;
+}
+
+.emptyState p,
+.statePanel span {
+  max-width: 62ch;
+  margin: 0;
+}
+
+.emptyState h3,
+.statePanel strong {
+  margin: 0;
+  color: #244f41;
+  font-size: 1.15rem;
+}
+
+.emptyState p {
+  max-width: 58ch;
+  margin: 0 0 0.6rem;
+  color: #5d7168;
+}
+
+.emptyIcon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: #e1eee0;
+  color: #315c47;
+  font-size: 1.5rem;
+}
+
+.stateError {
+  border-color: #e2b8a9;
+  background: #fff7f4;
+}
+
+.stateError strong {
+  color: #8f4339;
+}
+
+.stateActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.noticeSuccess,
+.noticeError,
+.noticeInfo {
+  padding: 0.85rem 1rem;
+  border: 1px solid;
+  border-radius: 0.6rem;
+  font-weight: 700;
+}
+
+.noticeSuccess {
+  border-color: #a8cbb1;
+  background: #eff8ef;
+  color: #2e5c3c;
+}
+
+.noticeError {
+  border-color: #e0b8ab;
+  background: #fff4f0;
+  color: #8f4339;
+}
+
+.noticeInfo {
+  border-color: #b9ccd8;
+  background: #f2f7fa;
+  color: #34556a;
+}
+
+.methodSection {
+  background: #f5f8f1;
+}
+
+.methodGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.7rem;
+}
+
+.methodGrid a {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem;
+  border: 1px solid #d7e3d3;
+  border-radius: 0.6rem;
+  background: #fff;
+  color: #244f41;
+  text-decoration: none;
+}
+
+.methodGrid a:hover {
+  border-color: #9dbca8;
+}
+
+.boundarySection {
+  display: grid;
+  gap: 1.25rem;
+  background: #1f4a3e;
+  color: #fff;
+}
+
+.boundarySection h2 {
+  color: #fff;
+}
+
+.boundarySection .eyebrow,
+.boundarySection p {
+  color: #d1e1d8;
+}
+
+.boundarySection p {
+  max-width: 62ch;
+  margin: 1rem 0 0;
+}
+
+.boundaryList {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.boundaryList > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 0.6rem;
+  background: rgb(255 255 255 / 8%);
+}
+
+.boundaryList strong {
+  color: #f1d58e;
+}
+
+.boundaryList span {
+  color: #d1e1d8;
+}
+
+.boundarySection .secondaryButton {
+  justify-self: start;
+  background: #d8ed99;
+  border-color: #d8ed99;
+  color: #173f35;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(17 43 35 / 62%);
+}
+
+.dialog {
+  width: min(100%, 42rem);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  padding: clamp(1rem, 3vw, 1.6rem);
+  border: 1px solid #c8d8cb;
+  border-radius: 0.85rem;
+  background: #fff;
+  color: #203f36;
+  box-shadow: 0 1.5rem 4rem rgb(15 49 37 / 28%);
+}
+
+.dialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.closeButton {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.25rem;
+  border-color: #b8c9bf;
+  background: #fff;
+  color: #244f41;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.dialogDescription {
+  margin: 0.9rem 0 0;
+}
+
+.dialogForm {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+  margin-top: 1.1rem;
+}
+
+.dialogForm label {
+  display: grid;
+  gap: 0.35rem;
+  color: #39594e;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.dialogForm textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
+}
+
+.publicWarning,
+.formError {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.publicWarning {
+  border: 1px solid #e4ca8b;
+  background: #fff8e9;
+  color: #765321;
+}
+
+.formError {
+  border: 1px solid #e0b8ab;
+  background: #fff4f0;
+  color: #8f4339;
+}
+
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid #e1e8e0;
+}
+
+@media (min-width: 48rem) {
+  .shortcutGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .searchForm {
+    flex-direction: row;
+    align-items: end;
+  }
+
+  .searchForm > .primaryButton {
+    flex: 0 0 auto;
+  }
+
+  .resourceGrid,
+  .methodGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sectionHeading {
+    flex-direction: row;
+    align-items: end;
+    justify-content: space-between;
+  }
+
+  .dialogForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1.05fr) minmax(20rem, 0.95fr);
+    align-items: stretch;
+  }
+
+  .shortcutGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .boundarySection {
+    grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr);
+    align-items: center;
+  }
+}
+
+@media (min-width: 90rem) {
+  .page {
+    gap: 1.25rem;
+  }
+
+  .resourceGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media print {
+  .hero,
+  .searchSection,
+  .methodSection,
+  .boundarySection,
+  .noticeSuccess,
+  .noticeError,
+  .noticeInfo,
+  .cardActions,
+  .emptyState,
+  .statePanel {
+    display: none;
+  }
+
+  .page,
+  .resourceSection,
+  .resourceGrid {
+    display: block;
+    max-width: none;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .resourceCard {
+    margin-bottom: 1rem;
+    break-inside: avoid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
+}
