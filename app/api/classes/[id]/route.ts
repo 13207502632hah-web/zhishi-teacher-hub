@@ -30,10 +30,22 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   const id = await idFrom(context), denied = await requireClassAccess(access, id); if (denied) return denied;
   const payload = await request.json() as Record<string, unknown>, name = value(payload.name), stage = value(payload.stage), grade = value(payload.grade);
   if (!name || !stage || !grade) return Response.json({ error: "班级名称、学段、年级为必填项" }, { status: 400 });
+  if (name.length > 80) return Response.json({ error: "班级名称不超过 80 个字符" }, { status: 400 });
   const status = payload.status === "archived" ? "archived" : "active";
   const [row] = await getDb().update(classes).set({ name, stage, grade, courseType: value(payload.courseType), startDate: value(payload.startDate) || null, schedule: value(payload.schedule), notes: value(payload.notes), status, archivedAt: status === "archived" ? new Date().toISOString() : null, updatedAt: new Date().toISOString() }).where(eq(classes.id, id)).returning();
   await audit(access, status === "archived" ? "archive" : "update", "class", id);
   return row ? Response.json({ class: row }) : Response.json({ error: "班级不存在" }, { status: 404 });
+}
+
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const access = await requirePermission("classes:write"); if (isDenied(access)) return access;
+  const id = await idFrom(context), denied = await requireClassAccess(access, id); if (denied) return denied;
+  const payload = await request.json() as Record<string, unknown>, status = payload.status === "archived" ? "archived" : payload.status === "active" ? "active" : "";
+  if (!status) return Response.json({ error: "班级状态无效" }, { status: 400 });
+  const [row] = await getDb().update(classes).set({ status, archivedAt: status === "archived" ? new Date().toISOString() : null, updatedAt: new Date().toISOString() }).where(eq(classes.id, id)).returning();
+  if (!row) return Response.json({ error: "班级不存在" }, { status: 404 });
+  await audit(access, status === "archived" ? "archive" : "restore", "class", id);
+  return Response.json({ class: row });
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
