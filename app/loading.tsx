@@ -1,7 +1,22 @@
+import styles from "./route-states.module.css";
+
 export default function Loading() {
-  return <main className="routeState" aria-busy="true" aria-live="polite">
-    <span className="routeStateMark" aria-hidden="true">知</span>
-    <div><p>知师研室</p><h1>正在整理教学工作台</h1><span>正在读取课时、题库和待办，请稍候。</span></div>
-    <div className="routeStateSkeleton" aria-hidden="true"><i /><i /><i /></div>
-  </main>;
+  return (
+    <main className={styles.routeState} aria-busy="true" aria-live="polite">
+      <section className={styles.routeStatePanel} aria-label="正在加载">
+        <span className={styles.routeStateMark} aria-hidden="true">知</span>
+        <div className={styles.routeStateCopy}>
+          <p className={styles.routeStateEyebrow}>知师研室 / 请稍候</p>
+          <h1 className={styles.routeStateTitle}>正在整理教学工作台</h1>
+          <p className={styles.routeStateMessage}>正在读取课时、题库和待办。页面内容准备好后会显示在这里。</p>
+        </div>
+        <div className={styles.routeStateSkeleton} aria-hidden="true">
+          <span className={styles.routeStateSkeletonBar} />
+          <span className={styles.routeStateSkeletonBar} />
+          <span className={`${styles.routeStateSkeletonBar} ${styles.routeStateSkeletonBarShort}`} />
+        </div>
+        <p className={styles.routeStateHint} role="status">正在加载，不会自动提交或修改教学记录。</p>
+      </section>
+    </main>
+  );
 }
