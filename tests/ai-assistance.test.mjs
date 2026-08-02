@@ -119,9 +119,10 @@ test("AI setting flags preserve database zero values instead of re-enabling priv
   assert.equal(aiBoolean("1"), true);
   for (const value of [0, "0", false, null]) assert.equal(aiBoolean(value), false);
   const client = await read("app/settings/page.tsx"), route = await read("app/api/settings/ai/route.ts");
-  assert.match(client, /includeStudentName:\s*aiBoolean\(current\.includeStudentName, true\)/);
-  assert.match(client, /checked=\{aiBoolean\(ai\.settings\?\.includeStudentName, true\)\}/);
-  assert.match(route, /includeName = aiBoolean\(body\.includeStudentName, true\) \? 1 : 0/);
+  assert.match(client, /currentAiSettings\.includeStudentName/);
+  assert.match(client, /checked=\{aiBoolean\(currentAiSettings\.includeStudentName\)\}/);
+  assert.match(route, /body\.includeStudentName === undefined/);
+  assert.match(route, /existing\.includeStudentName/);
 });
 
 test("server keeps secrets server-side, uses current models and never sends a login identifier", async () => {
