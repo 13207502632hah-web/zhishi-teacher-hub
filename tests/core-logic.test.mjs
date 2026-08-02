@@ -365,7 +365,7 @@ test("paper, lesson and public-resource regressions remain covered", async () =>
   for (const field of ["courseName", "startTime", "endTime", "className"]) assert.match(lessonRoute, new RegExp(field));
   assert.match(resourceApi, /canWrite/);
   assert.match(resourcePage, /还没有公开资源/);
-  assert.match(resourcePage, /canWrite && open/);
+  assert.match(resourcePage, /canManageResources && open/);
 });
 
 test("professional political question import preserves review structure", async () => {

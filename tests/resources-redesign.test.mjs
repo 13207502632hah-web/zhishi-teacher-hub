@@ -28,6 +28,15 @@ test("resource center distinguishes loading, empty, permission and server failur
   assert.match(page, /listStatus\s*===\s*["`]error["`]/);
 });
 
+test("resource management affordances expire while list permissions are unverified", async () => {
+  const page = await read("app/resources/page.tsx");
+
+  assert.match(page, /setListStatus\("loading"\);\s*setListError\(""\);\s*setCanWrite\(false\);/);
+  assert.match(page, /const canManageResources\s*=\s*listStatus\s*===\s*"ready"\s*&&\s*canWrite/);
+  assert.match(page, /actions=\{canManageResources\s*\?/);
+  assert.match(page, /canManageResources\s*&&\s*open\s*&&\s*<ResourceDialog/);
+});
+
 test("resource mutations are guarded, recoverable and preserve audit semantics", async () => {
   const page = await read("app/resources/page.tsx");
 

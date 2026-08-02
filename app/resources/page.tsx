@@ -120,10 +120,12 @@ export default function ResourcesPage() {
       form.type !== "备课素材" ||
       form.visibility !== "private",
   );
+  const canManageResources = listStatus === "ready" && canWrite;
 
   const loadResources = useCallback(async (query: string, signal: AbortSignal) => {
     setListStatus("loading");
     setListError("");
+    setCanWrite(false);
     try {
       const payload = await requestJson<ResourceList>(`/api/resources?q=${encodeURIComponent(query)}`, { signal });
       if (!payload || !Array.isArray(payload.resources)) throw new HttpError(200, "资源中心返回了无法识别的数据");
@@ -302,11 +304,11 @@ export default function ResourcesPage() {
     if (listStatus === "loading") return <div className={styles.statePanel} role="status"><strong>正在读取公开资源</strong><span>正在按当前搜索条件读取；不会因为键入单个字符而自动请求。</span></div>;
     if (listStatus === "permission") return <div className={`${styles.statePanel} ${styles.stateError}`} role="alert"><strong>资源中心权限不足</strong><span>{listError || "当前账号没有访问私人资源的权限；公开资源仍可由访客浏览。"}</span><div className={styles.stateActions}><Link className={styles.secondaryButton} href="/teacher-login?return_to=%2Fresources">教师管理员登录</Link><button type="button" className={styles.textButton} onClick={() => setRetryKey((value) => value + 1)}>重新读取</button></div></div>;
     if (listStatus === "error") return <div className={`${styles.statePanel} ${styles.stateError}`} role="alert"><strong>资源中心暂时无法读取</strong><span>{listError || "服务器暂时无法读取资源，请稍后重试。不会把错误当作空数据。"}</span><div className={styles.stateActions}><button type="button" className={styles.secondaryButton} onClick={() => setRetryKey((value) => value + 1)}>重新读取</button></div></div>;
-    if (!rows.length) return <div className={styles.emptyState}><span className={styles.emptyIcon} aria-hidden="true">⌕</span><h3>{canWrite ? "还没有个人资源" : "暂无公开资源"}</h3><p>{canWrite ? "还没有个人资源；可以添加备课素材或从教学反思沉淀策略。这里不会填充虚构资源。" : "还没有公开资源；教师发布不含学生、家长或私人教学信息的内容后，匿名访客才会看到。"}</p>{canWrite && <button type="button" className={styles.secondaryButton} onClick={openModal}>添加第一份资源</button>}</div>;
+    if (!rows.length) return <div className={styles.emptyState}><span className={styles.emptyIcon} aria-hidden="true">⌕</span><h3>{canManageResources ? "还没有个人资源" : "暂无公开资源"}</h3><p>{canManageResources ? "还没有个人资源；可以添加备课素材或从教学反思沉淀策略。这里不会填充虚构资源。" : "还没有公开资源；教师发布不含学生、家长或私人教学信息的内容后，匿名访客才会看到。"}</p>{canManageResources && <button type="button" className={styles.secondaryButton} onClick={openModal}>添加第一份资源</button>}</div>;
     return null;
   };
 
-  return <AppShell title="资源中心" subtitle="公开检索入口；私人教学资料仅在教师与助教权限内可见" actions={canWrite ? <button type="button" className={styles.primaryButton} onClick={openModal}>＋ 添加资源</button> : undefined}>
+  return <AppShell title="资源中心" subtitle="公开检索入口；私人教学资料仅在教师与助教权限内可见" actions={canManageResources ? <button type="button" className={styles.primaryButton} onClick={openModal}>＋ 添加资源</button> : undefined}>
     <div className={styles.page}>
       {notice && <div className={notice.tone === "error" ? styles.noticeError : notice.tone === "success" ? styles.noticeSuccess : styles.noticeInfo} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</div>}
 
@@ -335,20 +337,20 @@ export default function ResourcesPage() {
       </section>
 
       <section className={styles.resourceSection} aria-labelledby="resource-list-title">
-        <header className={styles.sectionHeading}><div><p className={styles.eyebrow}>检索结果</p><h2 id="resource-list-title">公开资源与我的资料</h2></div>{canWrite && <button type="button" className={styles.secondaryButton} onClick={openModal}>添加资源</button>}</header>
+        <header className={styles.sectionHeading}><div><p className={styles.eyebrow}>检索结果</p><h2 id="resource-list-title">公开资源与我的资料</h2></div>{canManageResources && <button type="button" className={styles.secondaryButton} onClick={openModal}>添加资源</button>}</header>
         {renderStatus()}
         {listStatus === "ready" && rows.length > 0 && <div className={styles.resourceGrid}>{rows.map((item) => {
           const externalUrl = safeExternalUrl(item.url);
           return <article className={styles.resourceCard} key={item.id}>
-            <div className={styles.cardMeta}><span className={styles.badge}>{item.type || "资源"}</span>{item.sourceRef?.startsWith("reflection:") && <span className={styles.badgeMuted}>来自教学反思</span>}{canWrite && <span className={styles.visibilityBadge}>{item.visibility === "public" ? "公开" : "仅教师与助教"}</span>}</div>
+            <div className={styles.cardMeta}><span className={styles.badge}>{item.type || "资源"}</span>{item.sourceRef?.startsWith("reflection:") && <span className={styles.badgeMuted}>来自教学反思</span>}{canManageResources && <span className={styles.visibilityBadge}>{item.visibility === "public" ? "公开" : "仅教师与助教"}</span>}</div>
             <h3>{item.title}</h3>
             <p className={styles.cardContent}>{item.content || "暂无内容说明"}</p>
             <p className={styles.cardTags}>{item.tags || "未设置标签"}</p>
             {item.url && !externalUrl && <p className={styles.linkWarning} role="note">链接未显示：仅支持 http:// 或 https:// 安全协议。</p>}
             <div className={styles.cardActions}>
               {externalUrl && <a className={styles.textButton} href={externalUrl} target="_blank" rel="noopener noreferrer">打开安全链接</a>}
-              {canWrite && <button type="button" className={styles.textButton} disabled={printingId !== null} onClick={() => void printResource(item)}>{printingId === item.id ? "记录审计…" : "打印"}</button>}
-              {canWrite && <button type="button" className={styles.dangerButton} disabled={deletingId !== null} onClick={() => void deleteResource(item)}>{deletingId === item.id ? "删除中…" : "删除"}</button>}
+              {canManageResources && <button type="button" className={styles.textButton} disabled={printingId !== null} onClick={() => void printResource(item)}>{printingId === item.id ? "记录审计…" : "打印"}</button>}
+              {canManageResources && <button type="button" className={styles.dangerButton} disabled={deletingId !== null} onClick={() => void deleteResource(item)}>{deletingId === item.id ? "删除中…" : "删除"}</button>}
             </div>
           </article>;
         })}</div>}
@@ -365,7 +367,7 @@ export default function ResourcesPage() {
       </section>
     </div>
 
-    {canWrite && open && <ResourceDialog dialogRef={dialogRef} firstFieldRef={firstFieldRef} form={form} formError={formError} isDirty={isDirty} saving={saving} onChange={updateForm} onClose={() => closeModal()} onSave={() => void saveResource()} />}
+    {canManageResources && open && <ResourceDialog dialogRef={dialogRef} firstFieldRef={firstFieldRef} form={form} formError={formError} isDirty={isDirty} saving={saving} onChange={updateForm} onClose={() => closeModal()} onSave={() => void saveResource()} />}
   </AppShell>;
 }
 
