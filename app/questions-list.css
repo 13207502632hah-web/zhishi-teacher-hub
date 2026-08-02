@@ -172,6 +172,99 @@
   font-size: 0.875rem;
 }
 
+.aiReviewState {
+  display: flex;
+  min-height: 44px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #f5f2ea;
+  color: #675f51;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.aiReviewState.error {
+  border-color: #d5afa5;
+  background: #fff8f5;
+  color: #753e31;
+}
+
+.aiReviewState span,
+.aiReviewState em {
+  flex: 1;
+  min-width: min(100%, 12rem);
+}
+
+.aiReviewState em {
+  font-style: normal;
+}
+
+.aiReviewState button {
+  min-height: 44px;
+  border: 1px solid #315346;
+  border-radius: 0.625rem;
+  background: #315346;
+  color: #fff;
+  padding: 0.625rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.aiReviewPanel {
+  min-width: 0;
+}
+
+.aiReviewPanel .helperText,
+.aiReviewPanel .emptyInline,
+.aiReviewPanel .queueList small,
+.aiReviewPanel .queueStatus,
+.aiReviewQueue > article > div:first-child span {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.aiReviewPanel button {
+  min-height: 44px;
+  font-size: 0.875rem;
+}
+
+.aiReviewQueue,
+.aiReviewQueue > article,
+.aiSuggestionDiffs,
+.aiSuggestionRow {
+  min-width: 0;
+}
+
+.aiReviewQueue > article {
+  grid-template-columns: 1fr;
+}
+
+.aiSuggestionRow {
+  min-height: 44px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.aiSuggestionRow del,
+.aiSuggestionRow strong,
+.aiSuggestionRow em {
+  min-width: 0;
+  grid-column: 2;
+  overflow-wrap: anywhere;
+}
+
+.aiSuggestionRow small,
+.aiSuggestionRow em,
+.aiSuggestionRow del,
+.aiSuggestionRow strong {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
 .questionHealthState {
   display: flex;
   min-height: 44px;
@@ -418,6 +511,20 @@
 }
 
 @media (min-width: 80rem) {
+  .aiReviewQueue > article {
+    grid-template-columns: minmax(0, 0.7fr) minmax(0, 2fr) auto;
+  }
+
+  .aiSuggestionRow {
+    grid-template-columns: auto minmax(0, 0.7fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+
+  .aiSuggestionRow del,
+  .aiSuggestionRow strong,
+  .aiSuggestionRow em {
+    grid-column: auto;
+  }
+
   .questionFilters {
     grid-template-columns: minmax(16rem, 2fr) repeat(4, minmax(7.5rem, 1fr));
   }

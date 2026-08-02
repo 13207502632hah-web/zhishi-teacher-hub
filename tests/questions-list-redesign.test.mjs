@@ -100,6 +100,26 @@ test("question filter facets preserve known options and recover from request fai
   assert.match(page, /教材目录选项来自上次成功读取/);
 });
 
+test("AI review lists preserve known results and recover from request failures", async () => {
+  const page = await read("app/questions/page.tsx");
+  const aiReviewFlow = page.match(/const loadAiReviews[\s\S]*?const loadFacets/)?.[0] || "";
+
+  assert.match(page, /type AiReviewListResponse/);
+  assert.match(page, /const aiReviewRequest\s*=\s*useRef<AbortController \| null>\(null\)/);
+  assert.match(aiReviewFlow, /requestJson<AiReviewListResponse>\("\/api\/ai\/question-reviews"/);
+  assert.match(aiReviewFlow, /aiReviewRequest\.current\?\.abort\(\)/);
+  assert.match(aiReviewFlow, /signal: controller\.signal/);
+  assert.match(aiReviewFlow, /setAiReviewState\("loading"\)/);
+  assert.match(aiReviewFlow, /setAiReviewState\("error"\)/);
+  assert.match(aiReviewFlow, /Array\.isArray\(data\.reviews\)/);
+  assert.match(aiReviewFlow, /Array\.isArray\(data\.tasks\)/);
+  assert.doesNotMatch(aiReviewFlow, /\bfetch\s*\(/);
+  assert.match(page, /aria-busy=\{aiReviewState === "loading"\}/);
+  assert.match(page, /AI 复核列表读取失败/);
+  assert.match(page, /重新读取 AI 复核/);
+  assert.match(page, /AI 复核结果来自上次成功读取/);
+});
+
 test("question pagination is clamped after filtering instead of returning a false empty page", async () => {
   const route = await read("app/api/questions/route.ts");
 
@@ -135,6 +155,10 @@ test("question list styling follows the quiet study room tokens and mobile touch
   assert.match(css, /\.savedViewStatus\s*\{[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /\.questionHealthState\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /\.facetState\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
+  assert.match(css, /\.aiReviewState\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
+  assert.match(css, /\.aiReviewPanel button\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
+  assert.match(css, /\.aiSuggestionRow\s*\{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.aiSuggestionRow small,[\s\S]*?font-size:\s*0\.875rem/s);
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });
