@@ -737,13 +737,14 @@ async function exerciseRound(round, cookie) {
   assert.deepEqual({ assignments: counts.assignments, submissions: counts.submissions, feedback: counts.feedback, finance: counts.finance, billing: counts.billing, attendance: counts.attendance }, { assignments: 1, submissions: 2, feedback: 1, finance: 1, billing: 2, attendance: 2 });
   assert.equal(Number(counts.expectedAmount), 150);
 
-  const adjustmentWithoutReason = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 10 } });
+  const financeOperationId = `${marker}_finance_${round}`;
+  const adjustmentWithoutReason = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 10, operationId: financeOperationId } });
   assert.equal(adjustmentWithoutReason.response.status, 422);
-  const financePreview = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
+  const financePreview = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0, operationId: financeOperationId } });
   assert.equal(financePreview.response.status, 200, JSON.stringify(financePreview.data));
   assert.equal(financePreview.data.context.canConfirm, true);
   assert.equal(financePreview.data.preview.expectedAmount, 80);
-  const financeConfirm = await request("/api/finance", { cookie, method: "POST", body: { action: "confirm", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
+  const financeConfirm = await request("/api/finance", { cookie, method: "POST", body: { action: "confirm", lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0, operationId: financeOperationId, previewToken: financePreview.data.previewToken } });
   assert.equal(financeConfirm.response.status, 200, JSON.stringify(financeConfirm.data));
   assert.equal(financeConfirm.data.calculation.expectedAmount, 80);
 
