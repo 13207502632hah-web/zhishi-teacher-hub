@@ -1,0 +1,546 @@
+.page {
+  display: grid;
+  gap: 1rem;
+  color: #173f35;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.page button,
+.page input,
+.page select,
+.page textarea {
+  font: inherit;
+  font-size: 1rem;
+}
+
+.page button {
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.page input,
+.page select,
+.page textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #c9d5ce;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  color: #173f35;
+}
+
+.page textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.page input:focus-visible,
+.page select:focus-visible,
+.page textarea:focus-visible,
+.page button:focus-visible {
+  outline: 3px solid #d6a843;
+  outline-offset: 2px;
+}
+
+.notice,
+.warning,
+.operationError,
+.successText,
+.explanation,
+.ocrMatchPanel,
+.rawText {
+  border-radius: 0.55rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.notice {
+  border: 1px solid #cadcc8;
+  background: #f2f8ee;
+}
+
+.card {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid #dbe3dc;
+  border-radius: 0.75rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  background: #fff;
+  box-shadow: 0 0.25rem 1.2rem #173f3510;
+}
+
+.cardHeading,
+.itemHeading,
+.reviewToolbar,
+.actionBar,
+.errorRow,
+.operationError,
+.ocrSummary,
+.progress,
+.confirmSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cardHeading {
+  justify-content: space-between;
+}
+
+.cardHeading h2 {
+  margin: 0;
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+  line-height: 1.3;
+}
+
+.cardHeading p,
+.cardHeading span,
+.helpText,
+.fileMeta,
+.explanation,
+.issueList,
+.fieldWarning,
+.successText,
+.loadStates,
+.ocrSummary,
+.rawText,
+.reviewToolbar p,
+.confirmDialog > p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.eyebrow {
+  color: #638055;
+  letter-spacing: 0.05em;
+}
+
+.helpText,
+.fileMeta,
+.explanation,
+.reviewToolbar p,
+.confirmDialog > p {
+  color: #5f756b;
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(9rem, 1fr));
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.25rem;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 3.25rem;
+  min-width: 9rem;
+  border-bottom: 3px solid #dce4dc;
+  padding: 0.5rem 0.35rem;
+  color: #718078;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.stepActive {
+  border-color: #d6a843;
+  color: #173f35;
+}
+
+.stepComplete {
+  border-color: #8ead50;
+  color: #315f43;
+}
+
+.stepNumber {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  border-radius: 50%;
+  background: #edf2e6;
+  font-weight: 800;
+}
+
+.stepActive .stepNumber {
+  background: #d6a843;
+  color: #fff;
+}
+
+.stepComplete .stepNumber {
+  background: #dcebd2;
+  color: #315f43;
+}
+
+.selectionGrid,
+.fieldGrid,
+.summaryGrid,
+.confirmSummary {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.selectionGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.selectionGrid label,
+.fieldGrid label {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.loadStates {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.errorRow,
+.operationError {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  border: 1px solid #e4b2a7;
+  background: #fff6f3;
+  color: #7a322b;
+}
+
+.errorRow button,
+.operationError button,
+.secondaryButton,
+.primaryButton {
+  border: 1px solid #b9c8bf;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  background: #fff;
+  color: #173f35;
+  font-weight: 700;
+}
+
+.primaryButton {
+  border-color: #173f35;
+  background: #173f35;
+  color: #fff;
+}
+
+.secondaryButton:hover,
+.secondaryButton:focus-visible {
+  background: #f2f6ee;
+}
+
+.primaryButton:hover,
+.primaryButton:focus-visible {
+  background: #285b4c;
+}
+
+.ocrMatchPanel {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid #e6d49f;
+  background: #fffaf0;
+  color: #6d5426;
+}
+
+.checkboxRow {
+  display: flex !important;
+  align-items: center;
+  gap: 0.55rem !important;
+  min-height: 44px;
+  font-size: 0.875rem;
+  font-weight: 600 !important;
+}
+
+.checkboxRow input {
+  width: 1.25rem;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+  accent-color: #173f35;
+}
+
+.filePicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 11rem;
+  min-height: 44px;
+  border: 1px dashed #789f74;
+  border-radius: 0.5rem;
+  padding: 0.65rem 1rem;
+  background: #f7fbf3;
+  color: #315f43;
+  font-weight: 700;
+}
+
+.filePicker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.ocrSummary {
+  flex-wrap: wrap;
+}
+
+.ocrSummary span,
+.confirmSummary span {
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: #edf2e6;
+  color: #315f43;
+}
+
+.progress {
+  flex-wrap: wrap;
+}
+
+.progress > div {
+  width: 100%;
+  height: 0.6rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9eee7;
+}
+
+.progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #8ead50;
+  transition: width 0.2s ease;
+}
+
+.rawText {
+  background: #f7f9f5;
+}
+
+.rawText pre {
+  max-height: 13rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.summaryGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.summaryGrid > div {
+  display: grid;
+  gap: 0.15rem;
+  border-radius: 0.55rem;
+  padding: 0.8rem;
+  background: #f3f7ef;
+}
+
+.summaryGrid strong {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.summaryGrid span {
+  color: #5f756b;
+  font-size: 0.875rem;
+}
+
+.warning,
+.fieldWarning,
+.issueList {
+  color: #7a5421;
+}
+
+.warning {
+  border: 1px solid #e6d49f;
+  background: #fffaf0;
+}
+
+.reviewToolbar {
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.reviewList {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.reviewItem {
+  display: grid;
+  gap: 0.8rem;
+  border: 1px solid #dbe3dc;
+  border-left: 4px solid #d6a843;
+  border-radius: 0.6rem;
+  padding: 1rem;
+  background: #fbfcf8;
+}
+
+.reviewItem:focus-within {
+  border-color: #789f74;
+  box-shadow: 0 0 0 2px #dcebd2;
+}
+
+.itemHeading {
+  justify-content: space-between;
+}
+
+.confirmedBadge,
+.uncertainBadge,
+.fieldState {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.confirmedBadge {
+  background: #dcebd2;
+  color: #315f43;
+}
+
+.uncertainBadge,
+.fieldState {
+  background: #fff0d9;
+  color: #7a5421;
+}
+
+.fieldGrid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.fieldGrid label:nth-child(2),
+.fieldGrid label:nth-child(3) {
+  grid-column: span 2;
+}
+
+.fieldGrid label:nth-child(6) {
+  grid-column: span 2;
+}
+
+.fieldState {
+  justify-self: start;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.fieldWarning,
+.issueList {
+  margin: 0;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.7rem;
+  background: #fff7e7;
+  font-size: 0.875rem;
+}
+
+.actionBar {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: #102a2388;
+}
+
+.confirmDialog {
+  display: grid;
+  gap: 1rem;
+  width: min(38rem, 100%);
+  max-height: min(90vh, 42rem);
+  overflow: auto;
+  border-radius: 0.75rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  background: #fff;
+  box-shadow: 0 1rem 3rem #102a2355;
+}
+
+.confirmDialog .cardHeading button {
+  border: 0;
+  background: transparent;
+  color: #173f35;
+  font-size: 1.5rem;
+}
+
+.confirmSummary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.confirmSummary span {
+  display: grid;
+  gap: 0.15rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.confirmSummary strong {
+  font-size: 1.35rem;
+}
+
+@media (max-width: 48rem) {
+  .stepper {
+    display: flex;
+  }
+
+  .step {
+    flex: 0 0 10rem;
+  }
+
+  .selectionGrid,
+  .summaryGrid,
+  .confirmSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fieldGrid label:nth-child(2),
+  .fieldGrid label:nth-child(3),
+  .fieldGrid label:nth-child(6) {
+    grid-column: span 2;
+  }
+
+  .cardHeading,
+  .itemHeading {
+    align-items: flex-start;
+  }
+
+  .cardHeading {
+    display: grid;
+  }
+
+  .reviewToolbar,
+  .actionBar,
+  .errorRow,
+  .operationError {
+    align-items: stretch;
+  }
+
+  .reviewToolbar button,
+  .actionBar button,
+  .errorRow button,
+  .operationError button {
+    width: 100%;
+  }
+}
