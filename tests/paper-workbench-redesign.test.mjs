@@ -26,6 +26,20 @@ test("paper candidates wait for explicit filters and every request uses the resi
   assert.match(page, /重新读取候选题/);
 });
 
+test("whole paper upload recovers from empty, non-JSON and network failures", async () => {
+  const page = await read("app/papers/page.tsx");
+  const uploadAction = page.match(/const uploadWholePaper\s*=\s*async\s*\(\)\s*=>\s*\{[\s\S]*?\n\s*return <AppShell/)?.[0] || "";
+
+  assert.match(page, /const uploadInFlightRef\s*=\s*useRef\(false\)/);
+  assert.match(uploadAction, /if \(uploadInFlightRef\.current\) return/);
+  assert.match(uploadAction, /uploadInFlightRef\.current\s*=\s*true/);
+  assert.match(uploadAction, /requestJson<[^;]+>\("\/api\/papers\/upload"/);
+  assert.doesNotMatch(uploadAction, /\bfetch\s*\(/);
+  assert.match(uploadAction, /if \(!payload\) throw new HttpError\(200,/);
+  assert.match(uploadAction, /catch \(reason\)[\s\S]*整张试卷上传失败/);
+  assert.match(uploadAction, /finally[\s\S]*uploadInFlightRef\.current\s*=\s*false[\s\S]*setUploading\(false\)/);
+});
+
 test("paper draft restoration keeps saved layout only for currently active questions", async () => {
   const { restorePaperSelection } = await loadTsModule("app/lib/paper-workbench.ts");
   const saved = [
@@ -63,6 +77,8 @@ test("paper workbench styles are readable, touch-safe and mobile-first", async (
   assert.match(css, /font-size:\s*1rem/);
   assert.match(css, /font-size:\s*0\.875rem/);
   assert.match(css, /min-height:\s*44px/);
+  assert.match(css, /\.wholePaperUpload \.toolbar > input,[\s\S]*font-size:\s*1rem/);
+  assert.match(css, /\.wholePaperUpload \.uploadButton,[\s\S]*min-height:\s*44px[\s\S]*font-size:\s*0\.875rem/);
   assert.match(css, /#315346/i);
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);

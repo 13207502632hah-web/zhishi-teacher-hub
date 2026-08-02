@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "@/app/components/HardNavigationLink";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell, EmptyState } from "../components/AppShell";
 import { HttpError, requestJson } from "../lib/http-client";
 import { paperDraftIssues, restorePaperSelection } from "../lib/paper-workbench";
@@ -16,6 +16,7 @@ export default function PapersPage() {
   const [bank, setBank] = useState<Question[]>([]), [selected, setSelected] = useState<Question[]>([]), [papers, setPapers] = useState<Paper[]>([]), [title, setTitle] = useState(""), [paperType, setPaperType] = useState("练习"), [stage, setStage] = useState("高中"), [grade, setGrade] = useState("高一"), [textbookVersion, setTextbookVersion] = useState(""), [volume, setVolume] = useState(""), [unit, setUnit] = useState(""), [topic, setTopic] = useState(""), [knowledge, setKnowledge] = useState(""), [questionType, setQuestionType] = useState(""), [difficulty, setDifficulty] = useState(""), [count, setCount] = useState(10), [targetScore, setTargetScore] = useState(100), [durationMinutes, setDurationMinutes] = useState(""), [instructions, setInstructions] = useState(""), [excludeRecent, setExcludeRecent] = useState(false), [message, setMessage] = useState(""), [draftId, setDraftId] = useState<number | null>(null), [dirty, setDirty] = useState(false), [saving, setSaving] = useState(false), [paperSearch, setPaperSearch] = useState(""), [paperStatus, setPaperStatus] = useState("");
   const [defaultGroupTitle, setDefaultGroupTitle] = useState(""), [defaultAnswerSpace, setDefaultAnswerSpace] = useState(2);
   const [wholeFile, setWholeFile] = useState<File | null>(null), [wholeTitle, setWholeTitle] = useState(""), [wholeVersion, setWholeVersion] = useState("student"), [uploading, setUploading] = useState(false);
+  const uploadInFlightRef = useRef(false);
   const [academicYear, setAcademicYear] = useState(""), [examCategory, setExamCategory] = useState(""), [semester, setSemester] = useState(""), [province, setProvince] = useState("天津"), [city, setCity] = useState("天津"), [district, setDistrict] = useState(""), [school, setSchool] = useState(""), [examDate, setExamDate] = useState("");
   const [hydratedDraft, setHydratedDraft] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<CandidateFilters>({ stage: "高中", grade: "高一", textbookVersion: "", volume: "", unit: "", topic: "", knowledge: "", questionType: "", difficulty: "" }), [candidateState, setCandidateState] = useState<"loading" | "ready" | "error">("loading"), [candidateError, setCandidateError] = useState("");
@@ -42,7 +43,28 @@ export default function PapersPage() {
   const applyPaperLayout = () => { mutateSelected(selected.map((item) => ({ ...item, groupTitle: defaultGroupTitle || item.groupTitle || "", answerSpace: defaultAnswerSpace }))); setMessage(`已为 ${selected.length} 道题应用大题标题与答题行数`); };
   const filterPapers = async () => { const query = new URLSearchParams({ q: paperSearch, status: paperStatus, academicYear, examCategory, stage, grade, province, city, district, school }); try { const payload = await requestJson<PapersResponse>(`/api/papers?${query}`, { cache: "no-store" }); setPapers(payload?.papers || []); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "试卷列表读取失败"); } };
   const removePaper = async (id: number) => { if (!confirm("确认删除这份试卷草稿？删除后不可恢复。")) return; try { await requestJson(`/api/papers/${id}`, { method: "DELETE" }); setMessage("试卷草稿已删除"); await loadPapers(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "删除失败"); } };
-  const uploadWholePaper = async () => { if (!wholeFile) { setMessage("请先选择完整试卷文件"); return; } setUploading(true); const body = new FormData(); for (const [key, value] of Object.entries({ title: wholeTitle, versionType: wholeVersion, stage, grade, textbookVersion, academicYear, examCategory, semester, province, city, district, school, examDate })) body.set(key, value); body.set("file", wholeFile); const response = await fetch("/api/papers/upload", { method: "POST", body }), payload = await response.json(); setUploading(false); if (!response.ok) { setMessage(payload.error || "整张试卷上传失败"); return; } setWholeFile(null); setWholeTitle(""); setMessage("整张试卷档案与原文件已保存；后台拆题不会覆盖原卷"); void filterPapers(); };
+  const uploadWholePaper = async () => {
+    if (uploadInFlightRef.current) return;
+    if (!wholeFile) { setMessage("请先选择完整试卷文件"); return; }
+    uploadInFlightRef.current = true;
+    setUploading(true);
+    const body = new FormData();
+    for (const [key, value] of Object.entries({ title: wholeTitle, versionType: wholeVersion, stage, grade, textbookVersion, academicYear, examCategory, semester, province, city, district, school, examDate })) body.set(key, value);
+    body.set("file", wholeFile);
+    try {
+      const payload = await requestJson<Record<string, unknown>>("/api/papers/upload", { method: "POST", body });
+      if (!payload) throw new HttpError(200, "整张试卷上传接口没有返回处理结果");
+      setWholeFile(null);
+      setWholeTitle("");
+      setMessage("整张试卷档案与原文件已保存；后台拆题不会覆盖原卷");
+      void filterPapers();
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "整张试卷上传失败");
+    } finally {
+      uploadInFlightRef.current = false;
+      setUploading(false);
+    }
+  };
   return <AppShell title="组卷工作台" subtitle="按知识点、题型、难度、题量与总分推荐，再由教师手动确认" actions={<><button className="primaryButton" onClick={applyCandidateFilters}>刷新候选题</button><Link href="/questions" className="secondaryButton">返回题库</Link></>}>
     {message && <div className="saveToast" role="status">{message}</div>}
     {candidateState === "loading" && <div className="paperWorkbenchState" role="status">正在按当前条件整理候选题…</div>}
