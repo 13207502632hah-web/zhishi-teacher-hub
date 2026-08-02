@@ -32,7 +32,8 @@ test("route navigation keeps session state mounted and preserves native link beh
   const [layout, shell, navigation, provider, hardLink] = await Promise.all([read("app/layout.tsx"), read("app/components/AppShell.tsx"), read("app/components/WorkspaceNavigation.tsx"), read("app/components/SessionProvider.tsx"), read("app/components/HardNavigationLink.tsx")]);
   assert.match(layout, /const access = await getAccess\(\)/);
   assert.match(layout, /<SessionProvider initialSession=\{initialSession\}>\{children\}<\/SessionProvider>/);
-  assert.match(provider, /fetch\("\/api\/session"/);
+  assert.match(provider, /requestJson<Session>\("\/api\/session"/);
+  assert.doesNotMatch(provider, /\bfetch\s*\(/);
   assert.match(provider, /useState<Session>\(initialSession\)/);
   assert.doesNotMatch(shell, /fetch\("\/api\/session"/);
   assert.doesNotMatch(shell, /正在确认工作区身份/);

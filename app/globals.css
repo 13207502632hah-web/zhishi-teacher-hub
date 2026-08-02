@@ -38,3 +38,7 @@
 
 /* Shared icon controls keep a full touch target at every breakpoint. */
 .iconButton{width:2.75rem;height:2.75rem;min-width:2.75rem;min-height:2.75rem}
+
+/* Session safety gate recovery actions remain readable and touch-safe. */
+.authGate .primaryButton,
+.authGate .gateLink{display:inline-flex;min-height:44px;align-items:center;justify-content:center;font-size:14px}

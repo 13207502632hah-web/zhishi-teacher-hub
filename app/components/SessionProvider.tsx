@@ -1,5 +1,6 @@
 "use client";
 
+import { HttpError, requestJson } from "@/app/lib/http-client";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 export type Session = {
@@ -19,14 +20,24 @@ export function SessionProvider({ children, initialSession }: { children: ReactN
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/session", { signal: controller.signal })
-      .then(async (response) => response.ok ? response.json() : { authenticated: false })
-      .then((value) => setSession(value))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setSession((current) => current.authenticated ? current : { authenticated: false });
+    const refreshSession = async () => {
+      try {
+        const value = await requestJson<Session>("/api/session", { signal: controller.signal, cache: "no-store" });
+        if (!value || typeof value.authenticated !== "boolean") throw new HttpError(200, "会话接口没有返回有效数据");
+        setSession(value);
+        setSessionError(false);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (error instanceof HttpError && error.status === 401) {
+          setSession({ authenticated: false });
+          setSessionError(false);
+          return;
+        }
+        setSession({ authenticated: false });
         setSessionError(true);
-      });
+      }
+    };
+    void refreshSession();
     return () => controller.abort();
   }, []);
 
