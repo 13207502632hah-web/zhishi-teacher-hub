@@ -22,6 +22,17 @@ type QuestionHealthItem = QuestionHealthSummary & { knowledge: string };
 type QuestionHealthResponse = { summary: QuestionHealthSummary; knowledge: QuestionHealthItem[] };
 type QuestionFacetsResponse = { facets: Record<string, Array<string | number>> };
 type AiReviewListResponse = { reviews: Array<Record<string, any>>; tasks: Array<Record<string, any>> };
+type AiReviewTaskResponse = AiReviewListResponse & { task: Record<string, any>; processed: number };
+type AiReviewApplyResponse = { applied: Array<Record<string, any>>; stale: number[]; notice?: string };
+type AiReviewRejectResponse = { ok: boolean; rejected: number };
+type AiReviewAction = "process" | "apply" | "reject";
+
+const isObjectRecord = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const isPositiveInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
+const isNonNegativeInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+const isAiReviewRecord = (value: unknown): value is Record<string, any> => isObjectRecord(value) && isPositiveInteger(value.id) && isPositiveInteger(value.questionId) && ["pending", "partially_applied"].includes(String(value.status || "")) && isObjectRecord(value.currentValues) && isObjectRecord(value.safeSuggestions) && isObjectRecord(value.sensitiveSuggestions) && isObjectRecord(value.confidence) && isObjectRecord(value.reasons) && Array.isArray(value.eligibleFields) && value.eligibleFields.every((field: unknown) => typeof field === "string" && field.trim());
+const isAiReviewTaskRecord = (value: unknown): value is Record<string, any> => isObjectRecord(value) && typeof value.id === "string" && Boolean(value.id.trim()) && ["queued", "running", "completed", "failed"].includes(String(value.status || "")) && isPositiveInteger(value.total) && isNonNegativeInteger(value.cursor) && isNonNegativeInteger(value.processed);
+const isAiReviewChange = (change: unknown): change is Record<string, any> => isObjectRecord(change) && typeof change.field === "string" && Boolean(change.field.trim()) && typeof change.before === "string" && typeof change.after === "string";
 
 const grades = ["七年级", "八年级", "九年级", "高一", "高二", "高三"], questionTypes = ["单选题", "多选题", "判断题", "填空题", "简答题", "材料题", "辨析题", "论述题", "探究实践题"];
 const aiFieldLabels: Record<string, string> = { questionType: "题型", stage: "学段", grade: "年级", textbookVersion: "教材版本", volume: "册别", unit: "单元", topic: "课题", knowledgePoints: "知识点", coreCompetencies: "核心素养", abilityLevel: "能力层级", answer: "答案", analysis: "解析", factBasis: "事实依据", textbookView: "教材观点", valueJudgment: "价值判断", answerLogic: "答题逻辑", standardExpression: "规范表述" };
@@ -35,7 +46,7 @@ export default function QuestionsPage() {
   const [facets, setFacets] = useState<Record<string, Array<string | number>>>({}), [savedViews, setSavedViews] = useState<SavedView[]>([]), [savedName, setSavedName] = useState(""), [recentSearches, setRecentSearches] = useState<Array<Record<string, string>>>([]), [expanded, setExpanded] = useState<number[]>([]), [paperCart, setPaperCart] = useState<number[]>([]), [queue, setQueue] = useState<QueueItem[]>([]), [queueRunning, setQueueRunning] = useState(false), [health, setHealth] = useState<QuestionHealthResponse | null>(null), [similarCompare, setSimilarCompare] = useState<Record<string, any> | null>(null);
   const [questionContent, setQuestionContent] = useState<Record<number, QuestionContentState>>({});
   const questionContentRef = useRef<Record<number, QuestionContentState>>({}), questionContentRequests = useRef<Set<number>>(new Set());
-  const [aiReviews, setAiReviews] = useState<Array<Record<string, any>>>([]), [aiTasks, setAiTasks] = useState<Array<Record<string, any>>>([]), [aiFieldSelections, setAiFieldSelections] = useState<Record<number, string[]>>({}), [aiReviewBusy, setAiReviewBusy] = useState(false);
+  const [aiReviews, setAiReviews] = useState<Array<Record<string, any>>>([]), [aiTasks, setAiTasks] = useState<Array<Record<string, any>>>([]), [aiFieldSelections, setAiFieldSelections] = useState<Record<number, string[]>>({}), [aiReviewAction, setAiReviewAction] = useState<AiReviewAction | null>(null);
   const [appliedSearch, setAppliedSearch] = useState<SearchTerms>(emptySearch), [listState, setListState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [listError, setListError] = useState(""), [batchBusy, setBatchBusy] = useState(false);
   const [savedViewState, setSavedViewState] = useState<"loading" | "ready" | "error">("loading"), [savedViewError, setSavedViewError] = useState(""), [savedViewBusy, setSavedViewBusy] = useState<string | null>(null);
   const [healthState, setHealthState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [healthError, setHealthError] = useState("");
@@ -47,6 +58,8 @@ export default function QuestionsPage() {
   const healthRequest = useRef<AbortController | null>(null);
   const facetRequest = useRef<AbortController | null>(null);
   const aiReviewRequest = useRef<AbortController | null>(null);
+  const aiReviewActionRef = useRef<AiReviewAction | null>(null);
+  const aiReviewBusy = aiReviewAction !== null;
   const filterSnapshot = () => Object.fromEntries(Object.entries({ ...appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, sort }).filter(([, value]) => value && value !== "active" && value !== "updated_desc"));
   const applyFilters = (filters: Record<string, string>) => { const nextSearch = { q: filters.q || "", knowledge: filters.knowledge || "", source: filters.source || "", year: filters.year || "" }; setQ(nextSearch.q); setKnowledge(nextSearch.knowledge); setSource(nextSearch.source); setYear(nextSearch.year); setAppliedSearch(nextSearch); setStage(filters.stage || ""); setGrade(filters.grade || ""); setTextbookVersion(filters.textbookVersion || ""); setVolume(filters.volume || ""); setUnit(filters.unit || ""); setTopic(filters.topic || ""); setType(filters.type || ""); setDifficulty(filters.difficulty || ""); setRegion(filters.region || ""); setFlag(filters.flag || ""); setIssue(filters.issue || ""); setStatus(filters.status || "active"); setSort(filters.sort || "updated_desc"); setPage(1); };
   const clearFilters = () => applyFilters({});
@@ -118,7 +131,7 @@ export default function QuestionsPage() {
     setAiReviewError("");
     try {
       const data = await requestJson<AiReviewListResponse>("/api/ai/question-reviews", { signal: controller.signal, cache: "no-store" });
-      if (!data || !Array.isArray(data.reviews) || !Array.isArray(data.tasks)) throw new HttpError(200, "AI 复核接口没有返回完整数据");
+      if (!data || !Array.isArray(data.reviews) || !Array.isArray(data.tasks) || !data.reviews.every(isAiReviewRecord) || !data.tasks.every((task) => isAiReviewTaskRecord(task))) throw new HttpError(200, "AI 复核接口没有返回完整数据");
       setAiReviews(data.reviews);
       setAiTasks(data.tasks);
       setAiReviewState("ready");
@@ -253,23 +266,103 @@ export default function QuestionsPage() {
   const storeReview = async () => { if (!parsed.length) { setMessage("没有可保存的题目，请重新上传 Word 文件"); return; } if (!await saveCurrentReview()) return; setImportStep(4); setMessage(`已保存复核进度：${reviewCount} / ${parsed.length} 题完成校对`); };
   const confirmSet = async () => { if (!reviewCount) { setMessage("请至少先人工确认一道题目"); return; } if (!setId) { setMessage("尚未保存导入任务"); return; } if (!await saveCurrentReview()) return; const response = await fetch(`/api/question-sets/${setId}/confirm`, { method: "POST" }), data = await response.json(); if (!response.ok) { setMessage(data.report ? `${data.error}（已校对可入库 ${data.report.ready}，需继续处理 ${data.report.blocked}，尚未校对 ${data.report.unreviewed}）` : data.error || "确认入库失败"); return; } setMessage(data.partial ? `已将 ${data.promoted} 道合格题目加入正式题库；其余题目继续保留在待校对区` : `已将 ${data.promoted} 道题全部加入正式题库`); history.replaceState(null, "", data.partial ? "/questions?status=review" : "/questions"); setStatus(data.partial ? "review" : "active"); setTab("library"); load(); };
   const importPortable = async (file?: File) => { if (!file) return; try { const payload = JSON.parse(await file.text()), response = await fetch("/api/questions/portable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }), data = await response.json(); if (!response.ok) throw new Error(data.error || "题库文件导入失败"); setStatus("review"); setTab("library"); setMessage(`已导入 ${data.imported} 道题，跳过重复 ${data.duplicates} 道；全部进入待校对`); void load(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "请选择知师研室导出的 JSON 题库文件"); } };
-  const processAiTask = async ({ questionIds, taskId, deepReview = false }: { questionIds?: number[]; taskId?: string; deepReview?: boolean }) => { setAiReviewBusy(true); let processed = 0, activeTaskId = taskId || ""; setMessage(deepReview ? "正在使用 DeepSeek Pro 深度复核单题；只生成待确认建议…" : "DeepSeek 正按每批 10 题处理；任务游标已保存，可在失败或刷新后继续…"); for (let step = 0; step < 10; step += 1) { const payload = activeTaskId ? { taskId: activeTaskId } : { questionIds, deepReview }, response = await fetch("/api/ai/question-reviews", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }), data = await response.json(); if (!response.ok) { setMessage(`本次已完成 ${processed} 题；${data.error || "任务已暂停，可稍后继续"}`); setAiReviewBusy(false); await loadAiReviews(); return; } processed += Number(data.processed || 0); activeTaskId = String(data.task?.id || activeTaskId); aiReviewRequest.current?.abort(); setAiReviews(data.reviews || []); setAiTasks(data.tasks || []); if (data.task?.status === "completed" || Number(data.processed || 0) === 0) break; } setAiReviewBusy(false); setMessage(`${deepReview ? "单题深度复核" : "AI 审核任务"}已完成 ${processed} 题，原题未改变；请查看前后差异并确认`); await loadAiReviews(); };
+  const startAiReviewAction = (action: AiReviewAction) => {
+    if (aiReviewActionRef.current) return false;
+    aiReviewActionRef.current = action;
+    setAiReviewAction(action);
+    return true;
+  };
+  const finishAiReviewAction = () => {
+    aiReviewActionRef.current = null;
+    setAiReviewAction(null);
+  };
+  const processAiTask = async ({ questionIds, taskId, deepReview = false }: { questionIds?: number[]; taskId?: string; deepReview?: boolean }) => {
+    if (!startAiReviewAction("process")) return;
+    let processed = 0, activeTaskId = taskId || "";
+    setMessage(deepReview ? "正在使用 DeepSeek Pro 深度复核单题；只生成待确认建议…" : "DeepSeek 正按每批 10 题处理；任务游标已保存，可在失败或刷新后继续…");
+    try {
+      for (let step = 0; step < 10; step += 1) {
+        const payload = activeTaskId ? { taskId: activeTaskId } : { questionIds, deepReview };
+        const data = await requestJson<AiReviewTaskResponse>("/api/ai/question-reviews", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), timeoutMs: 130_000 });
+        const taskStatus = String(data?.task?.status || "");
+        if (!data || !Array.isArray(data.reviews) || !Array.isArray(data.tasks) || !data.reviews.every(isAiReviewRecord) || !data.tasks.every((task) => isAiReviewTaskRecord(task)) || !isAiReviewTaskRecord(data.task) || !["queued", "completed"].includes(taskStatus) || typeof data.processed !== "number" || !Number.isInteger(data.processed) || data.processed < 0 || (data.task.status === "queued" && data.processed === 0)) throw new HttpError(200, "AI 审核接口没有返回完整任务结果");
+        const batchProcessed = data.processed;
+        processed += batchProcessed;
+        activeTaskId = String(data.task.id || activeTaskId);
+        aiReviewRequest.current?.abort();
+        setAiReviews(data.reviews);
+        setAiTasks(data.tasks);
+        if (data.task.status === "completed" || batchProcessed === 0) break;
+      }
+      setMessage(`${deepReview ? "单题深度复核" : "AI 审核任务"}已完成 ${processed} 题，原题未改变；请查看前后差异并确认`);
+    } catch (reason) {
+      const error = reason instanceof Error ? reason.message : "任务已暂停，可稍后继续";
+      setMessage(`本次已完成 ${processed} 题；${error}。页面将重新读取任务状态，请以当前列表为准。`);
+    } finally {
+      try { await loadAiReviews(); }
+      finally { finishAiReviewAction(); }
+    }
+  };
   const runAiReview = async () => { if (!selected.length) { setMessage("请先勾选需要 AI 辅助审核的题目"); return; } if (selected.length > 100) { setMessage("一个 AI 审核任务最多选择 100 道题，请缩小范围后再试"); return; } await processAiTask({ questionIds: selected }); };
   const runDeepReview = async (questionId: number) => { if (!confirm("DeepSeek Pro 仅用于教师手动单题深度复核，费用高于批量模型。确认复核本题？")) return; await processAiTask({ questionIds: [questionId], deepReview: true }); };
   const toggleAiField = (reviewId: number, field: string) => setAiFieldSelections((current) => ({ ...current, [reviewId]: (current[reviewId] || []).includes(field) ? (current[reviewId] || []).filter((item) => item !== field) : [...(current[reviewId] || []), field] }));
-  const applyAiReviews = async (reviewIds: number[], mode: "batch" | "single", fields: string[] = []) => { if (!reviewIds.length) return; if (mode === "single" && !fields.length) { setMessage("请先逐项勾选本题中已核对的建议字段"); return; } const warning = mode === "single" ? `将只应用已勾选的 ${fields.length} 个字段。请确认已核对事实、教材观点与规范表述。` : "将批量应用页面已展示、置信度不低于 85% 且匹配题库现有规范值的安全分类字段；不会写入答案或解析。确认继续？"; if (!confirm(warning)) return; setAiReviewBusy(true); const response = await fetch("/api/ai/question-reviews/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewIds, mode, fields }) }), data = await response.json(); setAiReviewBusy(false); setMessage(response.ok ? `已应用 ${data.applied?.length || 0} 道题的明确确认字段；${data.stale?.length ? `${data.stale.length} 条因原题更新而作废` : "题目正式状态与人工复核标记保持不变"}` : data.error || "应用建议失败"); await loadAiReviews(); if (response.ok) void load(); };
-  const rejectAiReviews = async (reviewIds: number[]) => { const response = await fetch("/api/ai/question-reviews/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewIds, action: "reject" }) }); const data = await response.json(); setMessage(response.ok ? `已忽略 ${reviewIds.length} 条 AI 建议` : data.error || "忽略失败"); await loadAiReviews(); };
+  const applyAiReviews = async (reviewIds: number[], mode: "batch" | "single", fields: string[] = []) => {
+    const requestedIds = [...new Set(reviewIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (!requestedIds.length) return;
+    if (mode === "single" && !fields.length) { setMessage("请先逐项勾选本题中已核对的建议字段"); return; }
+    if (!startAiReviewAction("apply")) return;
+    const warning = mode === "single" ? `将只应用已勾选的 ${fields.length} 个字段。请确认已核对事实、教材观点与规范表述。` : "将批量应用页面已展示、置信度不低于 85% 且匹配题库现有规范值的安全分类字段；不会写入答案或解析。确认继续？";
+    if (!confirm(warning)) { finishAiReviewAction(); return; }
+    const refreshQuestions = true;
+    setMessage("正在应用教师已确认的 AI 建议…");
+    try {
+      const data = await requestJson<AiReviewApplyResponse>("/api/ai/question-reviews/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewIds: requestedIds, mode, fields }), timeoutMs: 30_000 });
+      if (!data || !Array.isArray(data.applied) || !Array.isArray(data.stale)) throw new HttpError(200, "应用建议接口没有返回完整处理结果");
+      const requestedIdSet = new Set(requestedIds);
+      if (!data.applied.every((item) => isObjectRecord(item) && isPositiveInteger(item.reviewId) && requestedIdSet.has(item.reviewId) && isPositiveInteger(item.questionId) && Array.isArray(item.changes) && item.changes.length > 0 && item.changes.every((change: unknown) => isAiReviewChange(change))) || !data.stale.every((id) => typeof id === "number" && Number.isInteger(id) && requestedIdSet.has(id))) throw new HttpError(200, "应用建议接口返回了无效处理记录");
+      const appliedIds = data.applied.map((item) => Number(item.reviewId)), staleIds = data.stale;
+      if (new Set(appliedIds).size !== appliedIds.length || new Set(staleIds).size !== staleIds.length || staleIds.some((id) => appliedIds.includes(id))) throw new HttpError(200, "应用建议接口返回了重复或冲突的处理记录");
+      const unresolved = Math.max(0, requestedIds.length - appliedIds.length - staleIds.length), resultParts = [`已应用 ${appliedIds.length} 道题的明确确认字段`, staleIds.length ? `${staleIds.length} 条因原题更新而作废` : "", unresolved ? `${unresolved} 条未处理，请以当前列表为准` : ""].filter(Boolean);
+      setMessage(data.applied.length || data.stale.length ? resultParts.join("；") : "没有字段被应用；建议可能已处理或不再有效，请以当前列表为准");
+    } catch (reason) {
+      const error = reason instanceof Error ? reason.message : "应用建议失败";
+      setMessage(`应用请求未能确认结果；${error}。页面将重新读取建议和题目，请以当前列表为准。`);
+    } finally {
+      try {
+        await loadAiReviews();
+        if (refreshQuestions) await load();
+      } finally { finishAiReviewAction(); }
+    }
+  };
+  const rejectAiReviews = async (reviewIds: number[]) => {
+    const requestedIds = [...new Set(reviewIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (!requestedIds.length || !startAiReviewAction("reject")) return;
+    if (!confirm(`将忽略 ${requestedIds.length} 条 AI 建议。忽略后不会应用到题目，也不会撤销此前已应用的字段；如仍需要可重新发起 AI 审核。确认继续？`)) { finishAiReviewAction(); return; }
+    setMessage("正在忽略所选 AI 建议…");
+    try {
+      const data = await requestJson<AiReviewRejectResponse>("/api/ai/question-reviews/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewIds: requestedIds, action: "reject" }), timeoutMs: 30_000 });
+      if (!data || data.ok !== true || typeof data.rejected !== "number" || !Number.isInteger(data.rejected) || data.rejected < 0 || data.rejected > requestedIds.length) throw new HttpError(200, "忽略建议接口没有返回完整处理结果");
+      const rejected = data.rejected;
+      setMessage(rejected > 0 ? `已忽略 ${rejected} 条 AI 建议；题目原内容没有改变` : "没有建议被忽略；建议可能已在其他页面处理，请以当前列表为准");
+    } catch (reason) {
+      const error = reason instanceof Error ? reason.message : "忽略失败";
+      setMessage(`忽略请求未能确认结果；${error}。页面将重新读取待确认队列，请以当前列表为准。`);
+    } finally {
+      try { await loadAiReviews(); }
+      finally { finishAiReviewAction(); }
+    }
+  };
   const reviewCount = parsed.filter((item) => item.reviewed).length, summary = summarizeImport(parsed), volumeOptions = importMeta.stage === "高中" ? ["必修1 中国特色社会主义", "必修2 经济与社会", "必修3 政治与法治", "必修4 哲学与文化", "选择性必修1 当代国际政治与经济", "选择性必修2 法律与生活", "选择性必修3 逻辑与思维"] : ["七年级上册", "七年级下册", "八年级上册", "八年级下册", "九年级上册", "九年级下册"];
   const hasFacetData = Object.values(facets).some((values) => values.length > 0);
   const hasVisibleAiReviewData = aiReviews.length > 0 || aiTasks.some((task) => task.status !== "completed");
   const renderHealth = (stale = false) => <section className={`questionHealth${stale ? " stale" : ""}`} aria-label={stale ? "上次成功读取的题库健康指标" : "题库健康指标"}>{stale && <p>以下为上次成功读取的结果，当前筛选的最新统计尚未取得。</p>}<article><span>当前正式题量</span><b>{health?.summary.total ?? 0}</b></article><article><span>缺答案</span><b>{health?.summary.missingAnswer ?? 0}</b></article><article><span>缺解析</span><b>{health?.summary.missingAnalysis ?? 0}</b></article><article><span>累计使用</span><b>{health?.summary.useCount ?? 0}</b></article><details><summary>查看知识点题量</summary>{health?.knowledge.slice(0, 12).map((item) => <button key={item.knowledge} onClick={() => { const value = item.knowledge; setKnowledge(value); setAppliedSearch((current) => ({ ...current, knowledge: value })); setPage(1); }}>{item.knowledge} · {item.total}题 · 缺答案{item.missingAnswer} · 缺解析{item.missingAnalysis} · 使用{item.useCount}</button>)}</details></section>;
   return <AppShell title="题库与组卷" subtitle="政治学科题目、人工校对与试卷草稿" actions={<><a className="secondaryButton" href={`/api/questions/portable?format=json&status=${status}`}>导出题库 JSON</a><a className="secondaryButton" href={`/api/questions/portable?format=csv&status=${status}`}>导出 CSV</a><label className="secondaryButton">导入 JSON<input hidden type="file" accept="application/json,.json" onChange={(event) => void importPortable(event.target.files?.[0])} /></label><label className="primaryButton">批量导入 Word<input hidden multiple type="file" accept=".docx" onChange={(event) => selectQueueFiles(event.target.files)} /></label><Link className="secondaryButton" href="/papers">组卷工作台</Link><button className="secondaryButton" onClick={() => edit()}>＋ 手动录题</button></>}>
     {message && <div className="saveToast" role="status">{message}</div>}
-    <section className="panel aiReviewPanel" aria-busy={aiReviewState === "loading"}><div className="panelTitle"><div><p>可恢复 · 不自动改题</p><h2>DeepSeek 题库辅助审核</h2></div><div className="cardActions"><button className="aiButton" disabled={aiReviewBusy || !selected.length || selected.length > 100} onClick={runAiReview}>{aiReviewBusy ? "AI 处理中…" : `审核已选题目（${selected.length}/100）`}</button>{aiReviews.some((item) => item.eligibleFields?.length) && <button disabled={aiReviewBusy} onClick={() => applyAiReviews(aiReviews.filter((item) => item.eligibleFields?.length).map((item) => Number(item.id)), "batch")}>查看后确认全部安全建议</button>}</div></div><p className="helperText">每项建议均显示修改前后、理由与置信度。只有置信度≥85%且匹配现有规范值的安全分类字段可批量确认；新术语、低置信度、答案、解析、教材观点和价值判断必须逐题勾选。AI 不会把题目设为正式或已人工复核。</p>
+    <section className="panel aiReviewPanel" aria-busy={aiReviewState === "loading" || aiReviewBusy}><div className="panelTitle"><div><p>可恢复 · 不自动改题</p><h2>DeepSeek 题库辅助审核</h2></div><div className="cardActions"><button className="aiButton" disabled={aiReviewBusy || !selected.length || selected.length > 100} onClick={runAiReview}>{aiReviewAction === "process" ? "AI 处理中…" : `审核已选题目（${selected.length}/100）`}</button>{aiReviews.some((item) => item.eligibleFields?.length) && <button disabled={aiReviewBusy} onClick={() => applyAiReviews(aiReviews.filter((item) => item.eligibleFields?.length).map((item) => Number(item.id)), "batch")}>{aiReviewAction === "apply" ? "正在应用…" : "查看后确认全部安全建议"}</button>}</div></div><p className="helperText">每项建议均显示修改前后、理由与置信度。只有置信度≥85%且匹配现有规范值的安全分类字段可批量确认；新术语、低置信度、答案、解析、教材观点和价值判断必须逐题勾选。AI 不会把题目设为正式或已人工复核。</p>
       {aiReviewState === "loading" && <div className="aiReviewState" role="status">正在读取 AI 复核任务与建议…</div>}
       {aiReviewState === "error" && <div className="aiReviewState error" role="alert"><b>AI 复核列表读取失败</b><span>{aiReviewError}</span>{hasVisibleAiReviewData && <em>AI 复核结果来自上次成功读取，可继续查看或重试更新。</em>}<button onClick={() => void loadAiReviews()} type="button">重新读取 AI 复核</button></div>}
-      {aiTasks.some((task) => task.status !== "completed") && <div className="queueList">{aiTasks.filter((task) => task.status !== "completed").map((task) => <article key={task.id}><span className={`queueStatus ${task.status}`}>{task.status === "failed" ? "已暂停" : task.status === "running" ? "处理中" : "待继续"}</span><div><b>{task.mode === "deep" ? "单题 Pro 深度复核" : `批量审核 ${task.total} 题`}</b><small>已处理 {task.processed || task.cursor}/{task.total}{task.lastError ? ` · ${task.lastError}` : ""}</small></div><button disabled={aiReviewBusy} onClick={() => processAiTask({ taskId: String(task.id) })}>继续任务</button></article>)}</div>}
-      {aiReviews.length > 0 ? <div className="aiReviewQueue">{aiReviews.map((review) => { const fields = [...Object.entries(review.safeSuggestions || {}).map(([field, value]) => ({ field, value, sensitive: false })), ...Object.entries(review.sensitiveSuggestions || {}).map(([field, value]) => ({ field, value, sensitive: true }))]; return <article key={review.id}><div><b>题目 #{review.questionId}</b><span>{String(review.stem || "").slice(0, 90)}</span></div><div className="aiSuggestionDiffs">{fields.length ? fields.map(({ field, value, sensitive }) => { const eligible = (review.eligibleFields || []).includes(field), checked = (aiFieldSelections[Number(review.id)] || []).includes(field); return <label key={field} className={`aiSuggestionRow ${sensitive ? "sensitive" : eligible ? "eligible" : "manual"}`}><input type="checkbox" checked={checked} onChange={() => toggleAiField(Number(review.id), field)} /><span><b>{aiFieldLabels[field] || field}</b><small>{sensitive ? "敏感字段 · 必须逐题" : eligible ? "安全字段 · 可批量确认" : "新术语或低置信度 · 必须逐题"}</small></span><del>{String(review.currentValues?.[field] || "（空）")}</del><strong>→ {String(value)}</strong><em>{Math.round(Number(review.confidence?.[field] || 0) * 100)}% · {String(review.reasons?.[field] || "AI 未提供理由")}</em></label>; }) : <p>本题没有可用建议。</p>}</div><div className="cardActions"><button disabled={aiReviewBusy} onClick={() => applyAiReviews([Number(review.id)], "single", aiFieldSelections[Number(review.id)] || [])}>应用本题已勾选字段</button><button disabled={aiReviewBusy} onClick={() => runDeepReview(Number(review.questionId))}>DeepSeek Pro 单题深度复核</button><button disabled={aiReviewBusy} onClick={() => rejectAiReviews([Number(review.id)])}>忽略全部建议</button></div></article>; })}</div> : aiReviewState === "ready" && !hasVisibleAiReviewData ? <p className="emptyInline">勾选 1—100 道题后创建任务；服务端每批处理 10 题，刷新、中断或失败后可从任务队列继续。</p> : null}
+      {aiTasks.some((task) => task.status !== "completed") && <div className="queueList">{aiTasks.filter((task) => task.status !== "completed").map((task) => <article key={task.id}><span className={`queueStatus ${task.status}`}>{task.status === "failed" ? "已暂停" : task.status === "running" ? "处理中" : "待继续"}</span><div><b>{task.mode === "deep" ? "单题 Pro 深度复核" : `批量审核 ${task.total} 题`}</b><small>已处理 {task.processed || task.cursor}/{task.total}{task.lastError ? ` · ${task.lastError}` : ""}</small></div><button disabled={aiReviewBusy} onClick={() => processAiTask({ taskId: String(task.id) })}>{aiReviewAction === "process" ? "正在继续…" : "继续任务"}</button></article>)}</div>}
+      {aiReviews.length > 0 ? <div className="aiReviewQueue">{aiReviews.map((review) => { const fields = [...Object.entries(review.safeSuggestions || {}).map(([field, value]) => ({ field, value, sensitive: false })), ...Object.entries(review.sensitiveSuggestions || {}).map(([field, value]) => ({ field, value, sensitive: true }))]; return <article key={review.id}><div><b>题目 #{review.questionId}</b><span>{String(review.stem || "").slice(0, 90)}</span></div><div className="aiSuggestionDiffs">{fields.length ? fields.map(({ field, value, sensitive }) => { const eligible = (review.eligibleFields || []).includes(field), checked = (aiFieldSelections[Number(review.id)] || []).includes(field); return <label key={field} className={`aiSuggestionRow ${sensitive ? "sensitive" : eligible ? "eligible" : "manual"}`}><input type="checkbox" checked={checked} onChange={() => toggleAiField(Number(review.id), field)} /><span><b>{aiFieldLabels[field] || field}</b><small>{sensitive ? "敏感字段 · 必须逐题" : eligible ? "安全字段 · 可批量确认" : "新术语或低置信度 · 必须逐题"}</small></span><del>{String(review.currentValues?.[field] || "（空）")}</del><strong>→ {String(value)}</strong><em>{Math.round(Number(review.confidence?.[field] || 0) * 100)}% · {String(review.reasons?.[field] || "AI 未提供理由")}</em></label>; }) : <p>本题没有可用建议。</p>}</div><div className="cardActions"><button disabled={aiReviewBusy} onClick={() => applyAiReviews([Number(review.id)], "single", aiFieldSelections[Number(review.id)] || [])}>{aiReviewAction === "apply" ? "正在应用…" : "应用本题已勾选字段"}</button><button disabled={aiReviewBusy} onClick={() => runDeepReview(Number(review.questionId))}>{aiReviewAction === "process" ? "深度复核中…" : "DeepSeek Pro 单题深度复核"}</button><button disabled={aiReviewBusy} onClick={() => rejectAiReviews([Number(review.id)])}>{aiReviewAction === "reject" ? "正在忽略…" : "忽略全部建议"}</button></div></article>; })}</div> : aiReviewState === "ready" && !hasVisibleAiReviewData ? <p className="emptyInline">勾选 1—100 道题后创建任务；服务端每批处理 10 题，刷新、中断或失败后可从任务队列继续。</p> : null}
     </section>
     {Object.entries(questionContent).some(([, state]) => state.status === "error") && <div className="saveToast" role="alert">答案解析读取失败。{Object.entries(questionContent).filter(([, state]) => state.status === "error").map(([id]) => <button key={id} onClick={() => void loadQuestionContent(Number(id), true)}>重试题目 #{id}</button>)}</div>}
     {similarCompare && <section className="panel duplicateCompare"><div className="panelTitle"><div><p>只提示，不自动删除</p><h2>相似题左右对照</h2></div><button onClick={() => setSimilarCompare(null)}>关闭</button></div>{similarCompare.similar?.length ? similarCompare.similar.map((item: Record<string, any>) => <article key={item.id}><div><span>当前题目</span><p>{similarCompare.source.stem}</p></div><b>{Math.round(Number(item.similarity) * 100)}% 相似</b><div><span>正式题库 #{item.id}</span><p>{item.stem}</p><small>{item.questionType} · {item.knowledgePoints || "知识点未标注"}</small></div></article>) : <EmptyState title="没有高度相似题" description="当前正式题库中没有相似度达到82%的同年级题目。" />}</section>}

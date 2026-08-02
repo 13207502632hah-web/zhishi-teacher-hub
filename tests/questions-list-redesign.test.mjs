@@ -113,11 +113,56 @@ test("AI review lists preserve known results and recover from request failures",
   assert.match(aiReviewFlow, /setAiReviewState\("error"\)/);
   assert.match(aiReviewFlow, /Array\.isArray\(data\.reviews\)/);
   assert.match(aiReviewFlow, /Array\.isArray\(data\.tasks\)/);
+  assert.match(aiReviewFlow, /data\.reviews\.every\(isAiReviewRecord\)/);
+  assert.match(aiReviewFlow, /data\.tasks\.every\(\(task\) => isAiReviewTaskRecord\(task\)\)/);
   assert.doesNotMatch(aiReviewFlow, /\bfetch\s*\(/);
-  assert.match(page, /aria-busy=\{aiReviewState === "loading"\}/);
+  assert.match(page, /aria-busy=\{aiReviewState === "loading" \|\| aiReviewBusy\}/);
   assert.match(page, /AI 复核列表读取失败/);
   assert.match(page, /重新读取 AI 复核/);
   assert.match(page, /AI 复核结果来自上次成功读取/);
+});
+
+test("AI review mutations use a synchronous lock and recover without false success", async () => {
+  const page = await read("app/questions/page.tsx");
+  const mutationFlow = page.match(/const startAiReviewAction[\s\S]*?const reviewCount/)?.[0] || "";
+  const processFlow = page.match(/const processAiTask[\s\S]*?const runAiReview/)?.[0] || "";
+  const applyFlow = page.match(/const applyAiReviews[\s\S]*?const rejectAiReviews/)?.[0] || "";
+  const rejectFlow = page.match(/const rejectAiReviews[\s\S]*?const reviewCount/)?.[0] || "";
+
+  assert.match(page, /type AiReviewTaskResponse/);
+  assert.match(page, /type AiReviewApplyResponse/);
+  assert.match(page, /type AiReviewRejectResponse/);
+  assert.match(page, /const isAiReviewRecord/);
+  assert.match(page, /const isAiReviewTaskRecord/);
+  assert.match(page, /const aiReviewActionRef\s*=\s*useRef<AiReviewAction \| null>\(null\)/);
+  assert.match(mutationFlow, /if \(aiReviewActionRef\.current\) return false/);
+  assert.match(mutationFlow, /requestJson<AiReviewTaskResponse>\("\/api\/ai\/question-reviews"/);
+  assert.match(mutationFlow, /requestJson<AiReviewApplyResponse>\("\/api\/ai\/question-reviews\/apply"/);
+  assert.match(mutationFlow, /requestJson<AiReviewRejectResponse>\("\/api\/ai\/question-reviews\/apply"/);
+  assert.match(processFlow, /typeof data\.processed !== "number"/);
+  assert.match(processFlow, /\["queued", "completed"\]/);
+  assert.match(processFlow, /data\.task\.status === "queued" && data\.processed === 0/);
+  assert.match(mutationFlow, /Array\.isArray\(data\.applied\)/);
+  assert.match(mutationFlow, /Array\.isArray\(data\.stale\)/);
+  assert.match(applyFlow, /appliedIds/);
+  assert.match(applyFlow, /requestedIdSet/);
+  assert.match(applyFlow, /item\.changes\.length/);
+  assert.match(page, /typeof change\.field === "string"/);
+  assert.match(page, /typeof change\.before === "string"/);
+  assert.match(page, /typeof change\.after === "string"/);
+  assert.match(applyFlow, /refreshQuestions = true/);
+  assert.match(mutationFlow, /data\.ok !== true/);
+  assert.match(rejectFlow, /typeof data\.rejected !== "number"/);
+  assert.match(rejectFlow, /data\.rejected > requestedIds\.length/);
+  for (const flow of [processFlow, applyFlow, rejectFlow]) {
+    assert.ok(flow.lastIndexOf("finishAiReviewAction()") > flow.lastIndexOf("await loadAiReviews()"), "AI review lock must remain held until reconciliation finishes");
+  }
+  assert.doesNotMatch(mutationFlow, /\bfetch\s*\(/);
+  assert.match(page, /忽略后不会应用/);
+  assert.match(page, /没有建议被忽略；建议可能已在其他页面处理/);
+  assert.match(page, /请以当前列表为准/);
+  assert.match(page, /正在应用…/);
+  assert.match(page, /正在忽略…/);
 });
 
 test("question pagination is clamped after filtering instead of returning a false empty page", async () => {
