@@ -125,7 +125,7 @@ test("reviewed questions can enter the formal bank without one blocked item stop
 
 test("Word imports accept the advertised size and explain non-JSON upload failures", async () => {
   const [config, page, source] = await Promise.all([read("next.config.ts"), read("app/questions/page.tsx"), read("app/api/question-sets/source/route.ts")]);
-  assert.match(config, /bodySizeLimit:\s*"20mb"/); assert.match(page, /response\.text\(\)/); assert.match(page, /超过服务器接收上限/);
+  assert.match(config, /bodySizeLimit:\s*"20mb"/); assert.match(page, /requestJson<SourceDocumentResponse>\("\/api\/question-sets\/source"/); assert.match(page, /reason instanceof HttpError && reason\.status === 413/); assert.match(page, /data\?\.key/); assert.match(page, /超过服务器接收上限/);
   assert.match(page, /15 \* 1024 \* 1024/); assert.match(source, /15 \* 1024 \* 1024/); assert.match(source, /status: 413/);
 });
 

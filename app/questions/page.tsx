@@ -21,6 +21,15 @@ type QuestionHealthSummary = { total: number; missingAnswer: number; missingAnal
 type QuestionHealthItem = QuestionHealthSummary & { knowledge: string };
 type QuestionHealthResponse = { summary: QuestionHealthSummary; knowledge: QuestionHealthItem[] };
 type QuestionFacetsResponse = { facets: Record<string, Array<string | number>> };
+type LessonResponse = { lesson?: Record<string, any> };
+type QuestionResponse = { question?: Question; ok?: boolean };
+type QuestionSetResponse = { questionSet?: Record<string, any>; questions?: Question[] };
+type SimilarQuestionsResponse = { source?: Record<string, any>; similar?: Array<Record<string, any>> };
+type QuestionContentResponse = { content?: Record<string, any> };
+type SourceDocumentResponse = { key?: string };
+type QuestionImportResponse = { questionSet?: Record<string, any>; questions?: Question[]; questionCount?: number; report?: Record<string, any>; duplicateReport?: { exact?: Array<Record<string, unknown>>; similar?: Array<Record<string, unknown>> } };
+type QuestionConfirmResponse = { partial?: boolean; promoted?: number; report?: Record<string, any> };
+type PortableImportResponse = { imported?: number; duplicates?: number };
 type AiReviewListResponse = { reviews: Array<Record<string, any>>; tasks: Array<Record<string, any>> };
 type AiReviewTaskResponse = AiReviewListResponse & { task: Record<string, any>; processed: number; reused?: boolean };
 type AiReviewApplyResponse = { applied: Array<Record<string, any>>; stale: number[]; skipped: number[]; notice?: string };
@@ -40,19 +49,27 @@ const blank = (): Question => ({ stem: "", material: "", options: "", answer: ""
 const initialMeta: ImportMeta = { stage: "高中", grade: "高一", textbookVersion: "统编版", volume: "", unit: "", topic: "", coreCompetencies: "政治认同", region: "", year: "", examType: "" };
 const emptySearch: SearchTerms = { q: "", knowledge: "", source: "", year: "" };
 export default function QuestionsPage() {
-  const [ready, setReady] = useState(false), [tab, setTab] = useState("library"), [rows, setRows] = useState<Question[]>([]), [q, setQ] = useState(""), [stage, setStage] = useState(""), [grade, setGrade] = useState(""), [textbookVersion, setTextbookVersion] = useState(""), [volume, setVolume] = useState(""), [unit, setUnit] = useState(""), [topic, setTopic] = useState(""), [type, setType] = useState(""), [difficulty, setDifficulty] = useState(""), [knowledge, setKnowledge] = useState(""), [source, setSource] = useState(""), [region, setRegion] = useState(""), [year, setYear] = useState(""), [flag, setFlag] = useState(""), [issue, setIssue] = useState(""), [status, setStatus] = useState("active"), [page, setPage] = useState(1), [pageCount, setPageCount] = useState(1), [total, setTotal] = useState(0), [sort, setSort] = useState("updated_desc"), [allIds, setAllIds] = useState<number[]>([]), [reviewIssues, setReviewIssues] = useState<Record<string, number>>({}), [selected, setSelected] = useState<number[]>([]), [batchAction, setBatchAction] = useState("confirm"), [batchValue, setBatchValue] = useState(""), [open, setOpen] = useState(false), [form, setForm] = useState<Question>(blank()), [editing, setEditing] = useState<number | null>(null), [lessonId, setLessonId] = useState(""), [importStep, setImportStep] = useState(1), [fileName, setFileName] = useState(""), [parsed, setParsed] = useState<Question[]>([]), [current, setCurrent] = useState(0), [setId, setSetId] = useState<number | null>(null), [importReport, setImportReport] = useState<Record<string, any> | null>(null), [message, setMessage] = useState(""), [importMeta, setImportMeta] = useState<ImportMeta>(initialMeta), [importDirty, setImportDirty] = useState(false), [, setSavingImport] = useState(false);
+  const [ready, setReady] = useState(false), [tab, setTab] = useState("library"), [rows, setRows] = useState<Question[]>([]), [q, setQ] = useState(""), [stage, setStage] = useState(""), [grade, setGrade] = useState(""), [textbookVersion, setTextbookVersion] = useState(""), [volume, setVolume] = useState(""), [unit, setUnit] = useState(""), [topic, setTopic] = useState(""), [type, setType] = useState(""), [difficulty, setDifficulty] = useState(""), [knowledge, setKnowledge] = useState(""), [source, setSource] = useState(""), [region, setRegion] = useState(""), [year, setYear] = useState(""), [flag, setFlag] = useState(""), [issue, setIssue] = useState(""), [status, setStatus] = useState("active"), [page, setPage] = useState(1), [pageCount, setPageCount] = useState(1), [total, setTotal] = useState(0), [sort, setSort] = useState("updated_desc"), [allIds, setAllIds] = useState<number[]>([]), [reviewIssues, setReviewIssues] = useState<Record<string, number>>({}), [selected, setSelected] = useState<number[]>([]), [batchAction, setBatchAction] = useState("confirm"), [batchValue, setBatchValue] = useState(""), [open, setOpen] = useState(false), [form, setForm] = useState<Question>(blank()), [editing, setEditing] = useState<number | null>(null), [lessonId, setLessonId] = useState(""), [importStep, setImportStep] = useState(1), [fileName, setFileName] = useState(""), [parsed, setParsed] = useState<Question[]>([]), [current, setCurrent] = useState(0), [setId, setSetId] = useState<number | null>(null), [importReport, setImportReport] = useState<Record<string, any> | null>(null), [message, setMessage] = useState(""), [importMeta, setImportMeta] = useState<ImportMeta>(initialMeta), [importDirty, setImportDirty] = useState(false), [savingImport, setSavingImport] = useState(false);
   const [sourceDocument, setSourceDocument] = useState("");
   const [duplicateReport, setDuplicateReport] = useState<{ exact?: Array<Record<string, unknown>>; similar?: Array<Record<string, unknown>> } | null>(null);
   const [facets, setFacets] = useState<Record<string, Array<string | number>>>({}), [savedViews, setSavedViews] = useState<SavedView[]>([]), [savedName, setSavedName] = useState(""), [recentSearches, setRecentSearches] = useState<Array<Record<string, string>>>([]), [expanded, setExpanded] = useState<number[]>([]), [paperCart, setPaperCart] = useState<number[]>([]), [queue, setQueue] = useState<QueueItem[]>([]), [queueRunning, setQueueRunning] = useState(false), [health, setHealth] = useState<QuestionHealthResponse | null>(null), [similarCompare, setSimilarCompare] = useState<Record<string, any> | null>(null);
   const [questionContent, setQuestionContent] = useState<Record<number, QuestionContentState>>({});
-  const questionContentRef = useRef<Record<number, QuestionContentState>>({}), questionContentRequests = useRef<Set<number>>(new Set());
+  const questionContentRef = useRef<Record<number, QuestionContentState>>({}), questionContentRequests = useRef<Map<number, AbortController>>(new Map());
   const [aiReviews, setAiReviews] = useState<Array<Record<string, any>>>([]), [aiTasks, setAiTasks] = useState<Array<Record<string, any>>>([]), [aiFieldSelections, setAiFieldSelections] = useState<Record<number, string[]>>({}), [aiReviewAction, setAiReviewAction] = useState<AiReviewAction | null>(null);
   const [appliedSearch, setAppliedSearch] = useState<SearchTerms>(emptySearch), [listState, setListState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [listError, setListError] = useState(""), [batchBusy, setBatchBusy] = useState(false);
   const [savedViewState, setSavedViewState] = useState<"loading" | "ready" | "error">("loading"), [savedViewError, setSavedViewError] = useState(""), [savedViewBusy, setSavedViewBusy] = useState<string | null>(null);
   const [healthState, setHealthState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [healthError, setHealthError] = useState("");
   const [facetState, setFacetState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [facetError, setFacetError] = useState("");
   const [aiReviewState, setAiReviewState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [aiReviewError, setAiReviewError] = useState("");
+  const [questionAction, setQuestionAction] = useState<string | null>(null), [importAction, setImportAction] = useState<string | null>(null);
   const loadRequest = useRef<AbortController | null>(null);
+  const bootstrapRequest = useRef<AbortController | null>(null);
+  const reviewSaveRequest = useRef<AbortController | null>(null);
+  const similarRequest = useRef<AbortController | null>(null);
+  const questionActionRef = useRef<string | null>(null);
+  const importActionRef = useRef<string | null>(null);
+  const importRevision = useRef(0);
+  const queueRunningRef = useRef(false);
   const savedViewRequest = useRef<AbortController | null>(null);
   const savedViewActionRef = useRef<string | null>(null);
   const healthRequest = useRef<AbortController | null>(null);
@@ -60,6 +77,10 @@ export default function QuestionsPage() {
   const aiReviewRequest = useRef<AbortController | null>(null);
   const aiReviewActionRef = useRef<AiReviewAction | null>(null);
   const aiReviewBusy = aiReviewAction !== null;
+  const startQuestionAction = (action: string) => { if (questionActionRef.current) return false; questionActionRef.current = action; setQuestionAction(action); return true; };
+  const finishQuestionAction = (action: string) => { if (questionActionRef.current !== action) return; questionActionRef.current = null; setQuestionAction(null); };
+  const startImportAction = (action: string) => { if (importActionRef.current) return false; importActionRef.current = action; setImportAction(action); setSavingImport(true); return true; };
+  const finishImportAction = (action: string) => { if (importActionRef.current !== action) return; importActionRef.current = null; setImportAction(null); setSavingImport(false); };
   const filterSnapshot = () => Object.fromEntries(Object.entries({ ...appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, sort }).filter(([, value]) => value && value !== "active" && value !== "updated_desc"));
   const applyFilters = (filters: Record<string, string>) => { const nextSearch = { q: filters.q || "", knowledge: filters.knowledge || "", source: filters.source || "", year: filters.year || "" }; setQ(nextSearch.q); setKnowledge(nextSearch.knowledge); setSource(nextSearch.source); setYear(nextSearch.year); setAppliedSearch(nextSearch); setStage(filters.stage || ""); setGrade(filters.grade || ""); setTextbookVersion(filters.textbookVersion || ""); setVolume(filters.volume || ""); setUnit(filters.unit || ""); setTopic(filters.topic || ""); setType(filters.type || ""); setDifficulty(filters.difficulty || ""); setRegion(filters.region || ""); setFlag(filters.flag || ""); setIssue(filters.issue || ""); setStatus(filters.status || "active"); setSort(filters.sort || "updated_desc"); setPage(1); };
   const clearFilters = () => applyFilters({});
@@ -184,41 +205,135 @@ export default function QuestionsPage() {
   useEffect(() => { void loadHealth(); return () => healthRequest.current?.abort(); }, [loadHealth]);
   useEffect(() => { const snapshot = Object.fromEntries(Object.entries({ ...appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, sort }).filter(([, value]) => value && value !== "active" && value !== "updated_desc")); if (!ready || !Object.keys(snapshot).length) return; const timer = window.setTimeout(() => { setRecentSearches((items) => { const next = [snapshot, ...items.filter((item) => JSON.stringify(item) !== JSON.stringify(snapshot))].slice(0, 6); localStorage.setItem("zhishi:recent-question-searches", JSON.stringify(next)); return next; }); }, 500); return () => window.clearTimeout(timer); }, [ready, appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, sort]);
   useEffect(() => { localStorage.setItem("zhishi:question-import-queue", JSON.stringify(queue.map((item) => ({ key: item.key, name: item.name, status: item.status, message: item.message, setId: item.setId, count: item.count })))); }, [queue]);
-  useEffect(() => { const id = Number(new URLSearchParams(location.search).get("set") || 0); if (!id) return; void fetch(`/api/question-sets/${id}`).then((response) => response.ok ? response.json() : null).then((data) => { if (!data?.questionSet?.duplicateReport) return; try { const parsedReport = JSON.parse(data.questionSet.duplicateReport); setDuplicateReport(Array.isArray(parsedReport) ? { exact: parsedReport, similar: [] } : parsedReport); } catch { setDuplicateReport(null); } }); }, []);
   const load = useCallback(async () => { if (!ready) return; const params = new URLSearchParams({ ...appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, page: String(page), sort }); if (lessonId) params.set("lesson", lessonId); loadRequest.current?.abort(); const controller = new AbortController(); loadRequest.current = controller; setListState("loading"); setListError(""); try { const data = await requestJson<QuestionListResponse>(`/api/questions?${params}`, { signal: controller.signal, cache: "no-store" }); if (!data) throw new HttpError(200, "题库接口没有返回数据"); setRows(data.questions || []); setTotal(Number(data.total || 0)); setPage(Number(data.page || 1)); setPageCount(Number(data.pageCount || 1)); setAllIds((data.allIds || []).map(Number)); setReviewIssues(data.issues || {}); setSelected([]); setListState("ready"); const visible = new URLSearchParams(); params.forEach((value, key) => { if (value && !(key === "status" && value === "active") && !(key === "page" && value === "1") && !(key === "sort" && value === "updated_desc")) visible.set(key, value); }); history.replaceState(null, "", `/questions${visible.size ? `?${visible}` : ""}`); } catch (reason) { if (reason instanceof DOMException && reason.name === "AbortError") return; const error = reason instanceof Error ? reason.message : "读取题库失败"; setListError(error); setListState("error"); } }, [ready, appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, page, sort, lessonId]);
   const submitSearch = () => { const next = { q: q.trim(), knowledge: knowledge.trim(), source: source.trim(), year: year.trim() }; const unchanged = JSON.stringify(next) === JSON.stringify(appliedSearch); setPage(1); setAppliedSearch(next); if (unchanged && page === 1) void load(); };
-  useEffect(() => { const params = new URLSearchParams(location.search), resumeId = Number(params.get("set") || 0), requestedLesson = params.get("lesson") || "", initialSearch = { q: params.get("q") || "", knowledge: params.get("knowledge") || "", source: params.get("source") || "", year: params.get("year") || "" }; setQ(initialSearch.q); setKnowledge(initialSearch.knowledge); setSource(initialSearch.source); setYear(initialSearch.year); setAppliedSearch(initialSearch); setStage(params.get("stage") || ""); setGrade(params.get("grade") || ""); setTextbookVersion(params.get("textbookVersion") || ""); setVolume(params.get("volume") || ""); setUnit(params.get("unit") || ""); setTopic(params.get("topic") || ""); setType(params.get("type") || ""); setDifficulty(params.get("difficulty") || ""); setRegion(params.get("region") || ""); setFlag(params.get("flag") || ""); setIssue(params.get("issue") || ""); setStatus(params.get("status") || "active"); setPage(Math.max(1, Number(params.get("page") || 1))); setSort(params.get("sort") || "updated_desc"); setLessonId(requestedLesson); if (params.get("import") === "1") setTab("import"); if (params.get("new") === "1") setOpen(true); const finishReady = async () => { if (requestedLesson) { const response = await fetch(`/api/lessons/${requestedLesson}`), data = await response.json(); if (response.ok && data.lesson) { if (!params.has("stage")) setStage(String(data.lesson.stage || "")); if (!params.has("grade")) setGrade(String(data.lesson.grade || "")); if (!params.has("textbookVersion")) setTextbookVersion(String(data.lesson.textbookVersion || "")); if (!params.has("volume")) setVolume(String(data.lesson.volume || "")); if (!params.has("unit")) setUnit(String(data.lesson.unit || "")); if (!params.has("topic")) setTopic(String(data.lesson.topic || "")); if (!params.has("knowledge")) { const lessonKnowledge = String(data.lesson.knowledgePoints || ""); setKnowledge(lessonKnowledge); setAppliedSearch((current) => ({ ...current, knowledge: lessonKnowledge })); } setMessage("已按课时带入教材和知识点筛选；仅使用课时已有分类"); } } setReady(true); }; void finishReady(); if (resumeId > 0) void (async () => { try { const response = await fetch(`/api/question-sets/${resumeId}`), data = await response.json(); if (!response.ok) throw new Error(data.error || "恢复导入任务失败"); const restored = (data.questions || []).map((item: Question) => ({ ...blank(), ...item, importNotes: [!item.answer && "缺少答案", !item.knowledgePoints && "缺少知识点", !item.analysis && "缺少解析"].filter(Boolean) })); setTab("import"); setSetId(resumeId); setFileName(data.questionSet.sourceFile || data.questionSet.name || "Word 导入任务"); setParsed(restored); setImportReport(data.questionSet.importReport ? JSON.parse(data.questionSet.importReport) : null); setCurrent(0); setImportStep(data.questionSet.status === "active" ? 4 : 3); setImportDirty(false); setMessage(`已恢复 ${restored.length} 道题的复核进度`); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "恢复导入任务失败"); } })(); }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search), resumeId = Number(params.get("set") || 0), requestedLesson = params.get("lesson") || "", initialSearch = { q: params.get("q") || "", knowledge: params.get("knowledge") || "", source: params.get("source") || "", year: params.get("year") || "" };
+    const controller = new AbortController();
+    bootstrapRequest.current = controller;
+    setQ(initialSearch.q); setKnowledge(initialSearch.knowledge); setSource(initialSearch.source); setYear(initialSearch.year); setAppliedSearch(initialSearch); setStage(params.get("stage") || ""); setGrade(params.get("grade") || ""); setTextbookVersion(params.get("textbookVersion") || ""); setVolume(params.get("volume") || ""); setUnit(params.get("unit") || ""); setTopic(params.get("topic") || ""); setType(params.get("type") || ""); setDifficulty(params.get("difficulty") || ""); setRegion(params.get("region") || ""); setFlag(params.get("flag") || ""); setIssue(params.get("issue") || ""); setStatus(params.get("status") || "active"); setPage(Math.max(1, Number(params.get("page") || 1))); setSort(params.get("sort") || "updated_desc"); setLessonId(requestedLesson);
+    if (params.get("import") === "1") setTab("import");
+    if (params.get("new") === "1") setOpen(true);
+    const initialize = async () => {
+      try {
+        if (requestedLesson) {
+          const data = await requestJson<LessonResponse>(`/api/lessons/${requestedLesson}`, { signal: controller.signal, cache: "no-store" });
+          if (!data?.lesson) throw new HttpError(200, "课时接口没有返回完整数据");
+          if (!params.has("stage")) setStage(String(data.lesson.stage || ""));
+          if (!params.has("grade")) setGrade(String(data.lesson.grade || ""));
+          if (!params.has("textbookVersion")) setTextbookVersion(String(data.lesson.textbookVersion || ""));
+          if (!params.has("volume")) setVolume(String(data.lesson.volume || ""));
+          if (!params.has("unit")) setUnit(String(data.lesson.unit || ""));
+          if (!params.has("topic")) setTopic(String(data.lesson.topic || ""));
+          if (!params.has("knowledge")) { const lessonKnowledge = String(data.lesson.knowledgePoints || ""); setKnowledge(lessonKnowledge); setAppliedSearch((current) => ({ ...current, knowledge: lessonKnowledge })); }
+          setMessage("已按课时带入教材和知识点筛选；仅使用课时已有分类");
+        }
+      } catch (reason) {
+        if (!controller.signal.aborted) setMessage(`课时筛选未能自动带入：${reason instanceof Error ? reason.message : "读取失败"}；仍可手动筛选题库`);
+      } finally {
+        if (!controller.signal.aborted) setReady(true);
+      }
+      if (resumeId <= 0 || controller.signal.aborted) return;
+      try {
+        const data = await requestJson<QuestionSetResponse>(`/api/question-sets/${resumeId}`, { signal: controller.signal, cache: "no-store" });
+        if (!data?.questionSet || !Array.isArray(data.questions)) throw new HttpError(200, "恢复导入接口没有返回完整数据");
+        const restored = data.questions.map((item) => ({ ...blank(), ...item, importNotes: [!item.answer && "缺少答案", !item.knowledgePoints && "缺少知识点", !item.analysis && "缺少解析"].filter((note): note is string => Boolean(note)) }));
+        let restoredReport = null;
+        let restoredDuplicates = null;
+        try { restoredReport = data.questionSet.importReport ? JSON.parse(String(data.questionSet.importReport)) : null; } catch { restoredReport = null; }
+        try { const parsedReport = data.questionSet.duplicateReport ? JSON.parse(String(data.questionSet.duplicateReport)) : null; restoredDuplicates = Array.isArray(parsedReport) ? { exact: parsedReport, similar: [] } : parsedReport; } catch { restoredDuplicates = null; }
+        setTab("import"); setSetId(resumeId); setFileName(String(data.questionSet.sourceFile || data.questionSet.name || "Word 导入任务")); setParsed(restored); setImportReport(restoredReport); setDuplicateReport(restoredDuplicates); setCurrent(0); setImportStep(data.questionSet.status === "active" ? 4 : 3); setImportDirty(false); setMessage(`已恢复 ${restored.length} 道题的复核进度`);
+      } catch (reason) {
+        if (!controller.signal.aborted) setMessage(reason instanceof Error ? reason.message : "恢复导入任务失败");
+      }
+    };
+    void initialize();
+    return () => controller.abort();
+  }, []);
   useEffect(() => { if (ready && tab === "library") void load(); }, [ready, tab, load]);
   useEffect(() => () => loadRequest.current?.abort(), []);
+  useEffect(() => () => { bootstrapRequest.current?.abort(); reviewSaveRequest.current?.abort(); similarRequest.current?.abort(); questionContentRequests.current.forEach((controller) => controller.abort()); questionContentRequests.current.clear(); }, []);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (!importDirty) return; event.preventDefault(); event.returnValue = ""; }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, [importDirty]);
-  useEffect(() => { const item = parsed[current]; if (!setId || !item?.id || !importDirty) return; const timer = window.setTimeout(async () => { setSavingImport(true); try { const response = await fetch(`/api/questions/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...item, status: "review" }) }), data = await response.json(); if (!response.ok) throw new Error(data.error || "自动保存复核进度失败"); setParsed((items) => items.map((row) => row.id === item.id ? { ...row, ...data.question } : row)); setImportDirty(false); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "自动保存复核进度失败"); } finally { setSavingImport(false); } }, 800); return () => window.clearTimeout(timer); }, [current, importDirty, parsed, setId]);
-  const save = async () => { const response = await fetch(editing ? `/api/questions/${editing}` : "/api/questions", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }), data = await response.json(); if (!response.ok) { setMessage(data.error || "保存题目失败"); return; } setOpen(false); setEditing(null); setForm(blank()); setMessage("题目已保存"); load(); };
+  useEffect(() => {
+    const item = parsed[current];
+    if (!setId || !item?.id || !importDirty) return;
+    const revision = importRevision.current, action = `autosave:${item.id}:${revision}`;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      if (!startImportAction(action)) return;
+      reviewSaveRequest.current?.abort(); reviewSaveRequest.current = controller;
+      try {
+        const data = await requestJson<QuestionResponse>(`/api/questions/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...item, status: "review" }), signal: controller.signal });
+        if (!data?.question?.id) throw new HttpError(200, "自动保存接口没有返回处理结果");
+        if (importRevision.current === revision) { setParsed((items) => items.map((row) => row.id === item.id ? { ...row, ...data.question } : row)); setImportDirty(false); }
+      } catch (reason) {
+        if (!controller.signal.aborted) setMessage(reason instanceof Error ? reason.message : "自动保存复核进度失败");
+      } finally {
+        if (reviewSaveRequest.current === controller) reviewSaveRequest.current = null;
+        finishImportAction(action);
+      }
+    }, 800);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [current, importDirty, parsed, setId]);
+  const save = async () => {
+    const action = "save";
+    if (!startQuestionAction(action)) return;
+    try {
+      const data = await requestJson<QuestionResponse>(editing ? `/api/questions/${editing}` : "/api/questions", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      if (!data?.question?.id) throw new HttpError(200, "保存题目接口没有返回处理结果");
+      setOpen(false); setEditing(null); setForm(blank()); setMessage("题目已保存"); await load();
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : "保存题目失败"); }
+    finally { finishQuestionAction(action); }
+  };
   const edit = async (row?: Question) => { let complete = row; if (row?.id) { const state = await loadQuestionContent(Number(row.id)); if (!state || state.status !== "ready") { setMessage(state?.error || "答案解析尚未加载完成，请重试"); return; } complete = { ...row, answer: state.answer || "", analysis: state.analysis || "", answerPoints: state.answerPoints || "", scoringPoints: state.scoringPoints || "", standardExpression: state.standardExpression || "" }; } setForm(complete ? { ...blank(), ...complete } : blank()); setEditing(row?.id || null); setOpen(true); };
-  const remove = async (id: number) => { if (!confirm("确认删除这道题？被课时或试卷引用的题目会被系统阻止删除。")) return; const response = await fetch(`/api/questions/${id}`, { method: "DELETE" }), data = await response.json(); setMessage(response.ok ? "题目已删除" : data.error || "删除失败"); if (response.ok) load(); };
-  const toggle = async (row: Question, key: string) => { const response = await fetch(`/api/questions/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: !row[key] }) }), data = await response.json(); if (!response.ok) setMessage(data.error || "更新标记失败"); else load(); };
-  const attach = async (id: number) => { const response = await fetch(`/api/lessons/${lessonId}/questions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ questionId: id, purpose: "课堂练习" }) }), data = await response.json(); setMessage(response.ok ? "已关联到课时" : data.error || "关联失败"); };
-  const showSimilar = async (id: number) => { const response = await fetch(`/api/questions/${id}/similar`), data = await response.json(); setSimilarCompare(response.ok ? data : null); setMessage(response.ok ? data.similar?.length ? `找到 ${data.similar.length} 道高度相似题，请人工核对` : "没有发现相似度达到82%的正式题目" : data.error || "相似题读取失败"); };
+  const remove = async (id: number) => {
+    if (!confirm("确认删除这道题？被课时或试卷引用的题目会被系统阻止删除。")) return;
+    const action = `remove:${id}`; if (!startQuestionAction(action)) return;
+    try { const data = await requestJson<{ ok?: boolean }>(`/api/questions/${id}`, { method: "DELETE" }); if (!data?.ok) throw new HttpError(200, "删除接口没有返回处理结果"); setMessage("题目已删除"); await load(); }
+    catch (reason) { setMessage(reason instanceof Error ? reason.message : "删除失败"); }
+    finally { finishQuestionAction(action); }
+  };
+  const toggle = async (row: Question, key: string) => {
+    const action = `toggle:${row.id}:${key}`; if (!startQuestionAction(action)) return;
+    try { const data = await requestJson<QuestionResponse>(`/api/questions/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: !row[key] }) }); if (!data?.question?.id) throw new HttpError(200, "更新标记接口没有返回处理结果"); await load(); }
+    catch (reason) { setMessage(reason instanceof Error ? reason.message : "更新标记失败"); }
+    finally { finishQuestionAction(action); }
+  };
+  const attach = async (id: number) => {
+    const action = `attach:${id}`; if (!startQuestionAction(action)) return;
+    try { const data = await requestJson<{ ok?: boolean }>(`/api/lessons/${lessonId}/questions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ questionId: id, purpose: "课堂练习" }) }); if (!data?.ok) throw new HttpError(200, "关联接口没有返回处理结果"); setMessage("已关联到课时"); }
+    catch (reason) { setMessage(reason instanceof Error ? reason.message : "关联失败"); }
+    finally { finishQuestionAction(action); }
+  };
+  const showSimilar = async (id: number) => {
+    similarRequest.current?.abort(); const controller = new AbortController(); similarRequest.current = controller;
+    try { const data = await requestJson<SimilarQuestionsResponse>(`/api/questions/${id}/similar`, { signal: controller.signal, cache: "no-store" }); if (!data?.source || !Array.isArray(data.similar)) throw new HttpError(200, "相似题接口没有返回完整数据"); setSimilarCompare(data); setMessage(data.similar.length ? `找到 ${data.similar.length} 道高度相似题，请人工核对` : "没有发现相似度达到82%的正式题目"); }
+    catch (reason) { if (!controller.signal.aborted) { setSimilarCompare(null); setMessage(reason instanceof Error ? reason.message : "相似题读取失败"); } }
+    finally { if (similarRequest.current === controller) similarRequest.current = null; }
+  };
   const loadQuestionContent = useCallback(async (id: number, force = false): Promise<QuestionContentState | null> => {
     const existing = questionContentRef.current[id];
     if (!force && (existing?.status === "ready" || existing?.status === "loading")) return existing;
-    if (questionContentRequests.current.has(id)) return questionContentRef.current[id] || null;
-    questionContentRequests.current.add(id);
+    if (!force && questionContentRequests.current.has(id)) return questionContentRef.current[id] || null;
+    if (force) questionContentRequests.current.get(id)?.abort();
+    const controller = new AbortController();
+    questionContentRequests.current.set(id, controller);
     const loading: QuestionContentState = { status: "loading" };
     questionContentRef.current = { ...questionContentRef.current, [id]: loading };
     setQuestionContent(questionContentRef.current);
     setRows((items) => items.map((item) => Number(item.id) === id ? { ...item, answer: "加载中…", analysis: "加载中…" } : item));
     try {
-      const response = await fetch(`/api/questions/${id}/content`, { cache: "no-store" }), raw = await response.text();
-      let data: Record<string, any> = {}; try { data = raw ? JSON.parse(raw) : {}; } catch { throw new Error(response.ok ? "服务器返回了无法识别的解析内容" : `解析接口异常（${response.status}）`); }
-      if (response.status === 401) { location.assign(`/teacher-login?return_to=${encodeURIComponent(location.pathname + location.search)}`); throw new Error("登录已失效，请重新登录后继续"); }
-      if (!response.ok) throw new Error(data.error || "答案解析读取失败");
-      const content = data.content || {};
+      const data = await requestJson<QuestionContentResponse>(`/api/questions/${id}/content`, { signal: controller.signal, cache: "no-store" });
+      if (!data?.content || !isObjectRecord(data.content)) throw new HttpError(200, "答案解析接口没有返回完整数据");
+      const content = data.content;
       const readyState: QuestionContentState = { status: "ready", ...content };
       questionContentRef.current = { ...questionContentRef.current, [id]: readyState };
       setQuestionContent(questionContentRef.current);
       setRows((items) => items.map((item) => Number(item.id) === id ? { ...item, ...content } : item));
       return readyState;
     } catch (reason) {
+      if (controller.signal.aborted) return null;
+      if (reason instanceof HttpError && reason.status === 401) location.assign(`/teacher-login?return_to=${encodeURIComponent(location.pathname + location.search)}`);
       const error = reason instanceof Error ? reason.message : "答案解析读取失败";
       const errorState: QuestionContentState = { status: "error", error };
       questionContentRef.current = { ...questionContentRef.current, [id]: errorState };
@@ -226,17 +341,28 @@ export default function QuestionsPage() {
       setRows((items) => items.map((item) => Number(item.id) === id ? { ...item, answer: `读取失败：${error}`, analysis: "请点击页面上的重试按钮" } : item));
       return errorState;
     } finally {
-      questionContentRequests.current.delete(id);
+      if (questionContentRequests.current.get(id) === controller) questionContentRequests.current.delete(id);
     }
   }, []);
-  useEffect(() => { setExpanded([]); questionContentRef.current = {}; setQuestionContent({}); }, [page, status, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, appliedSearch, region, flag, issue, sort, lessonId]);
+  useEffect(() => { questionContentRequests.current.forEach((controller) => controller.abort()); questionContentRequests.current.clear(); setExpanded([]); questionContentRef.current = {}; setQuestionContent({}); }, [page, status, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, appliedSearch, region, flag, issue, sort, lessonId]);
   useEffect(() => { expanded.forEach((id) => void loadQuestionContent(id)); }, [expanded, loadQuestionContent]);
   const select = (id: number) => setSelected((items) => items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
-  const storeSource = async (file: File) => { const formData = new FormData(); formData.append("file", file); const response = await fetch("/api/question-sets/source", { method: "POST", body: formData }), raw = await response.text(); let data: Record<string, unknown> = {}; try { data = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { if (response.status === 413) throw new Error("Word 文件超过服务器接收上限，请确认文件不超过 15MB；图片较多时请先压缩图片后重试"); throw new Error(raw.trim() || "原始 Word 文件保存失败"); } if (!response.ok) throw new Error(String(data.error || (response.status === 413 ? "Word 文件超过 15MB，请压缩或拆分后重试" : "原始 Word 文件保存失败"))); setSourceDocument(String(data.key)); return String(data.key); };
+  const storeSource = async (file: File) => {
+    const formData = new FormData(); formData.append("file", file);
+    try {
+      const data = await requestJson<SourceDocumentResponse>("/api/question-sets/source", { method: "POST", body: formData, timeoutMs: 60_000 });
+      if (!data?.key || typeof data.key !== "string") throw new HttpError(200, "原始 Word 文件保存接口没有返回文件标识");
+      setSourceDocument(data.key); return data.key;
+    } catch (reason) {
+      if (reason instanceof HttpError && reason.status === 413) throw new Error("Word 文件超过服务器接收上限，请确认文件不超过 15MB；图片较多时请先压缩图片后重试");
+      throw reason;
+    }
+  };
   const batch = async (forcedAction?: unknown) => { if (batchBusy) return; if (!selected.length) { setMessage("请先选择题目"); return; } const action = typeof forcedAction === "string" ? forcedAction : batchAction; if (!["delete", "confirm", "return", "ignore"].includes(action) && !batchValue.trim()) { setMessage("请先填写需要批量应用的内容"); return; } if (["delete", "confirm"].includes(action) && !confirm(action === "confirm" ? `入库前报告：已选择 ${selected.length} 道。确认继续？缺少答案、解析、知识点或低置信度题目会被整体阻止。` : `确认删除已选择的 ${selected.length} 道题目？被试卷或课时引用的题目会被系统保护，不能删除。`)) return; setBatchBusy(true); try { const data = await requestJson<Record<string, any>>("/api/questions/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: selected, action, value: batchValue }) }); if (!data) throw new HttpError(200, "批量操作没有返回处理结果"); setMessage(data.deleted ? `已删除 ${data.count} 道未被引用的题目` : action === "confirm" ? `入库报告：已确认 ${data.count} 道题进入正式题库，0 道被阻止` : `已批量更新 ${data.count} 道题目`); await load(); } catch (reason) { const payload = reason instanceof HttpError && reason.payload && typeof reason.payload === "object" ? reason.payload as Record<string, any> : null; setMessage(payload?.report ? `${reason instanceof Error ? reason.message : "批量更新失败"}（已选 ${payload.report.selected}，可入库 ${payload.report.ready}，被阻止 ${payload.report.blocked}）` : reason instanceof Error ? reason.message : "批量更新失败"); } finally { setBatchBusy(false); } };
   const upload = async (file?: File) => { if (!file) return; if (!file.name.toLowerCase().endsWith(".docx")) { setMessage("请上传 .docx 文件"); return; } if (!file.size) { setMessage("文件为空，请选择包含文字内容的答案版 Word 试卷"); return; } if (file.size > 15 * 1024 * 1024) { setMessage("文件超过 15MB，请先拆分或压缩后重试"); return; } setMessage("正在安全保存并解析 Word 文件中的文字、图片与表格…"); try { const sourceKey = await storeSource(file), mammoth = await import("mammoth"), buffer = await file.arrayBuffer(), raw = await mammoth.extractRawText({ arrayBuffer: buffer }), rich = await mammoth.convertToHtml({ arrayBuffer: buffer }, { convertImage: mammoth.images.imgElement(async (image) => ({ src: `data:${image.contentType};base64,${await image.read("base64")}` })) }), found = enrichQuestionsFromHtml(rich.value, parsePoliticsDocx(raw.value, { ...blank(), source: file.name, sourceFile: file.name, sourceDocument: sourceKey, status: "review", reviewed: false })) as Question[]; if (!found.length) { setMessage("没有识别到带题号的文字题目；扫描图片版 Word 需要先 OCR 后再导入"); return; } setFileName(file.name); setParsed(found); setCurrent(0); setSetId(null); setImportReport(null); setImportStep(2); setMessage(`识别到 ${found.length} 题；原始 Word 已安全关联，图片和表格已标记为需要人工确认`); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "Word 解析失败，请确认文件未损坏、未加密且包含可编辑文字"); } };
   const runQueue = async (items: QueueItem[]) => {
-    if (queueRunning) return;
+    if (queueRunningRef.current) return;
+    queueRunningRef.current = true;
     setQueueRunning(true);
     const update = (key: string, values: Partial<QueueItem>) => setQueue((currentItems) => currentItems.map((item) => item.key === key ? { ...item, ...values } : item));
     for (const item of items) {
@@ -248,24 +374,76 @@ export default function QuestionsPage() {
         const sourceKey = await storeSource(file), mammoth = await import("mammoth"), buffer = await file.arrayBuffer(), raw = await mammoth.extractRawText({ arrayBuffer: buffer }), rich = await mammoth.convertToHtml({ arrayBuffer: buffer }, { convertImage: mammoth.images.imgElement(async (image) => ({ src: `data:${image.contentType};base64,${await image.read("base64")}` })) });
         const found = enrichQuestionsFromHtml(rich.value, parsePoliticsDocx(raw.value, { ...blank(), ...importMeta, source: file.name, sourceFile: file.name, sourceDocument: sourceKey, status: "review", reviewed: false })) as Question[];
         if (!found.length) throw new Error("未识别到带题号的可编辑文字；扫描版暂不支持");
-        const response = await fetch("/api/question-sets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name.replace(/\.docx$/i, ""), sourceFile: file.name, sourceDocument: sourceKey, questions: found }) }), data = await response.json();
-        if (!response.ok) {
-          if (response.status === 409) { update(item.key, { status: "duplicate", message: data.error || "重复文件或题目已跳过", setId: Number(data.existing?.id || 0) || undefined }); continue; }
-          throw new Error(data.error || "创建导入任务失败");
-        }
+        const data = await requestJson<QuestionImportResponse>("/api/question-sets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name.replace(/\.docx$/i, ""), sourceFile: file.name, sourceDocument: sourceKey, questions: found }) });
+        if (!data?.questionSet?.id || !isNonNegativeInteger(data.questionCount)) throw new HttpError(200, "创建导入任务接口没有返回完整结果");
         update(item.key, { status: "completed", message: `已创建待校对任务；精确重复跳过 ${data.report?.duplicates || 0} 题，相似题提示 ${data.report?.similar || 0} 组`, setId: Number(data.questionSet.id), count: Number(data.questionCount || 0) });
-      } catch (reason) { update(item.key, { status: "failed", message: reason instanceof Error ? reason.message : "处理失败，请重试" }); }
+      } catch (reason) {
+        const payload = reason instanceof HttpError && isObjectRecord(reason.payload) ? reason.payload : null;
+        if (reason instanceof HttpError && reason.status === 409) update(item.key, { status: "duplicate", message: reason.message || "重复文件或题目已跳过", setId: Number(payload?.existing && isObjectRecord(payload.existing) ? payload.existing.id : 0) || undefined });
+        else update(item.key, { status: "failed", message: reason instanceof Error ? reason.message : "处理失败，请重试" });
+      }
     }
+    queueRunningRef.current = false;
     setQueueRunning(false);
     setMessage("多文件队列处理结束；单个失败未阻断其他文件，可从任务列表继续校对");
   };
   const selectQueueFiles = (files?: FileList | null) => { const selectedFiles = [...(files || [])], now = Date.now(), items = selectedFiles.map((file, index) => ({ key: `${now}-${index}-${file.name}`, name: file.name, status: "waiting" as const, message: "等待处理", file })); if (!items.length) return; setQueue((currentItems) => [...items, ...currentItems].slice(0, 50)); setMessage(`已加入 ${items.length} 个 Word 文件；确认公共教材目录后开始队列`); };
-  const updateParsed = (key: string, value: unknown) => { setParsed((items) => items.map((item, index) => index === current ? { ...item, [key]: value } : item)); setImportDirty(true); };
-  const saveCurrentReview = async () => { const item = parsed[current]; if (!setId || !item?.id || !importDirty) return true; setSavingImport(true); try { const response = await fetch(`/api/questions/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...item, status: "review" }) }), data = await response.json(); if (!response.ok) throw new Error(data.error || "保存复核进度失败"); setParsed((items) => items.map((row, index) => index === current ? { ...row, ...data.question } : row)); setImportDirty(false); return true; } catch (reason) { setMessage(reason instanceof Error ? reason.message : "保存复核进度失败"); return false; } finally { setSavingImport(false); } };
-  const applyMeta = async () => { const tagged = parsed.map((item) => ({ ...item, ...importMeta, status: "review", reviewed: false })); setSavingImport(true); const response = await fetch("/api/question-sets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: fileName.replace(/\.docx$/i, ""), sourceFile: fileName, sourceDocument, questions: tagged }) }), data = await response.json(); setSavingImport(false); if (!response.ok) { if (data.existing?.id) setMessage(`${data.error}；可从待校对任务继续复核`); else setMessage(data.error || "创建导入任务失败"); return; } setSetId(data.questionSet.id); setParsed(data.questions || []); setImportReport(data.report || null); setDuplicateReport(data.duplicateReport || null); setImportStep(3); setCurrent(0); setImportDirty(false); history.replaceState(null, "", `/questions?import=1&set=${data.questionSet.id}`); setMessage(`${data.questionCount} 题已安全保存并关联原始 Word；切换题目时会自动保存复核进度`); };
+  const updateParsed = (key: string, value: unknown) => { importRevision.current += 1; setParsed((items) => items.map((item, index) => index === current ? { ...item, [key]: value } : item)); setImportDirty(true); };
+  const saveCurrentReview = async () => {
+    const item = parsed[current]; if (!setId || !item?.id || !importDirty) return true;
+    const previousAction = importActionRef.current;
+    if (previousAction?.startsWith("autosave:")) { reviewSaveRequest.current?.abort(); finishImportAction(previousAction); }
+    const revision = importRevision.current, action = `review:${item.id}:${revision}`;
+    if (!startImportAction(action)) { setMessage("当前导入操作尚未完成，请稍候再试"); return false; }
+    const controller = new AbortController(); reviewSaveRequest.current = controller;
+    try {
+      const data = await requestJson<QuestionResponse>(`/api/questions/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...item, status: "review" }), signal: controller.signal });
+      if (!data?.question?.id) throw new HttpError(200, "保存复核接口没有返回处理结果");
+      if (importRevision.current === revision) { setParsed((items) => items.map((row) => row.id === item.id ? { ...row, ...data.question } : row)); setImportDirty(false); }
+      return true;
+    } catch (reason) { if (!controller.signal.aborted) setMessage(reason instanceof Error ? reason.message : "保存复核进度失败"); return false; }
+    finally { if (reviewSaveRequest.current === controller) reviewSaveRequest.current = null; finishImportAction(action); }
+  };
+  const applyMeta = async () => {
+    const action = "apply-meta"; if (!startImportAction(action)) return;
+    const tagged = parsed.map((item) => ({ ...item, ...importMeta, status: "review", reviewed: false }));
+    try {
+      const data = await requestJson<QuestionImportResponse>("/api/question-sets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: fileName.replace(/\.docx$/i, ""), sourceFile: fileName, sourceDocument, questions: tagged }) });
+      if (!data?.questionSet?.id || !Array.isArray(data.questions) || !isNonNegativeInteger(data.questionCount)) throw new HttpError(200, "创建导入任务接口没有返回完整结果");
+      setSetId(Number(data.questionSet.id)); setParsed(data.questions); setImportReport(data.report || null); setDuplicateReport(data.duplicateReport || null); setImportStep(3); setCurrent(0); setImportDirty(false); history.replaceState(null, "", `/questions?import=1&set=${data.questionSet.id}`); setMessage(`${data.questionCount} 题已安全保存并关联原始 Word；切换题目时会自动保存复核进度`);
+    } catch (reason) {
+      const payload = reason instanceof HttpError && isObjectRecord(reason.payload) ? reason.payload : null;
+      setMessage(reason instanceof HttpError && reason.status === 409 && payload?.existing ? `${reason.message}；可从待校对任务继续复核` : reason instanceof Error ? reason.message : "创建导入任务失败");
+    } finally { finishImportAction(action); }
+  };
   const storeReview = async () => { if (!parsed.length) { setMessage("没有可保存的题目，请重新上传 Word 文件"); return; } if (!await saveCurrentReview()) return; setImportStep(4); setMessage(`已保存复核进度：${reviewCount} / ${parsed.length} 题完成校对`); };
-  const confirmSet = async () => { if (!reviewCount) { setMessage("请至少先人工确认一道题目"); return; } if (!setId) { setMessage("尚未保存导入任务"); return; } if (!await saveCurrentReview()) return; const response = await fetch(`/api/question-sets/${setId}/confirm`, { method: "POST" }), data = await response.json(); if (!response.ok) { setMessage(data.report ? `${data.error}（已校对可入库 ${data.report.ready}，需继续处理 ${data.report.blocked}，尚未校对 ${data.report.unreviewed}）` : data.error || "确认入库失败"); return; } setMessage(data.partial ? `已将 ${data.promoted} 道合格题目加入正式题库；其余题目继续保留在待校对区` : `已将 ${data.promoted} 道题全部加入正式题库`); history.replaceState(null, "", data.partial ? "/questions?status=review" : "/questions"); setStatus(data.partial ? "review" : "active"); setTab("library"); load(); };
-  const importPortable = async (file?: File) => { if (!file) return; try { const payload = JSON.parse(await file.text()), response = await fetch("/api/questions/portable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }), data = await response.json(); if (!response.ok) throw new Error(data.error || "题库文件导入失败"); setStatus("review"); setTab("library"); setMessage(`已导入 ${data.imported} 道题，跳过重复 ${data.duplicates} 道；全部进入待校对`); void load(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "请选择知师研室导出的 JSON 题库文件"); } };
+  const confirmSet = async () => {
+    if (!reviewCount) { setMessage("请至少先人工确认一道题目"); return; }
+    if (!setId) { setMessage("尚未保存导入任务"); return; }
+    if (!await saveCurrentReview()) return;
+    const action = "confirm-set"; if (!startImportAction(action)) return;
+    try {
+      const data = await requestJson<QuestionConfirmResponse>(`/api/question-sets/${setId}/confirm`, { method: "POST" });
+      if (typeof data?.partial !== "boolean" || !isNonNegativeInteger(data.promoted)) throw new HttpError(200, "确认入库接口没有返回完整处理结果");
+      setMessage(data.partial ? `已将 ${data.promoted} 道合格题目加入正式题库；其余题目继续保留在待校对区` : `已将 ${data.promoted} 道题全部加入正式题库`); history.replaceState(null, "", data.partial ? "/questions?status=review" : "/questions"); setStatus(data.partial ? "review" : "active"); setTab("library"); await load();
+    } catch (reason) {
+      const payload = reason instanceof HttpError && isObjectRecord(reason.payload) ? reason.payload : null, report = payload?.report;
+      setMessage(report && isObjectRecord(report) ? `${reason instanceof Error ? reason.message : "确认入库失败"}（已校对可入库 ${report.ready}，需继续处理 ${report.blocked}，尚未校对 ${report.unreviewed}）` : reason instanceof Error ? reason.message : "确认入库失败");
+    } finally { finishImportAction(action); }
+  };
+  const importPortable = async (file?: File) => {
+    if (!file) return;
+    let payload: unknown;
+    try { payload = JSON.parse(await file.text()); }
+    catch { setMessage("请选择知师研室导出的 JSON 题库文件"); return; }
+    const action = "portable-import"; if (!startImportAction(action)) return;
+    try {
+      const data = await requestJson<PortableImportResponse>("/api/questions/portable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!isNonNegativeInteger(data?.imported) || !isNonNegativeInteger(data?.duplicates)) throw new HttpError(200, "题库导入接口没有返回完整处理结果");
+      setStatus("review"); setTab("library"); setMessage(`已导入 ${data.imported} 道题，跳过重复 ${data.duplicates} 道；全部进入待校对`); await load();
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : "题库文件导入失败"); }
+    finally { finishImportAction(action); }
+  };
   const startAiReviewAction = (action: AiReviewAction) => {
     if (aiReviewActionRef.current) return false;
     aiReviewActionRef.current = action;
@@ -362,7 +540,7 @@ export default function QuestionsPage() {
   const hasFacetData = Object.values(facets).some((values) => values.length > 0);
   const hasVisibleAiReviewData = aiReviews.length > 0 || aiTasks.some((task) => task.status !== "completed");
   const renderHealth = (stale = false) => <section className={`questionHealth${stale ? " stale" : ""}`} aria-label={stale ? "上次成功读取的题库健康指标" : "题库健康指标"}>{stale && <p>以下为上次成功读取的结果，当前筛选的最新统计尚未取得。</p>}<article><span>当前正式题量</span><b>{health?.summary.total ?? 0}</b></article><article><span>缺答案</span><b>{health?.summary.missingAnswer ?? 0}</b></article><article><span>缺解析</span><b>{health?.summary.missingAnalysis ?? 0}</b></article><article><span>累计使用</span><b>{health?.summary.useCount ?? 0}</b></article><details><summary>查看知识点题量</summary>{health?.knowledge.slice(0, 12).map((item) => <button key={item.knowledge} onClick={() => { const value = item.knowledge; setKnowledge(value); setAppliedSearch((current) => ({ ...current, knowledge: value })); setPage(1); }}>{item.knowledge} · {item.total}题 · 缺答案{item.missingAnswer} · 缺解析{item.missingAnalysis} · 使用{item.useCount}</button>)}</details></section>;
-  return <AppShell title="题库与组卷" subtitle="政治学科题目、人工校对与试卷草稿" actions={<><a className="secondaryButton" href={`/api/questions/portable?format=json&status=${status}`}>导出题库 JSON</a><a className="secondaryButton" href={`/api/questions/portable?format=csv&status=${status}`}>导出 CSV</a><label className="secondaryButton">导入 JSON<input hidden type="file" accept="application/json,.json" onChange={(event) => void importPortable(event.target.files?.[0])} /></label><label className="primaryButton">批量导入 Word<input hidden multiple type="file" accept=".docx" onChange={(event) => selectQueueFiles(event.target.files)} /></label><Link className="secondaryButton" href="/papers">组卷工作台</Link><button className="secondaryButton" onClick={() => edit()}>＋ 手动录题</button></>}>
+  return <AppShell title="题库与组卷" subtitle="政治学科题目、人工校对与试卷草稿" actions={<><a className="secondaryButton" href={`/api/questions/portable?format=json&status=${status}`}>导出题库 JSON</a><a className="secondaryButton" href={`/api/questions/portable?format=csv&status=${status}`}>导出 CSV</a><label className="secondaryButton">导入 JSON<input hidden disabled={Boolean(importAction)} type="file" accept="application/json,.json" onChange={(event) => void importPortable(event.target.files?.[0])} /></label><label className="primaryButton">批量导入 Word<input hidden disabled={queueRunning || Boolean(importAction)} multiple type="file" accept=".docx" onChange={(event) => selectQueueFiles(event.target.files)} /></label><Link className="secondaryButton" href="/papers">组卷工作台</Link><button className="secondaryButton" disabled={Boolean(questionAction)} onClick={() => edit()}>＋ 手动录题</button></>}>
     {message && <div className="saveToast" role="status">{message}</div>}
     <section className="panel aiReviewPanel" aria-busy={aiReviewState === "loading" || aiReviewBusy}><div className="panelTitle"><div><p>可恢复 · 不自动改题</p><h2>DeepSeek 题库辅助审核</h2></div><div className="cardActions"><button className="aiButton" disabled={aiReviewBusy || !selected.length || selected.length > 100} onClick={runAiReview}>{aiReviewAction === "process" ? "AI 处理中…" : `审核已选题目（${selected.length}/100）`}</button>{aiReviews.some((item) => item.eligibleFields?.length) && <button disabled={aiReviewBusy} onClick={() => applyAiReviews(aiReviews.filter((item) => item.eligibleFields?.length).map((item) => Number(item.id)), "batch")}>{aiReviewAction === "apply" ? "正在应用…" : "查看后确认全部安全建议"}</button>}</div></div><p className="helperText">每项建议均显示修改前后、理由与置信度。只有置信度≥85%且匹配现有规范值的安全分类字段可批量确认；新术语、低置信度、答案、解析、教材观点和价值判断必须逐题勾选。AI 不会把题目设为正式或已人工复核。</p>
       {aiReviewState === "loading" && <div className="aiReviewState" role="status">正在读取 AI 复核任务与建议…</div>}
@@ -421,8 +599,9 @@ export default function QuestionsPage() {
       {paperCart.length > 0 && <div className="paperCartBar"><b>第2步：已选择 {paperCart.length} 道题</b><Link className="primaryButton" href="/papers?cart=1">生成试卷草稿 →</Link></div>}
     </>}
     {tab === "import" && <section className="panel importWizard"><div className="stepBar">{["上传", "识别预览", "逐题校对", "确认入库"].map((item, index) => <div className={importStep >= index + 1 ? "done" : ""} key={item}><b>{index + 1}</b><span>{item}</span></div>)}</div>{importStep === 1 && <div className="wizardCenter"><h2>上传答案版 Word 试卷</h2><p>识别仅发生在当前浏览器中；未经校对的题目不会进入正式题库。</p><div className={styles.guide}><b>政治试卷导入会保留：</b><span>题号、题干、选项、答案、详解、知识点与题库难度系数；题型与难度只作初步整理，仍由教师确认。</span></div><div className={styles.importNotice}><b>导入前请确认</b><span>上传自己有权使用的文字版 .docx，单个文件不超过 15MB。系统不绕过网站登录、付费、下载券或验证码，也不会自动抓取外部网页。</span></div><label className="uploadButton">选择 .docx 文件<input type="file" accept=".docx" onChange={(event) => upload(event.target.files?.[0])} /></label></div>}{importStep === 2 && <div className="wizardSummary"><h2>{fileName}</h2><div><article><b>{summary.total}</b><span>识别题目</span></article><article><b>{summary.answered}/{summary.total}</b><span>保留答案</span></article><article><b>{summary.tagged}/{summary.total}</b><span>保留知识点</span></article><article><b>{summary.explained}/{summary.total}</b><span>保留详解</span></article></div><div className={styles.quality}><b>识别报告</b><span>{Object.entries(summary.typeCounts).map(([item, amount]) => `${item} ${amount}题`).join(" · ") || "未能识别题型"}</span>{summary.incomplete > 0 && <em>{summary.incomplete} 题缺少答案、知识点或解析，校对时需补充</em>}</div><div className="importMetaGrid"><label>学段<select value={importMeta.stage} onChange={(event) => setImportMeta({ ...importMeta, stage: event.target.value, grade: event.target.value === "高中" ? "高一" : "七年级", volume: "" })}><option>初中</option><option>高中</option></select></label><label>年级<select value={importMeta.grade} onChange={(event) => setImportMeta({ ...importMeta, grade: event.target.value })}>{(importMeta.stage === "高中" ? ["高一", "高二", "高三"] : ["七年级", "八年级", "九年级"]).map((item) => <option key={item}>{item}</option>)}</select></label><label>教材版本<input value={importMeta.textbookVersion} onChange={(event) => setImportMeta({ ...importMeta, textbookVersion: event.target.value })} /></label><label>册别/模块<select value={importMeta.volume} onChange={(event) => setImportMeta({ ...importMeta, volume: event.target.value })}><option value="">暂不标注</option>{volumeOptions.map((item) => <option key={item}>{item}</option>)}</select></label><label>单元<input value={importMeta.unit} onChange={(event) => setImportMeta({ ...importMeta, unit: event.target.value })} /></label><label>课题<input value={importMeta.topic} onChange={(event) => setImportMeta({ ...importMeta, topic: event.target.value })} /></label><label>核心素养<select value={importMeta.coreCompetencies} onChange={(event) => setImportMeta({ ...importMeta, coreCompetencies: event.target.value })}>{["政治认同", "科学精神", "法治意识", "公共参与", "综合"].map((item) => <option key={item}>{item}</option>)}</select></label><label>考试类型<input value={importMeta.examType} onChange={(event) => setImportMeta({ ...importMeta, examType: event.target.value })} placeholder="如：期末复习" /></label><label>地区<input value={importMeta.region} onChange={(event) => setImportMeta({ ...importMeta, region: event.target.value })} /></label><label>年份<input value={importMeta.year} onChange={(event) => setImportMeta({ ...importMeta, year: event.target.value })} /></label></div><p>公共标签会应用到本次全部题目，进入下一步后仍可逐题修改。</p><button className="primaryButton" onClick={applyMeta}>应用标签并逐题校对</button></div>}{importStep === 3 && parsed[current] && <div className="reviewEditor"><div className="reviewNav"><b>第 {current + 1} / {parsed.length} 题</b><span>已校对 {reviewCount} 题</span></div>{parsed[current].importNotes?.length > 0 && <div className={styles.warning}>本题需补充：{parsed[current].importNotes?.join("、")}</div>}<div className={styles.checklist}><b>政治题目核对四点</b><span>题干与选项是否完整 · 答案是否可追溯 · 解析是否说明排误理由 · 知识点是否对应教材内容</span></div><label>材料<textarea value={parsed[current].material} onChange={(event) => updateParsed("material", event.target.value)} /></label><label>题干<textarea value={parsed[current].stem} onChange={(event) => updateParsed("stem", event.target.value)} /></label><label>选项<textarea value={parsed[current].options} onChange={(event) => updateParsed("options", event.target.value)} /></label><div className="formGrid"><label>题型<select value={parsed[current].questionType} onChange={(event) => updateParsed("questionType", event.target.value)}>{questionTypes.map((item) => <option key={item}>{item}</option>)}</select></label><label>难度<select value={parsed[current].difficulty} onChange={(event) => updateParsed("difficulty", Number(event.target.value))}>{[1, 2, 3, 4, 5].map((item) => <option key={item} value={String(item)}>{item}级</option>)}</select></label><label>答案<input value={parsed[current].answer} onChange={(event) => updateParsed("answer", event.target.value)} /></label><label>知识点<input value={parsed[current].knowledgePoints} onChange={(event) => updateParsed("knowledgePoints", event.target.value)} /></label><label className="wide">解析<textarea value={parsed[current].analysis} onChange={(event) => updateParsed("analysis", event.target.value)} /></label></div><label className="reviewCheck"><input type="checkbox" checked={Boolean(parsed[current].reviewed)} onChange={(event) => updateParsed("reviewed", event.target.checked)} />本题题干、答案、解析和知识点已经人工核对</label><div className="reviewButtons"><button disabled={current === 0} onClick={() => setCurrent(current - 1)}>上一题</button><button disabled={current === parsed.length - 1} onClick={() => setCurrent(current + 1)}>下一题</button><button className="primaryButton" onClick={storeReview}>保存为待校对题组</button></div></div>}{importStep === 4 && <div className="wizardCenter"><h2>题目已进入“待校对”状态</h2><p>已校对 {reviewCount} / {parsed.length} 题。合格题可以先进入正式题库，异常题会继续保留等待处理。</p>{importReport && <div className={styles.importNotice}><b>导入报告</b><span>识别 {importReport.total} 题，写入 {importReport.imported} 题，跳过重复 {importReport.duplicates} 题，待补充 {importReport.incomplete} 题。</span></div>}<button className="primaryButton" disabled={reviewCount === 0} onClick={confirmSet}>将已校对且合格的题目入库</button><button className="secondaryButton" onClick={() => { setTab("library"); setStatus("review"); load(); }}>查看待校对题目</button></div>}</section>}
+    {savingImport && <div className="saveToast" role="status">正在保存导入进度，请勿重复提交…</div>}
     {tab === "library" && pageCount > 1 && <nav className="pagination" aria-label="题库分页"><button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span>第 {page} / {pageCount} 页</span><button disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button></nav>}
-    {open && <QuestionModal form={form} setForm={setForm} close={() => setOpen(false)} save={save} editing={editing} />}
+    {open && <QuestionModal form={form} setForm={setForm} close={() => setOpen(false)} save={save} editing={editing} saving={questionAction === "save"} />}
   </AppShell>;
 }
 
@@ -433,7 +612,8 @@ function Highlight({ text, query }: { text: unknown; query: string }) {
   return <>{parts.map((part, index) => part.toLowerCase() === needle.toLowerCase() ? <mark key={index}>{part}</mark> : part)}</>;
 }
 
-function QuestionModal({ form, setForm, close, save, editing }: { form: Question; setForm: (question: Question) => void; close: () => void; save: () => void; editing: number | null }) {
+function QuestionModal({ form, setForm, close, save: persist, editing, saving }: { form: Question; setForm: (question: Question) => void; close: () => void; save: () => void; editing: number | null; saving: boolean }) {
   const set = (key: string, value: unknown) => setForm({ ...form, [key]: value });
+  const save = () => { if (!saving) persist(); };
   return <div className="modalBackdrop"><div className="lessonModal questionModal" role="dialog" aria-modal="true" aria-labelledby="question-title"><div className="modalTitle"><div><p>{editing ? "编辑题目" : "手动录题"}</p><h2 id="question-title">政治学科题目</h2></div><button aria-label="关闭" onClick={close}>×</button></div><div className="formGrid"><label className="wide">材料（材料题/组合题）<textarea value={form.material} onChange={(event) => set("material", event.target.value)} /></label><label className="wide">题干<textarea value={form.stem} onChange={(event) => set("stem", event.target.value)} /></label><label className="wide">选项（每行一个）<textarea value={form.options} onChange={(event) => set("options", event.target.value)} /></label><label>题型<select value={form.questionType} onChange={(event) => set("questionType", event.target.value)}>{questionTypes.map((item) => <option key={item}>{item}</option>)}</select></label><label>题库状态<select value={form.status} onChange={(event) => set("status", event.target.value)}><option value="review">待校对</option><option value="active">正式题库</option></select></label><label>分值<input type="number" value={form.score} onChange={(event) => set("score", Number(event.target.value))} /></label><label>难度<select value={form.difficulty} onChange={(event) => set("difficulty", Number(event.target.value))}>{[1, 2, 3, 4, 5].map((item) => <option key={item} value={String(item)}>{item}级</option>)}</select></label><label>学段<select value={form.stage} onChange={(event) => set("stage", event.target.value)}><option>初中</option><option>高中</option></select></label><label>年级<select value={form.grade} onChange={(event) => set("grade", event.target.value)}>{grades.map((item) => <option key={item}>{item}</option>)}</select></label><label>教材版本<input value={form.textbookVersion} onChange={(event) => set("textbookVersion", event.target.value)} /></label><label>册别/模块<input value={form.volume} onChange={(event) => set("volume", event.target.value)} /></label><label>单元<input value={form.unit} onChange={(event) => set("unit", event.target.value)} /></label><label>课题<input value={form.topic} onChange={(event) => set("topic", event.target.value)} /></label><label>知识点<input value={form.knowledgePoints} onChange={(event) => set("knowledgePoints", event.target.value)} /></label><label>二级知识点<input value={form.secondaryKnowledge} onChange={(event) => set("secondaryKnowledge", event.target.value)} /></label><label>核心素养<input value={form.coreCompetencies} onChange={(event) => set("coreCompetencies", event.target.value)} /></label><label>能力层级<input value={form.abilityLevel} onChange={(event) => set("abilityLevel", event.target.value)} placeholder="如：理解、运用、综合" /></label><label className="wide">答案<input value={form.answer} onChange={(event) => set("answer", event.target.value)} /></label><label className="wide">材料题参考答案要点<textarea value={form.answerPoints} onChange={(event) => set("answerPoints", event.target.value)} /></label><label className="wide">解析<textarea value={form.analysis} onChange={(event) => set("analysis", event.target.value)} /></label><label>事实依据<textarea value={form.factBasis} onChange={(event) => set("factBasis", event.target.value)} /></label><label>教材观点<textarea value={form.textbookView} onChange={(event) => set("textbookView", event.target.value)} /></label><label>价值判断<textarea value={form.valueJudgment} onChange={(event) => set("valueJudgment", event.target.value)} /></label><label>答题逻辑<textarea value={form.answerLogic} onChange={(event) => set("answerLogic", event.target.value)} /></label><label className="wide">规范表述<textarea value={form.standardExpression} onChange={(event) => set("standardExpression", event.target.value)} /></label><label>来源<input value={form.source} onChange={(event) => set("source", event.target.value)} /></label><label>原始文件<input value={form.sourceFile} onChange={(event) => set("sourceFile", event.target.value)} /></label><label>年份<input type="number" value={form.year} onChange={(event) => set("year", event.target.value)} /></label><label>地区<input value={form.region} onChange={(event) => set("region", event.target.value)} /></label><label>考试类型<input value={form.examType} onChange={(event) => set("examType", event.target.value)} /></label><label>适用场景<input value={form.scenario} onChange={(event) => set("scenario", event.target.value)} /></label><label>标签<input value={form.tags} onChange={(event) => set("tags", event.target.value)} /></label><label className="checkLabel"><input type="checkbox" checked={Boolean(form.isOriginal)} onChange={(event) => set("isOriginal", event.target.checked)} />原创题目</label><label className="wide">备注<textarea value={form.notes} onChange={(event) => set("notes", event.target.value)} /></label></div><div className="modalActions"><button onClick={close}>取消</button><button className="primaryButton" onClick={save}>保存题目</button></div></div></div>;
 }

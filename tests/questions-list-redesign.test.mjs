@@ -68,7 +68,7 @@ test("saved question view mutations validate input and prevent overlapping write
 
 test("question health metrics distinguish loading, failure, and real zero values", async () => {
   const page = await read("app/questions/page.tsx");
-  const healthFlow = page.match(/const loadHealth[\s\S]*?useEffect\(\(\) => \{ const id =/)?.[0] || "";
+  const healthFlow = page.match(/const loadHealth[\s\S]*?useEffect\(\(\) => \{\s*const params = new URLSearchParams\(location\.search\)/)?.[0] || "";
 
   assert.match(page, /const healthRequest\s*=\s*useRef<AbortController \| null>\(null\)/);
   assert.match(healthFlow, /requestJson<QuestionHealthResponse>\(`\/api\/questions\/stats\?\$\{params\}`/);
