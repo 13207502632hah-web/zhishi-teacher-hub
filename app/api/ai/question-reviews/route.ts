@@ -6,6 +6,45 @@ const fieldColumns: Record<string, string> = { questionType: "question_type", st
 type ReviewResult = { questionId: number; safeSuggestions?: Record<string, unknown>; sensitiveSuggestions?: Record<string, unknown>; confidence?: Record<string, number>; reasons?: Record<string, string> };
 const allFields = [...SAFE_QUESTION_FIELDS, ...SENSITIVE_QUESTION_FIELDS] as readonly string[];
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const taskCreationAction = "ai.question_review.create";
+
+async function taskCreationOperationId(ids: number[], mode: "batch" | "deep") {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${mode}:${ids.join(",")}`));
+  return `v1:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function readTaskRegistration(userId: number, operationId: string) {
+  const existing = await env.DB.prepare("SELECT op.result_json AS resultJson,t.status AS taskStatus FROM idempotency_operations op LEFT JOIN ai_question_review_tasks t ON t.id=CASE WHEN json_valid(op.result_json) THEN json_extract(op.result_json,'$.taskId') END AND t.user_id=op.actor_id WHERE op.actor_type='user' AND op.actor_id=? AND op.action=? AND op.operation_id=?")
+    .bind(userId, taskCreationAction, operationId).first<{ resultJson: string | null; taskStatus: string | null }>();
+  if (!existing?.resultJson) return null;
+  const parsed = JSON.parse(existing.resultJson) as { taskId?: unknown };
+  return typeof parsed.taskId === "string" && parsed.taskId ? { ...existing, taskId: parsed.taskId } : null;
+}
+
+async function acquireQuestionReviewTask(userId: number, ids: number[], mode: "batch" | "deep", rerun: boolean) {
+  const operationId = await taskCreationOperationId(ids, mode);
+  const existing = await readTaskRegistration(userId, operationId);
+  if (existing?.taskStatus && (!rerun || !["completed", "failed"].includes(existing.taskStatus))) return { taskId: existing.taskId, created: false, reused: true };
+  const candidateTaskId = crypto.randomUUID(), resultJson = JSON.stringify({ taskId: candidateTaskId });
+  let registryMutation;
+  if (!existing) {
+    registryMutation = env.DB.prepare("INSERT OR IGNORE INTO idempotency_operations(actor_type,actor_id,action,operation_id,status,result_json,expires_at) VALUES('user',?,?,?,'completed',?,datetime('now','+30 day'))")
+      .bind(userId, taskCreationAction, operationId, resultJson);
+  } else if (existing.taskStatus) {
+    registryMutation = env.DB.prepare("UPDATE idempotency_operations SET status='completed',result_json=?,expires_at=datetime('now','+30 day'),updated_at=CURRENT_TIMESTAMP WHERE actor_type='user' AND actor_id=? AND action=? AND operation_id=? AND json_extract(result_json,'$.taskId')=? AND EXISTS(SELECT 1 FROM ai_question_review_tasks t WHERE t.id=? AND t.user_id=? AND t.status IN ('completed','failed'))")
+      .bind(resultJson, userId, taskCreationAction, operationId, existing.taskId, existing.taskId, userId);
+  } else {
+    registryMutation = env.DB.prepare("UPDATE idempotency_operations SET status='completed',result_json=?,expires_at=datetime('now','+30 day'),updated_at=CURRENT_TIMESTAMP WHERE actor_type='user' AND actor_id=? AND action=? AND operation_id=? AND json_extract(result_json,'$.taskId')=? AND NOT EXISTS(SELECT 1 FROM ai_question_review_tasks t WHERE t.id=?)")
+      .bind(resultJson, userId, taskCreationAction, operationId, existing.taskId, existing.taskId);
+  }
+  const taskInsert = env.DB.prepare("INSERT INTO ai_question_review_tasks(id,user_id,question_ids_json,mode,total) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM idempotency_operations WHERE actor_type='user' AND actor_id=? AND action=? AND operation_id=? AND json_extract(result_json,'$.taskId')=?)")
+    .bind(candidateTaskId, userId, JSON.stringify(ids), mode, ids.length, userId, taskCreationAction, operationId, candidateTaskId);
+  const [, taskResult] = await env.DB.batch([registryMutation, taskInsert]);
+  if (Number(taskResult.meta?.changes || 0) > 0) return { taskId: candidateTaskId, created: true, reused: false };
+  const winner = await readTaskRegistration(userId, operationId);
+  if (winner) return { taskId: winner.taskId, created: false, reused: true };
+  throw new AiServiceError("相同题目集合的审核任务状态未能确认，请稍后刷新", 409, "TASK_BUSY");
+}
 
 function optionalObject(value: unknown) {
   try { return normalizeOptionalJsonObject(value); }
@@ -43,22 +82,23 @@ export async function GET() { const access = await requirePermission("questions:
 
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access; const denied = requireAiTeacher(access); if (denied) return denied;
-  let taskId = "";
+  let taskId = "", reusedTask = false;
   try {
-    const body = await request.json() as { questionIds?: unknown[]; taskId?: string; deepReview?: boolean };
+    const body = await request.json() as { questionIds?: unknown[]; taskId?: string; deepReview?: boolean; rerun?: boolean };
     if (body.taskId) taskId = String(body.taskId);
     else {
-      const ids = [...new Set((body.questionIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+      const ids = [...new Set((body.questionIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))].sort((left, right) => left - right);
       if (!ids.length || ids.length > 100) return Response.json({ error: "一次 AI 审核任务必须选择 1—100 道题" }, { status: 400 });
       if (body.deepReview && ids.length !== 1) return Response.json({ error: "DeepSeek Pro 深度复核必须逐题触发" }, { status: 400 });
-      taskId = crypto.randomUUID();
-      await env.DB.prepare("INSERT INTO ai_question_review_tasks(id,user_id,question_ids_json,mode,total) VALUES(?,?,?,?,?)").bind(taskId, access.id, JSON.stringify(ids), body.deepReview ? "deep" : "batch", ids.length).run();
-      await audit(access, "create", "ai_question_review_task", taskId, { total: ids.length, mode: body.deepReview ? "deep" : "batch" });
+      const mode = body.deepReview ? "deep" : "batch", acquired = await acquireQuestionReviewTask(access.id, ids, mode, body.rerun === true);
+      taskId = acquired.taskId;
+      reusedTask = acquired.reused;
+      if (acquired.created) await audit(access, "create", "ai_question_review_task", taskId, { total: ids.length, mode });
     }
     const task = await env.DB.prepare("SELECT id,user_id AS userId,question_ids_json AS questionIdsJson,mode,cursor,total,processed,status FROM ai_question_review_tasks WHERE id=?").bind(taskId).first<Record<string, any>>();
     if (!task || Number(task.userId) !== access.id) return Response.json({ error: "审核任务不存在或无权继续" }, { status: 404 });
     const ids = JSON.parse(task.questionIdsJson || "[]") as number[], cursor = Number(task.cursor || 0);
-    if (cursor >= ids.length) { await env.DB.prepare("UPDATE ai_question_review_tasks SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(taskId, access.id).run(); return Response.json({ ...(await list(access.id)), task: { ...task, status: "completed" }, processed: 0 }); }
+    if (cursor >= ids.length) { await env.DB.prepare("UPDATE ai_question_review_tasks SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(taskId, access.id).run(); return Response.json({ ...(await list(access.id)), task: { ...task, status: "completed" }, processed: 0, reused: reusedTask }); }
     const batchIds = ids.slice(cursor, cursor + 10), placeholders = batchIds.map(() => "?").join(",");
     const claimed = await env.DB.prepare("UPDATE ai_question_review_tasks SET status='running',last_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND cursor=? AND (status IN ('queued','failed') OR (status='running' AND datetime(updated_at)<datetime('now','-3 minutes'))) RETURNING id").bind(taskId, access.id, cursor).first<{ id: string }>();
     if (!claimed) throw new AiServiceError("该审核任务正在另一个页面处理中，请稍后刷新", 409, "TASK_BUSY");

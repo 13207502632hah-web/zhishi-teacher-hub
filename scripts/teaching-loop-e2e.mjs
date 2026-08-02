@@ -125,6 +125,7 @@ async function startAiMock() {
     aiMock.requests.push({ body, payload });
     if (aiMock.mode === "http402") { response.writeHead(402, { "Content-Type": "application/json" }); response.end('{"error":"local insufficient balance"}'); return; }
     if (aiMock.mode === "empty") { response.writeHead(200, { "Content-Type": "application/json" }); response.end(aiEnvelope(body.model, {})); return; }
+    if (aiMock.mode === "slow") await new Promise((resolve) => setTimeout(resolve, 200));
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(aiEnvelope(body.model, aiMockContent(body, payload)));
   });
@@ -399,7 +400,7 @@ async function exerciseAiWorkflows(cookie) {
   assert.ok(teacher?.id);
   const userId = Number(teacher.id), sqlValue = (value) => value == null ? "NULL" : quote(value), maxId = (table) => Number(rows(`SELECT COALESCE(MAX(id),0) AS id FROM ${table}`)[0]?.id || 0);
   const previousSettings = rows(`SELECT enabled,include_student_name AS includeStudentName,privacy_ack_at AS privacyAckAt,daily_limit AS dailyLimit,emergency_disabled AS emergencyDisabled,fast_model AS fastModel,deep_model AS deepModel FROM ai_settings WHERE user_id=${userId}`)[0] || null;
-  const baseline = { run: maxId("ai_runs"), draft: maxId("ai_feedback_drafts"), learning: maxId("ai_feedback_learning_events"), review: maxId("ai_question_reviews"), feedback: maxId("feedback"), audit: maxId("audit_logs") };
+  const baseline = { run: maxId("ai_runs"), draft: maxId("ai_feedback_drafts"), learning: maxId("ai_feedback_learning_events"), review: maxId("ai_question_reviews"), feedback: maxId("feedback"), audit: maxId("audit_logs"), operation: maxId("idempotency_operations") };
   const taskIds = new Set(), questionRestores = new Map();
   const safeColumns = { questionType: "question_type", stage: "stage", grade: "grade", textbookVersion: "textbook_version", volume: "volume", unit: "unit", topic: "topic", knowledgePoints: "knowledge_points", coreCompetencies: "core_competencies", abilityLevel: "ability_level" };
   const restoreQuestion = (id, column = null) => {
@@ -422,6 +423,7 @@ async function exerciseAiWorkflows(cookie) {
       DELETE FROM feedback WHERE id>${baseline.feedback};
       DELETE FROM ai_question_reviews WHERE id>${baseline.review};
       DELETE FROM ai_question_review_tasks WHERE id IN (${tasks});
+      DELETE FROM idempotency_operations WHERE id>${baseline.operation};
       DELETE FROM ai_runs WHERE id>${baseline.run};
       DELETE FROM audit_logs WHERE id>${baseline.audit};`);
     if (previousSettings) sql(`INSERT INTO ai_settings(user_id,enabled,include_student_name,privacy_ack_at,daily_limit,emergency_disabled,fast_model,deep_model,updated_at) VALUES(${userId},${Number(previousSettings.enabled || 0)},${Number(previousSettings.includeStudentName || 0)},${sqlValue(previousSettings.privacyAckAt)},${Number(previousSettings.dailyLimit || 50)},${Number(previousSettings.emergencyDisabled || 0)},${sqlValue(previousSettings.fastModel)},${sqlValue(previousSettings.deepModel)},CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,include_student_name=excluded.include_student_name,privacy_ack_at=excluded.privacy_ack_at,daily_limit=excluded.daily_limit,emergency_disabled=excluded.emergency_disabled,fast_model=excluded.fast_model,deep_model=excluded.deep_model,updated_at=CURRENT_TIMESTAMP`);
@@ -545,6 +547,42 @@ async function exerciseAiWorkflows(cookie) {
 
     const questionIds = rows("SELECT q.id FROM questions q JOIN demo_records d ON d.entity_type='question' AND d.entity_id=q.id LEFT JOIN ai_question_reviews r ON r.question_id=q.id WHERE r.id IS NULL ORDER BY q.id LIMIT 13").map((item) => Number(item.id));
     assert.equal(questionIds.length, 13);
+    const concurrentInput = { questionIds: [questionIds[12]] }, concurrentProviderStart = aiMock.requests.length;
+    aiMock.mode = "slow";
+    const concurrentStarts = await Promise.all([
+      request("/api/ai/question-reviews", { cookie, method: "POST", body: concurrentInput }),
+      request("/api/ai/question-reviews", { cookie, method: "POST", body: concurrentInput }),
+    ]);
+    aiMock.mode = "ok";
+    assert.deepEqual(concurrentStarts.map((item) => item.response.status).sort((left, right) => left - right), [200, 409]);
+    const firstConcurrentTask = concurrentStarts.find((item) => item.response.status === 200)?.data.task;
+    assert.ok(firstConcurrentTask?.id);
+    taskIds.add(String(firstConcurrentTask.id));
+    assert.equal(rows(`SELECT COUNT(*) AS count FROM ai_question_review_tasks WHERE user_id=${userId} AND mode='batch' AND question_ids_json='[${questionIds[12]}]'`)[0].count, 1);
+    assert.equal(aiMock.requests.length - concurrentProviderStart, 1);
+    assert.equal(rows(`SELECT COUNT(*) AS count FROM audit_logs WHERE id>${baseline.audit} AND action='create' AND entity_type='ai_question_review_task' AND entity_id=${sqlValue(firstConcurrentTask.id)}`)[0].count, 1);
+
+    const replay = await request("/api/ai/question-reviews", { cookie, method: "POST", body: concurrentInput });
+    assert.equal(replay.response.status, 200, JSON.stringify(replay.data));
+    assert.equal(replay.data.reused, true);
+    assert.equal(replay.data.task.id, firstConcurrentTask.id);
+    assert.equal(replay.data.processed, 0);
+    assert.equal(aiMock.requests.length - concurrentProviderStart, 1);
+
+    aiMock.mode = "slow";
+    const concurrentReruns = await Promise.all([
+      request("/api/ai/question-reviews", { cookie, method: "POST", body: { ...concurrentInput, rerun: true } }),
+      request("/api/ai/question-reviews", { cookie, method: "POST", body: { ...concurrentInput, rerun: true } }),
+    ]);
+    aiMock.mode = "ok";
+    assert.deepEqual(concurrentReruns.map((item) => item.response.status).sort((left, right) => left - right), [200, 409]);
+    const rerunTask = concurrentReruns.find((item) => item.response.status === 200)?.data.task;
+    assert.ok(rerunTask?.id && rerunTask.id !== firstConcurrentTask.id);
+    taskIds.add(String(rerunTask.id));
+    assert.equal(rows(`SELECT COUNT(*) AS count FROM ai_question_review_tasks WHERE user_id=${userId} AND mode='batch' AND question_ids_json='[${questionIds[12]}]'`)[0].count, 2);
+    assert.equal(aiMock.requests.length - concurrentProviderStart, 2);
+
+    const batchRequestStart = aiMock.requests.length;
     const firstBatch = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { questionIds: questionIds.slice(0, 12) } });
     assert.equal(firstBatch.response.status, 200, JSON.stringify(firstBatch.data));
     assert.equal(firstBatch.data.processed, 10);
@@ -554,7 +592,7 @@ async function exerciseAiWorkflows(cookie) {
     assert.equal(secondBatch.response.status, 200, JSON.stringify(secondBatch.data));
     assert.equal(secondBatch.data.processed, 2);
     assert.equal(secondBatch.data.task.status, "completed");
-    const batchRequests = aiMock.requests.filter((item) => Array.isArray(item.payload?.questions) && Array.isArray(item.payload?.safeFields) && item.body.model === "deepseek-v4-flash");
+    const batchRequests = aiMock.requests.slice(batchRequestStart).filter((item) => Array.isArray(item.payload?.questions) && Array.isArray(item.payload?.safeFields) && item.body.model === "deepseek-v4-flash");
     assert.equal(batchRequests.length, 2);
     assert.ok(batchRequests.every((item) => item.body.thinking.type === "enabled" && item.payload.questions.length <= 10));
 
@@ -597,10 +635,29 @@ async function exerciseAiWorkflows(cookie) {
     assert.ok(result.data.stale.includes(Number(staleReview.id)), JSON.stringify(result.data));
     assert.equal(rows(`SELECT analysis FROM questions WHERE id=${Number(staleReview.questionId)}`)[0].analysis, staleBefore.analysis);
 
+    const raceReview = taskReviews.find((item) => ![Number(eligible.id), Number(staleReview.id)].includes(Number(item.id)) && item.sensitiveSuggestions?.analysis);
+    assert.ok(raceReview);
+    restoreQuestion(Number(raceReview.questionId));
+    const applyAuditBefore = Number(rows(`SELECT COUNT(*) AS count FROM audit_logs WHERE action='apply_ai_suggestion' AND json_extract(detail,'$.reviewId')=${Number(raceReview.id)}`)[0].count);
+    const concurrentApplies = await Promise.all([
+      request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [raceReview.id], mode: "single", fields: ["analysis"] } }),
+      request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [raceReview.id], mode: "single", fields: ["analysis"] } }),
+    ]);
+    assert.ok(concurrentApplies.every((item) => item.response.status === 200), JSON.stringify(concurrentApplies.map((item) => item.data)));
+    assert.equal(concurrentApplies.reduce((sum, item) => sum + item.data.applied.length, 0), 1);
+    assert.equal(concurrentApplies.reduce((sum, item) => sum + item.data.skipped.length, 0), 1);
+    assert.equal(concurrentApplies.reduce((sum, item) => sum + item.data.stale.length, 0), 0);
+    assert.equal(rows(`SELECT analysis FROM questions WHERE id=${Number(raceReview.questionId)}`)[0].analysis, raceReview.sensitiveSuggestions.analysis);
+    assert.equal(Number(rows(`SELECT COUNT(*) AS count FROM audit_logs WHERE action='apply_ai_suggestion' AND json_extract(detail,'$.reviewId')=${Number(raceReview.id)}`)[0].count), applyAuditBefore + 1);
+
     const deepPending = reviewList.data.reviews.find((item) => String(item.taskId) === String(deepReview.data.task.id));
     assert.ok(deepPending?.id);
     result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [deepPending.id], mode: "single", fields: ["analysis"], action: "reject" } });
     assert.equal(result.data.rejected, 1);
+    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [deepPending.id], mode: "single", fields: ["analysis"], action: "reject" } });
+    assert.equal(result.data.rejected, 0);
+    assert.deepEqual(result.data.skipped, [Number(deepPending.id)]);
+    assert.equal(rows(`SELECT COUNT(*) AS count FROM audit_logs WHERE id>${baseline.audit} AND action='reject' AND entity_type='ai_question_review' AND entity_id=${Number(deepPending.id)}`)[0].count, 1);
 
     providerCalls = aiMock.requests.length;
     result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 1, emergencyDisabled: false } });
@@ -617,7 +674,7 @@ async function exerciseAiWorkflows(cookie) {
     const auditActions = new Set(rows(`SELECT action FROM audit_logs WHERE id>${baseline.audit}`).map((item) => String(item.action)));
     for (const action of ["generate", "generate_failed", "apply_ai_suggestion", "reject", "delete_all"]) assert.ok(auditActions.has(action), `缺少 AI 审计动作 ${action}`);
 
-    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, lessonPrep: true, paperReview: true, reflectionDraft: true, wrongQuestionRemediation: true, scheduleReschedule: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true }, proSingleReview: true, staleProtection: true, usageRecorded: true };
+    return { mockedProviderCalls: aiMock.requests.length, feedbackDraft: true, lessonPrep: true, paperReview: true, reflectionDraft: true, wrongQuestionRemediation: true, scheduleReschedule: true, privacyPreflight: true, learningLifecycle: true, failureIsolation: true, questionBatch: { total: 12, batches: 2, resumable: true, idempotentStarts: true, explicitRerun: true }, proSingleReview: true, staleProtection: true, concurrentApplyCas: true, usageRecorded: true };
   } finally {
     aiMock.mode = "ok";
     restoreLocalState();

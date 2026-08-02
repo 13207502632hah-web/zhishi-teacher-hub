@@ -22,9 +22,9 @@ type QuestionHealthItem = QuestionHealthSummary & { knowledge: string };
 type QuestionHealthResponse = { summary: QuestionHealthSummary; knowledge: QuestionHealthItem[] };
 type QuestionFacetsResponse = { facets: Record<string, Array<string | number>> };
 type AiReviewListResponse = { reviews: Array<Record<string, any>>; tasks: Array<Record<string, any>> };
-type AiReviewTaskResponse = AiReviewListResponse & { task: Record<string, any>; processed: number };
-type AiReviewApplyResponse = { applied: Array<Record<string, any>>; stale: number[]; notice?: string };
-type AiReviewRejectResponse = { ok: boolean; rejected: number };
+type AiReviewTaskResponse = AiReviewListResponse & { task: Record<string, any>; processed: number; reused?: boolean };
+type AiReviewApplyResponse = { applied: Array<Record<string, any>>; stale: number[]; skipped: number[]; notice?: string };
+type AiReviewRejectResponse = { ok: boolean; rejected: number; skipped: number[] };
 type AiReviewAction = "process" | "apply" | "reject";
 
 const isObjectRecord = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -278,23 +278,29 @@ export default function QuestionsPage() {
   };
   const processAiTask = async ({ questionIds, taskId, deepReview = false }: { questionIds?: number[]; taskId?: string; deepReview?: boolean }) => {
     if (!startAiReviewAction("process")) return;
-    let processed = 0, activeTaskId = taskId || "";
+    let processed = 0, activeTaskId = taskId || "", rerunRequested = false, keptExistingResult = false;
     setMessage(deepReview ? "正在使用 DeepSeek Pro 深度复核单题；只生成待确认建议…" : "DeepSeek 正按每批 10 题处理；任务游标已保存，可在失败或刷新后继续…");
     try {
       for (let step = 0; step < 10; step += 1) {
-        const payload = activeTaskId ? { taskId: activeTaskId } : { questionIds, deepReview };
+        const payload = activeTaskId ? { taskId: activeTaskId } : { questionIds, deepReview, rerun: rerunRequested };
         const data = await requestJson<AiReviewTaskResponse>("/api/ai/question-reviews", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), timeoutMs: 130_000 });
         const taskStatus = String(data?.task?.status || "");
-        if (!data || !Array.isArray(data.reviews) || !Array.isArray(data.tasks) || !data.reviews.every(isAiReviewRecord) || !data.tasks.every((task) => isAiReviewTaskRecord(task)) || !isAiReviewTaskRecord(data.task) || !["queued", "completed"].includes(taskStatus) || typeof data.processed !== "number" || !Number.isInteger(data.processed) || data.processed < 0 || (data.task.status === "queued" && data.processed === 0)) throw new HttpError(200, "AI 审核接口没有返回完整任务结果");
-        const batchProcessed = data.processed;
-        processed += batchProcessed;
-        activeTaskId = String(data.task.id || activeTaskId);
+        if (!data || !Array.isArray(data.reviews) || !Array.isArray(data.tasks) || !data.reviews.every(isAiReviewRecord) || !data.tasks.every((task) => isAiReviewTaskRecord(task)) || !isAiReviewTaskRecord(data.task) || !["queued", "completed"].includes(taskStatus) || typeof data.processed !== "number" || !Number.isInteger(data.processed) || data.processed < 0 || (data.task.status === "queued" && data.processed === 0) || (data.reused !== undefined && typeof data.reused !== "boolean")) throw new HttpError(200, "AI 审核接口没有返回完整任务结果");
         aiReviewRequest.current?.abort();
         setAiReviews(data.reviews);
         setAiTasks(data.tasks);
+        if (data.reused && data.task.status === "completed" && !activeTaskId && !rerunRequested) {
+          if (!confirm("相同题目集合已有完成的 AI 审核任务。重新审核会再次调用 DeepSeek 并产生新的待确认建议，确认重新运行？")) { keptExistingResult = true; setMessage("已保留已有完成结果，未重复调用 DeepSeek"); break; }
+          rerunRequested = true;
+          setMessage("教师已确认重新审核；正在创建新的 AI 审核任务…");
+          continue;
+        }
+        const batchProcessed = data.processed;
+        processed += batchProcessed;
+        activeTaskId = String(data.task.id || activeTaskId);
         if (data.task.status === "completed" || batchProcessed === 0) break;
       }
-      setMessage(`${deepReview ? "单题深度复核" : "AI 审核任务"}已完成 ${processed} 题，原题未改变；请查看前后差异并确认`);
+      if (!keptExistingResult) setMessage(`${deepReview ? "单题深度复核" : "AI 审核任务"}已完成 ${processed} 题，原题未改变；请查看前后差异并确认`);
     } catch (reason) {
       const error = reason instanceof Error ? reason.message : "任务已暂停，可稍后继续";
       setMessage(`本次已完成 ${processed} 题；${error}。页面将重新读取任务状态，请以当前列表为准。`);
@@ -317,13 +323,13 @@ export default function QuestionsPage() {
     setMessage("正在应用教师已确认的 AI 建议…");
     try {
       const data = await requestJson<AiReviewApplyResponse>("/api/ai/question-reviews/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewIds: requestedIds, mode, fields }), timeoutMs: 30_000 });
-      if (!data || !Array.isArray(data.applied) || !Array.isArray(data.stale)) throw new HttpError(200, "应用建议接口没有返回完整处理结果");
+      if (!data || !Array.isArray(data.applied) || !Array.isArray(data.stale) || !Array.isArray(data.skipped)) throw new HttpError(200, "应用建议接口没有返回完整处理结果");
       const requestedIdSet = new Set(requestedIds);
-      if (!data.applied.every((item) => isObjectRecord(item) && isPositiveInteger(item.reviewId) && requestedIdSet.has(item.reviewId) && isPositiveInteger(item.questionId) && Array.isArray(item.changes) && item.changes.length > 0 && item.changes.every((change: unknown) => isAiReviewChange(change))) || !data.stale.every((id) => typeof id === "number" && Number.isInteger(id) && requestedIdSet.has(id))) throw new HttpError(200, "应用建议接口返回了无效处理记录");
-      const appliedIds = data.applied.map((item) => Number(item.reviewId)), staleIds = data.stale;
-      if (new Set(appliedIds).size !== appliedIds.length || new Set(staleIds).size !== staleIds.length || staleIds.some((id) => appliedIds.includes(id))) throw new HttpError(200, "应用建议接口返回了重复或冲突的处理记录");
-      const unresolved = Math.max(0, requestedIds.length - appliedIds.length - staleIds.length), resultParts = [`已应用 ${appliedIds.length} 道题的明确确认字段`, staleIds.length ? `${staleIds.length} 条因原题更新而作废` : "", unresolved ? `${unresolved} 条未处理，请以当前列表为准` : ""].filter(Boolean);
-      setMessage(data.applied.length || data.stale.length ? resultParts.join("；") : "没有字段被应用；建议可能已处理或不再有效，请以当前列表为准");
+      if (!data.applied.every((item) => isObjectRecord(item) && isPositiveInteger(item.reviewId) && requestedIdSet.has(item.reviewId) && isPositiveInteger(item.questionId) && Array.isArray(item.changes) && item.changes.length > 0 && item.changes.every((change: unknown) => isAiReviewChange(change))) || ![...data.stale, ...data.skipped].every((id) => typeof id === "number" && Number.isInteger(id) && requestedIdSet.has(id))) throw new HttpError(200, "应用建议接口返回了无效处理记录");
+      const appliedIds = data.applied.map((item) => Number(item.reviewId)), staleIds = data.stale, skippedIds = data.skipped, handledIds = [...appliedIds, ...staleIds, ...skippedIds];
+      if (new Set(handledIds).size !== handledIds.length) throw new HttpError(200, "应用建议接口返回了重复或冲突的处理记录");
+      const unresolved = Math.max(0, requestedIds.length - handledIds.length), resultParts = [`已应用 ${appliedIds.length} 道题的明确确认字段`, staleIds.length ? `${staleIds.length} 条因原题更新而作废` : "", skippedIds.length ? `${skippedIds.length} 条已被其他操作处理或没有可应用字段` : "", unresolved ? `${unresolved} 条结果未确认，请以当前列表为准` : ""].filter(Boolean);
+      setMessage(handledIds.length ? resultParts.join("；") : "没有字段被应用；建议可能已处理或不再有效，请以当前列表为准");
     } catch (reason) {
       const error = reason instanceof Error ? reason.message : "应用建议失败";
       setMessage(`应用请求未能确认结果；${error}。页面将重新读取建议和题目，请以当前列表为准。`);
@@ -341,9 +347,9 @@ export default function QuestionsPage() {
     setMessage("正在忽略所选 AI 建议…");
     try {
       const data = await requestJson<AiReviewRejectResponse>("/api/ai/question-reviews/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewIds: requestedIds, action: "reject" }), timeoutMs: 30_000 });
-      if (!data || data.ok !== true || typeof data.rejected !== "number" || !Number.isInteger(data.rejected) || data.rejected < 0 || data.rejected > requestedIds.length) throw new HttpError(200, "忽略建议接口没有返回完整处理结果");
+      if (!data || data.ok !== true || typeof data.rejected !== "number" || !Number.isInteger(data.rejected) || data.rejected < 0 || data.rejected > requestedIds.length || !Array.isArray(data.skipped) || !data.skipped.every((id) => typeof id === "number" && Number.isInteger(id) && requestedIds.includes(id)) || new Set(data.skipped).size !== data.skipped.length || data.rejected + data.skipped.length > requestedIds.length) throw new HttpError(200, "忽略建议接口没有返回完整处理结果");
       const rejected = data.rejected;
-      setMessage(rejected > 0 ? `已忽略 ${rejected} 条 AI 建议；题目原内容没有改变` : "没有建议被忽略；建议可能已在其他页面处理，请以当前列表为准");
+      setMessage(rejected > 0 ? `已忽略 ${rejected} 条 AI 建议；${data.skipped.length ? `${data.skipped.length} 条已被其他操作处理；` : ""}题目原内容没有改变` : "没有建议被忽略；建议可能已在其他页面处理，请以当前列表为准");
     } catch (reason) {
       const error = reason instanceof Error ? reason.message : "忽略失败";
       setMessage(`忽略请求未能确认结果；${error}。页面将重新读取待确认队列，请以当前列表为准。`);

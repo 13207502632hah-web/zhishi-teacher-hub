@@ -130,6 +130,7 @@ test("AI review mutations use a synchronous lock and recover without false succe
   const rejectFlow = page.match(/const rejectAiReviews[\s\S]*?const reviewCount/)?.[0] || "";
 
   assert.match(page, /type AiReviewTaskResponse/);
+  assert.match(page, /reused\?: boolean/);
   assert.match(page, /type AiReviewApplyResponse/);
   assert.match(page, /type AiReviewRejectResponse/);
   assert.match(page, /const isAiReviewRecord/);
@@ -142,8 +143,12 @@ test("AI review mutations use a synchronous lock and recover without false succe
   assert.match(processFlow, /typeof data\.processed !== "number"/);
   assert.match(processFlow, /\["queued", "completed"\]/);
   assert.match(processFlow, /data\.task\.status === "queued" && data\.processed === 0/);
+  assert.match(processFlow, /data\.reused/);
+  assert.match(processFlow, /rerun: rerunRequested/);
+  assert.match(processFlow, /再次调用 DeepSeek/);
   assert.match(mutationFlow, /Array\.isArray\(data\.applied\)/);
   assert.match(mutationFlow, /Array\.isArray\(data\.stale\)/);
+  assert.match(mutationFlow, /Array\.isArray\(data\.skipped\)/);
   assert.match(applyFlow, /appliedIds/);
   assert.match(applyFlow, /requestedIdSet/);
   assert.match(applyFlow, /item\.changes\.length/);

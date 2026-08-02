@@ -191,6 +191,39 @@ test("question review is resumable, batches ten, reserves Pro for single deep re
   assert.match(migration, /ai_question_review_tasks/);
 });
 
+test("question review task creation deduplicates identical concurrent starts without a migration", async () => {
+  const review = await read("app/api/ai/question-reviews/route.ts");
+
+  assert.match(review, /\.sort\(\(left, right\) => left - right\)/);
+  assert.match(review, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(review, /INSERT OR IGNORE INTO idempotency_operations/);
+  assert.match(review, /ai\.question_review\.create/);
+  assert.match(review, /result_json AS resultJson/);
+  assert.match(review, /JSON\.parse\(existing\.resultJson\)[\s\S]+taskId/);
+  assert.match(review, /INSERT INTO ai_question_review_tasks[\s\S]+SELECT \?,\?,\?,\?,\?[\s\S]+json_extract\(result_json,'\$\.taskId'\)=\?/);
+  assert.match(review, /env\.DB\.batch\(\[registryMutation, taskInsert\]\)/);
+  assert.match(review, /body\.rerun === true/);
+  assert.match(review, /status IN \('completed','failed'\)/);
+  assert.match(review, /result_json=\?[\s\S]+json_extract\(result_json,'\$\.taskId'\)=\?/);
+  assert.doesNotMatch(review, /status='started'/);
+});
+
+test("question review apply and reject use owner version and status compare-and-set guards", async () => {
+  const apply = await read("app/api/ai/question-reviews/apply/route.ts");
+  const rejectFlow = apply.match(/if \(body\.action === "reject"\)[\s\S]*?const applied/)?.[0] || "";
+
+  assert.doesNotMatch(rejectFlow, /SELECT 1 AS owned/);
+  assert.match(rejectFlow, /SELECT r\.run_id AS runId,r\.status,r\.source_updated_at AS sourceUpdatedAt[\s\S]+ar\.user_id=\?/);
+  assert.match(rejectFlow, /UPDATE ai_question_reviews SET status='rejected'[\s\S]+run_id=\?[\s\S]+status=\?[\s\S]+source_updated_at=\?[\s\S]+EXISTS\(SELECT 1 FROM ai_runs[\s\S]+user_id=\?\)[\s\S]+RETURNING id/);
+  assert.ok(rejectFlow.indexOf("if (!rejectedReview)") < rejectFlow.indexOf('audit(access, "reject"'), "reject audit must follow a successful CAS update");
+  assert.match(apply, /questionUpdate = env\.DB\.prepare\(`[\s\S]+EXISTS\(SELECT 1 FROM ai_question_reviews[\s\S]+r\.run_id=\?[\s\S]+r\.status=\?[\s\S]+r\.source_updated_at=\?[\s\S]+ar\.user_id=\?/);
+  assert.match(apply, /reviewUpdate = env\.DB\.prepare\("UPDATE ai_question_reviews[\s\S]+run_id=\?[\s\S]+status=\?[\s\S]+source_updated_at=\?[\s\S]+ar\.user_id=\?/);
+  assert.match(apply, /const \[questionResult, reviewResult\] = await env\.DB\.batch\(\[questionUpdate, reviewUpdate\]\)/);
+  assert.match(apply, /questionChanges !== reviewChanges/);
+  assert.match(apply, /UPDATE ai_question_reviews SET status='stale'[\s\S]+run_id=\?[\s\S]+status=\?[\s\S]+source_updated_at=\?[\s\S]+user_id=\?/);
+  assert.match(apply, /skipped/);
+});
+
 test("feedback learning stores redacted saved-version differences and retrieves twelve matched examples", async () => {
   const createRoute = await read("app/api/feedback/route.ts"), updateRoute = await read("app/api/feedback/[id]/route.ts"), learning = await read("app/lib/ai/learning.ts");
   assert.match(createRoute, /recordFeedbackLearningEvent/);
