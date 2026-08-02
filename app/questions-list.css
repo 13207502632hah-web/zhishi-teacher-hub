@@ -480,6 +480,120 @@
   padding: 0.625rem 1rem;
 }
 
+.primaryTabs a,
+.primaryTabs button,
+.primaryTabs a b {
+  font-size: 0.875rem;
+}
+
+.questionHealth span {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.resultSummary,
+.resultSummary span {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.questionList .emptyState .secondaryButton {
+  font-size: 0.875rem;
+}
+
+.questionWorkflow a,
+.questionWorkflow button {
+  min-height: 44px;
+}
+
+.questionWorkflow span {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.questionWorkflow small,
+.questionWorkflow b {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.questionQuickTools,
+.queueStart,
+.paperCartBar {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.questionQuickTools button,
+.questionQuickTools select,
+.queueStart button {
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.tagRow button {
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.queueMeta label {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.queueMeta input,
+.queueMeta select,
+.importMetaGrid input,
+.importMetaGrid select,
+.reviewEditor input,
+.reviewEditor select,
+.reviewEditor textarea {
+  min-height: 44px;
+  font: inherit;
+  font-size: 1rem;
+}
+
+.queueList small,
+.queueStatus,
+.duplicateCompare span {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.stepBar b,
+.stepBar span {
+  font-size: 0.875rem;
+}
+
+.wizardCenter p,
+.wizardSummary p {
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.duplicateCompare p {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.uploadButton,
+.wizardSummary button,
+.reviewButtons button {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 0.875rem;
+}
+
+.paperCartBar .primaryButton {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+
 @media (min-width: 48rem) {
   .savedSearchBar {
     display: flex;
