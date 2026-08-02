@@ -3,6 +3,14 @@ import { getDb } from "../../../db";
 import { resources } from "../../../db/schema";
 import { audit, can, getAccess, isDenied, requirePermission } from "../../lib/access";
 
+function isSafeExternalUrl(value: string) {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(request: Request) {
   const q = new URL(request.url).searchParams.get("q") || "";
   const access = await getAccess(), search = q ? or(like(resources.title, `%${q}%`), like(resources.tags, `%${q}%`), like(resources.content, `%${q}%`)) : undefined;
@@ -15,7 +23,9 @@ export async function POST(request: Request) {
   const access = await requirePermission("resources:write"); if (isDenied(access)) return access;
   const body = await request.json() as Record<string, unknown>;
   if (!String(body.title || "").trim()) return Response.json({ error: "资源名称不能为空" }, { status: 400 });
-  const [resource] = await getDb().insert(resources).values({ title: String(body.title), type: String(body.type || "备课素材"), url: String(body.url || ""), tags: String(body.tags || ""), content: String(body.content || ""), sourceRef: String(body.sourceRef || "manual"), visibility: body.visibility === "public" ? "public" : "private", ownerId: access.id }).returning();
+  const url = String(body.url || "").trim();
+  if (url && !isSafeExternalUrl(url)) return Response.json({ error: "不支持的外部链接协议，仅允许 http:// 或 https://" }, { status: 400 });
+  const [resource] = await getDb().insert(resources).values({ title: String(body.title).trim(), type: String(body.type || "备课素材"), url, tags: String(body.tags || ""), content: String(body.content || ""), sourceRef: String(body.sourceRef || "manual"), visibility: body.visibility === "public" ? "public" : "private", ownerId: access.id }).returning();
   await audit(access, "create", "resource", resource.id, { visibility: resource.visibility });
   return Response.json({ resource }, { status: 201 });
 }
