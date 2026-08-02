@@ -15,6 +15,8 @@ type QueueItem = { key: string; name: string; status: "waiting" | "processing" |
 type QuestionContentState = { status: "loading" | "ready" | "error"; answer?: string; analysis?: string; answerPoints?: string; scoringPoints?: string; standardExpression?: string; error?: string };
 type SearchTerms = { q: string; knowledge: string; source: string; year: string };
 type QuestionListResponse = { questions?: Question[]; total?: number; page?: number; pageCount?: number; allIds?: number[]; issues?: Record<string, number> };
+type SavedViewsResponse = { views?: SavedView[] };
+type SavedViewResponse = { view?: SavedView };
 
 const grades = ["七年级", "八年级", "九年级", "高一", "高二", "高三"], questionTypes = ["单选题", "多选题", "判断题", "填空题", "简答题", "材料题", "辨析题", "论述题", "探究实践题"];
 const aiFieldLabels: Record<string, string> = { questionType: "题型", stage: "学段", grade: "年级", textbookVersion: "教材版本", volume: "册别", unit: "单元", topic: "课题", knowledgePoints: "知识点", coreCompetencies: "核心素养", abilityLevel: "能力层级", answer: "答案", analysis: "解析", factBasis: "事实依据", textbookView: "教材观点", valueJudgment: "价值判断", answerLogic: "答题逻辑", standardExpression: "规范表述" };
@@ -30,17 +32,72 @@ export default function QuestionsPage() {
   const questionContentRef = useRef<Record<number, QuestionContentState>>({}), questionContentRequests = useRef<Set<number>>(new Set());
   const [aiReviews, setAiReviews] = useState<Array<Record<string, any>>>([]), [aiTasks, setAiTasks] = useState<Array<Record<string, any>>>([]), [aiFieldSelections, setAiFieldSelections] = useState<Record<number, string[]>>({}), [aiReviewBusy, setAiReviewBusy] = useState(false);
   const [appliedSearch, setAppliedSearch] = useState<SearchTerms>(emptySearch), [listState, setListState] = useState<"idle" | "loading" | "ready" | "error">("idle"), [listError, setListError] = useState(""), [batchBusy, setBatchBusy] = useState(false);
+  const [savedViewState, setSavedViewState] = useState<"loading" | "ready" | "error">("loading"), [savedViewError, setSavedViewError] = useState(""), [savedViewBusy, setSavedViewBusy] = useState<string | null>(null);
   const loadRequest = useRef<AbortController | null>(null);
+  const savedViewRequest = useRef<AbortController | null>(null);
+  const savedViewActionRef = useRef<string | null>(null);
   const filterSnapshot = () => Object.fromEntries(Object.entries({ ...appliedSearch, stage, grade, textbookVersion, volume, unit, topic, type, difficulty, region, flag, issue, status, sort }).filter(([, value]) => value && value !== "active" && value !== "updated_desc"));
   const applyFilters = (filters: Record<string, string>) => { const nextSearch = { q: filters.q || "", knowledge: filters.knowledge || "", source: filters.source || "", year: filters.year || "" }; setQ(nextSearch.q); setKnowledge(nextSearch.knowledge); setSource(nextSearch.source); setYear(nextSearch.year); setAppliedSearch(nextSearch); setStage(filters.stage || ""); setGrade(filters.grade || ""); setTextbookVersion(filters.textbookVersion || ""); setVolume(filters.volume || ""); setUnit(filters.unit || ""); setTopic(filters.topic || ""); setType(filters.type || ""); setDifficulty(filters.difficulty || ""); setRegion(filters.region || ""); setFlag(filters.flag || ""); setIssue(filters.issue || ""); setStatus(filters.status || "active"); setSort(filters.sort || "updated_desc"); setPage(1); };
   const clearFilters = () => applyFilters({});
-  const loadViews = async () => { const response = await fetch("/api/question-views"), data = await response.json(); if (response.ok) setSavedViews(data.views || []); };
-  const saveView = async () => { const response = await fetch("/api/question-views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: savedName, filters: filterSnapshot() }) }), data = await response.json(); setMessage(response.ok ? `已保存筛选“${data.view.name}”` : data.error || "保存筛选失败"); if (response.ok) { setSavedName(""); void loadViews(); } };
-  const deleteView = async (id: number) => { const response = await fetch(`/api/question-views/${id}`, { method: "DELETE" }), data = await response.json(); setMessage(response.ok ? "筛选方案已删除" : data.error || "删除筛选失败"); if (response.ok) void loadViews(); };
+  const loadViews = useCallback(async () => {
+    savedViewRequest.current?.abort();
+    const controller = new AbortController();
+    savedViewRequest.current = controller;
+    setSavedViewState("loading");
+    setSavedViewError("");
+    try {
+      const data = await requestJson<SavedViewsResponse>("/api/question-views", { signal: controller.signal, cache: "no-store" });
+      if (!data) throw new HttpError(200, "筛选方案接口没有返回数据");
+      setSavedViews(data.views || []);
+      setSavedViewState("ready");
+    } catch (reason) {
+      if (controller.signal.aborted) return;
+      setSavedViewError(reason instanceof Error ? reason.message : "筛选方案读取失败");
+      setSavedViewState("error");
+    }
+  }, []);
+  const saveView = async () => {
+    if (savedViewActionRef.current) return;
+    const name = savedName.trim(), filters = filterSnapshot();
+    if (!name) { setMessage("请填写筛选方案名称"); return; }
+    if (!Object.keys(filters).length) { setMessage("请至少设置一个筛选条件后再保存"); return; }
+    savedViewActionRef.current = "save";
+    setSavedViewBusy("save");
+    try {
+      const data = await requestJson<SavedViewResponse>("/api/question-views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, filters }) });
+      if (!data?.view) throw new HttpError(200, "保存筛选接口没有返回处理结果");
+      const view = data.view;
+      setSavedViews((items) => [view, ...items.filter((item) => item.id !== view.id)]);
+      setSavedName("");
+      setMessage(`已保存筛选“${view.name}”`);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "保存筛选失败");
+    } finally {
+      savedViewActionRef.current = null;
+      setSavedViewBusy(null);
+    }
+  };
+  const deleteView = async (id: number) => {
+    if (savedViewActionRef.current) return;
+    savedViewActionRef.current = `delete:${id}`;
+    setSavedViewBusy(`delete:${id}`);
+    try {
+      const data = await requestJson<{ ok?: boolean }>(`/api/question-views/${id}`, { method: "DELETE" });
+      if (!data?.ok) throw new HttpError(200, "删除筛选接口没有返回处理结果");
+      setSavedViews((items) => items.filter((item) => item.id !== id));
+      setMessage("筛选方案已删除");
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "删除筛选失败");
+    } finally {
+      savedViewActionRef.current = null;
+      setSavedViewBusy(null);
+    }
+  };
   const storePaperCart = (next: number[]) => { setPaperCart(next); localStorage.setItem("zhishi:paper-cart", JSON.stringify(next)); };
   const addToPaper = (id: number) => { const next = paperCart.includes(id) ? paperCart.filter((item) => item !== id) : mergeQuestionSelection(paperCart, [id]); storePaperCart(next); setMessage(next.includes(id) ? `已加入当前试卷草稿，共 ${next.length} 题` : "已从当前试卷草稿移除"); };
   const addSelectedToPaper = () => { const next = mergeQuestionSelection(paperCart, selected); storePaperCart(next); setMessage(`已将 ${selected.length} 道所选题目加入试卷草稿，共 ${next.length} 题`); };
-  useEffect(() => { try { setPaperCart(JSON.parse(localStorage.getItem("zhishi:paper-cart") || "[]")); setRecentSearches(JSON.parse(localStorage.getItem("zhishi:recent-question-searches") || "[]")); setQueue((JSON.parse(localStorage.getItem("zhishi:question-import-queue") || "[]") as QueueItem[]).map((item) => item.status === "processing" ? { ...item, status: "failed", message: "上次处理中断，请重新选择此文件后重试" } : item)); } catch { localStorage.removeItem("zhishi:question-import-queue"); } void loadViews(); }, []);
+  useEffect(() => { try { setPaperCart(JSON.parse(localStorage.getItem("zhishi:paper-cart") || "[]")); setRecentSearches(JSON.parse(localStorage.getItem("zhishi:recent-question-searches") || "[]")); setQueue((JSON.parse(localStorage.getItem("zhishi:question-import-queue") || "[]") as QueueItem[]).map((item) => item.status === "processing" ? { ...item, status: "failed", message: "上次处理中断，请重新选择此文件后重试" } : item)); } catch { localStorage.removeItem("zhishi:question-import-queue"); } }, []);
+  useEffect(() => { void loadViews(); return () => savedViewRequest.current?.abort(); }, [loadViews]);
   const loadAiReviews = async () => { const response = await fetch("/api/ai/question-reviews", { cache: "no-store" }); if (response.ok) { const data = await response.json(); setAiReviews(data.reviews || []); setAiTasks(data.tasks || []); } };
   useEffect(() => { void loadAiReviews(); }, []);
   useEffect(() => { if (!ready) return; const params = new URLSearchParams({ status, stage, grade, textbookVersion, volume, unit }); void fetch(`/api/questions/facets?${params}`).then((response) => response.ok ? response.json() : { facets: {} }).then((data) => setFacets(data.facets || {})); }, [ready, status, stage, grade, textbookVersion, volume, unit]);
@@ -151,7 +208,7 @@ export default function QuestionsPage() {
     <section className="questionWorkflow" aria-label="题库四个主要入口"><button onClick={() => setTab("import")}><b>01</b><span>导入 Word</span><small>批量加入待校对队列</small></button><button onClick={() => { setTab("library"); setStatus("review"); }}><b>02</b><span>继续校对</span><small>{reviewIssues.total || 0} 道待处理</small></button><button onClick={() => { setTab("library"); setStatus("active"); }}><b>03</b><span>搜索题目</span><small>教材目录优先检索</small></button><Link href="/papers"><b>04</b><span>组卷草稿</span><small>{paperCart.length} 道未保存选题</small></Link></section>
     {tab === "library" && <div className="questionQuickTools"><span>快捷标签：</span><button onClick={() => { setFlag("favorite"); setPage(1); }}>收藏</button><button onClick={() => { setFlag("frequent"); setPage(1); }}>高频题</button><button onClick={() => { setDifficulty("3"); setPage(1); }}>中等难度</button><label>排序<select value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }}><option value="updated_desc">最近更新</option><option value="updated_asc">最早更新</option><option value="difficulty_desc">难度从高到低</option><option value="difficulty_asc">难度从低到高</option><option value="use_count_desc">使用次数从多到少</option><option value="use_count_asc">使用次数从少到多</option></select></label></div>}
     {tab === "library" && status === "active" && total === 0 && Number(reviewIssues.total || 0) > 0 && <div className="noticeStrip"><b>正式题库暂时为空</b><span>已有 {reviewIssues.total} 道导入题目等待人工校对，确认后即可用于组卷。</span><Link href="/questions?status=review" onClick={(event) => { event.preventDefault(); setStatus("review"); setPage(1); }}>处理待校对题目 →</Link></div>}
-    {tab === "library" && <><div className="toolbar questionFilters secondaryFilters"><select aria-label="教材版本" value={textbookVersion} onChange={(event) => { setTextbookVersion(event.target.value); setVolume(""); setUnit(""); setTopic(""); setPage(1); }}><option value="">全部教材版本</option>{(facets.textbook_version || []).map((item) => <option key={String(item)}>{item}</option>)}</select><select aria-label="册别或模块" value={volume} onChange={(event) => { setVolume(event.target.value); setUnit(""); setTopic(""); setPage(1); }}><option value="">全部册别/模块</option>{(facets.volume || []).map((item) => <option key={String(item)}>{item}</option>)}</select><select aria-label="单元" value={unit} onChange={(event) => { setUnit(event.target.value); setTopic(""); setPage(1); }}><option value="">全部单元</option>{(facets.unit || []).map((item) => <option key={String(item)}>{item}</option>)}</select><select aria-label="课或框" value={topic} onChange={(event) => { setTopic(event.target.value); setPage(1); }}><option value="">全部课/框</option>{(facets.topic || []).map((item) => <option key={String(item)}>{item}</option>)}</select><button onClick={clearFilters}>清空全部筛选</button></div><section className="savedSearchBar" aria-label="保存和最近筛选"><div><input value={savedName} onChange={(event) => setSavedName(event.target.value)} placeholder="给当前筛选命名" /><button onClick={saveView}>保存筛选</button></div>{savedViews.map((view) => <span key={view.id}><button onClick={() => applyFilters(view.filters)}>{view.name}</button><button aria-label={`删除筛选 ${view.name}`} onClick={() => deleteView(view.id)}>×</button></span>)}{recentSearches.slice(0, 3).map((item, index) => <button key={`recent-${index}`} onClick={() => applyFilters(item)}>最近：{item.q || item.knowledge || item.topic || item.unit || item.stage || "组合筛选"}</button>)}</section></>}
+    {tab === "library" && <><div className="toolbar questionFilters secondaryFilters"><select aria-label="教材版本" value={textbookVersion} onChange={(event) => { setTextbookVersion(event.target.value); setVolume(""); setUnit(""); setTopic(""); setPage(1); }}><option value="">全部教材版本</option>{(facets.textbook_version || []).map((item) => <option key={String(item)}>{item}</option>)}</select><select aria-label="册别或模块" value={volume} onChange={(event) => { setVolume(event.target.value); setUnit(""); setTopic(""); setPage(1); }}><option value="">全部册别/模块</option>{(facets.volume || []).map((item) => <option key={String(item)}>{item}</option>)}</select><select aria-label="单元" value={unit} onChange={(event) => { setUnit(event.target.value); setTopic(""); setPage(1); }}><option value="">全部单元</option>{(facets.unit || []).map((item) => <option key={String(item)}>{item}</option>)}</select><select aria-label="课或框" value={topic} onChange={(event) => { setTopic(event.target.value); setPage(1); }}><option value="">全部课/框</option>{(facets.topic || []).map((item) => <option key={String(item)}>{item}</option>)}</select><button onClick={clearFilters}>清空全部筛选</button></div><section className="savedSearchBar" aria-busy={savedViewState === "loading"} aria-label="保存和最近筛选"><div><input aria-label="筛选方案名称" value={savedName} onChange={(event) => setSavedName(event.target.value)} placeholder="给当前筛选命名" /><button disabled={Boolean(savedViewBusy)} onClick={saveView} type="button">{savedViewBusy === "save" ? "正在保存…" : "保存筛选"}</button></div>{savedViewState === "loading" && <div className="savedViewStatus" role="status">正在读取筛选方案…</div>}{savedViewState === "error" && <div className="savedViewStatus error" role="alert"><b>筛选方案读取失败</b><em>{savedViewError}</em><button disabled={Boolean(savedViewBusy)} onClick={() => void loadViews()} type="button">重新读取筛选方案</button></div>}{savedViews.map((view) => <span key={view.id}><button onClick={() => applyFilters(view.filters)} type="button">{view.name}</button><button aria-label={`删除筛选 ${view.name}`} disabled={Boolean(savedViewBusy)} onClick={() => void deleteView(view.id)} type="button">{savedViewBusy === `delete:${view.id}` ? "…" : "×"}</button></span>)}{recentSearches.slice(0, 3).map((item, index) => <button key={`recent-${index}`} onClick={() => applyFilters(item)} type="button">最近：{item.q || item.knowledge || item.topic || item.unit || item.stage || "组合筛选"}</button>)}</section></>}
     {tab === "library" && status === "active" && <section className="questionHealth"><article><span>当前正式题量</span><b>{health.summary?.total || 0}</b></article><article><span>缺答案</span><b>{health.summary?.missingAnswer || 0}</b></article><article><span>缺解析</span><b>{health.summary?.missingAnalysis || 0}</b></article><article><span>累计使用</span><b>{health.summary?.useCount || 0}</b></article><details><summary>查看知识点题量</summary>{health.knowledge?.slice(0, 12).map((item: Record<string, any>) => <button key={item.knowledge} onClick={() => { const value = String(item.knowledge || ""); setKnowledge(value); setAppliedSearch((current) => ({ ...current, knowledge: value })); setPage(1); }}>{item.knowledge} · {item.total}题 · 缺答案{item.missingAnswer} · 缺解析{item.missingAnalysis} · 使用{item.useCount}</button>)}</details></section>}
     {tab === "library" && status === "review" && <section className="reviewOverview" aria-label="待校对异常概览"><div><span>待处理</span><b>{reviewIssues.total ?? total}</b></div><Link href="/questions?status=review&issue=ready" onClick={() => { setIssue("ready"); setPage(1); }}><span>可直接入库</span><b>筛选</b></Link><Link href="/questions?status=review&issue=missing_answer" onClick={() => { setIssue("missing_answer"); setPage(1); }}><span>缺答案</span><b>{reviewIssues.missingAnswer || 0}</b></Link><Link href="/questions?status=review&issue=missing_analysis" onClick={() => { setIssue("missing_analysis"); setPage(1); }}><span>缺解析</span><b>{reviewIssues.missingAnalysis || 0}</b></Link><Link href="/questions?status=review&issue=classification" onClick={() => { setIssue("classification"); setPage(1); }}><span>分类不完整</span><b>{reviewIssues.missingClassification || 0}</b></Link><Link href="/questions?status=review&issue=low_confidence" onClick={() => { setIssue("low_confidence"); setPage(1); }}><span>低置信度</span><b>{reviewIssues.lowConfidence || 0}</b></Link></section>}
     {tab === "library" && <div className="toolbar reviewTools"><div className="resultSummary"><b>{total}</b><span>道题 · 第 {page}/{pageCount} 页</span></div><select value={issue} onChange={(event) => { setIssue(event.target.value); setPage(1); }} aria-label="校对问题筛选"><option value="">全部校对状态</option><option value="missing_answer">缺少答案</option><option value="missing_analysis">缺少解析</option><option value="classification">分类不完整</option><option value="duplicate">疑似重复</option><option value="low_confidence">识别置信度低</option></select><select value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }} aria-label="题目排序"><option value="updated_desc">最近更新</option><option value="updated_asc">最早更新</option><option value="difficulty_desc">难度从高到低</option></select><button onClick={() => setSelected(rows.map((row) => Number(row.id)).filter(Boolean))}>选择本页（{rows.length}）</button><button onClick={() => setSelected(allIds)}>选择全部结果（{allIds.length}）</button>{selected.length > 0 && <><strong>已选 {selected.length}</strong><select value={batchAction} onChange={(event) => setBatchAction(event.target.value)} aria-label="批量字段"><option value="stage">学段</option><option value="grade">年级</option><option value="questionType">题型</option><option value="difficulty">难度</option><option value="textbookVersion">教材版本</option><option value="volume">册别/模块</option><option value="unit">单元</option><option value="topic">课/框</option><option value="knowledge">知识点</option><option value="tags">标签</option></select><input value={batchValue} onChange={(event) => setBatchValue(event.target.value)} placeholder="批量填写内容" /><button onClick={() => void batch()}>应用字段</button>{status === "review" && <><button className="primaryButton" onClick={() => void batch("confirm")}>生成报告并入库</button><button onClick={() => void batch("return")}>退回修改</button><button onClick={() => void batch("ignore")}>暂时忽略</button></>}<button onClick={() => setSelected([])}>取消选择</button></>}</div>}

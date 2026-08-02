@@ -38,6 +38,34 @@ test("question list distinguishes loading, recoverable errors and genuine empty 
   assert.match(page, /aria-busy/);
 });
 
+test("saved question views use resilient requests and recoverable list states", async () => {
+  const page = await read("app/questions/page.tsx");
+  const savedViewFlow = page.match(/const loadViews[\s\S]*?const storePaperCart/)?.[0] || "";
+
+  assert.match(savedViewFlow, /requestJson<.*SavedViewsResponse.*>\("\/api\/question-views"/s);
+  assert.match(savedViewFlow, /savedViewRequest\.current\?\.abort\(\)/);
+  assert.match(savedViewFlow, /signal: controller\.signal/);
+  assert.match(savedViewFlow, /setSavedViewState\("loading"\)/);
+  assert.match(savedViewFlow, /setSavedViewState\("error"\)/);
+  assert.doesNotMatch(savedViewFlow, /\bfetch\s*\(/);
+  assert.match(page, /筛选方案读取失败/);
+  assert.match(page, /重新读取筛选方案/);
+});
+
+test("saved question view mutations validate input and prevent overlapping writes", async () => {
+  const page = await read("app/questions/page.tsx");
+  const savedViewFlow = page.match(/const loadViews[\s\S]*?const storePaperCart/)?.[0] || "";
+
+  assert.match(page, /const savedViewActionRef\s*=\s*useRef<string \| null>\(null\)/);
+  assert.match(savedViewFlow, /if \(savedViewActionRef\.current\) return/);
+  assert.match(savedViewFlow, /if \(!name\)/);
+  assert.match(savedViewFlow, /if \(!Object\.keys\(filters\)\.length\)/);
+  assert.match(savedViewFlow, /requestJson<SavedViewResponse>\("\/api\/question-views"/);
+  assert.match(savedViewFlow, /requestJson<\{ ok\?: boolean \}>\(`\/api\/question-views\/\$\{id\}`/);
+  assert.match(savedViewFlow, /finally[\s\S]*savedViewActionRef\.current = null[\s\S]*setSavedViewBusy\(null\)/);
+  assert.match(page, /disabled=\{Boolean\(savedViewBusy\)\}/);
+});
+
 test("question pagination is clamped after filtering instead of returning a false empty page", async () => {
   const route = await read("app/api/questions/route.ts");
 
@@ -68,6 +96,9 @@ test("question list styling follows the quiet study room tokens and mobile touch
   assert.match(css, /font-size:\s*1rem/);
   assert.match(css, /font-size:\s*0\.875rem/);
   assert.match(css, /min-height:\s*44px/);
+  assert.match(css, /\.savedSearchBar input\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*1rem/s);
+  assert.match(css, /\.savedSearchBar button\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
+  assert.match(css, /\.savedViewStatus\s*\{[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });

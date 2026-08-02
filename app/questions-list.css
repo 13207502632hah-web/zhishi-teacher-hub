@@ -50,6 +50,86 @@
   line-height: 1.6;
 }
 
+.savedSearchBar {
+  display: grid;
+  width: 100%;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.savedSearchBar > div:first-child {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.savedSearchBar input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid #c9c2b3;
+  border-radius: 0.625rem;
+  background: #fffdf8;
+  color: #22372f;
+  padding: 0.625rem 0.75rem;
+  font: inherit;
+  font-size: 1rem;
+}
+
+.savedSearchBar button {
+  min-height: 44px;
+  border: 1px solid #c9c2b3;
+  background: #fffdf8;
+  color: #315346;
+  padding: 0.625rem 0.75rem;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.savedSearchBar > span {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.savedSearchBar > span button:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedSearchBar > span button:last-child {
+  min-width: 44px;
+}
+
+.savedViewStatus {
+  display: flex;
+  min-height: 44px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.625rem;
+  background: #f5f2ea;
+  color: #675f51;
+  font-size: 0.875rem;
+}
+
+.savedViewStatus.error {
+  border-color: #d5afa5;
+  background: #fff8f5;
+  color: #753e31;
+}
+
+.savedViewStatus em {
+  flex: 1;
+  min-width: 12rem;
+  font-style: normal;
+}
+
 .questionList {
   gap: 1rem;
 }
@@ -214,6 +294,20 @@
 }
 
 @media (min-width: 48rem) {
+  .savedSearchBar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .savedSearchBar > div:first-child {
+    min-width: min(100%, 24rem);
+  }
+
+  .savedViewStatus {
+    flex-basis: 100%;
+  }
+
   .questionFilters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
