@@ -130,6 +130,58 @@
   font-style: normal;
 }
 
+.questionHealthState {
+  display: flex;
+  min-height: 44px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #f5f2ea;
+  color: #675f51;
+  font-size: 0.875rem;
+}
+
+.questionHealthState.error {
+  border-color: #d5afa5;
+  background: #fff8f5;
+  color: #753e31;
+}
+
+.questionHealthState span {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.questionHealthState button {
+  min-height: 44px;
+  border: 1px solid #315346;
+  border-radius: 0.625rem;
+  background: #315346;
+  color: #fff;
+  padding: 0.625rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.questionHealth.stale {
+  border: 1px solid #d5afa5;
+  border-radius: 0.75rem;
+  background: #fff8f5;
+  padding: 0.75rem;
+}
+
+.questionHealth.stale > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #753e31;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
 .questionList {
   gap: 1rem;
 }

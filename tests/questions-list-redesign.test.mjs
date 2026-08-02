@@ -66,6 +66,23 @@ test("saved question view mutations validate input and prevent overlapping write
   assert.match(page, /disabled=\{Boolean\(savedViewBusy\)\}/);
 });
 
+test("question health metrics distinguish loading, failure, and real zero values", async () => {
+  const page = await read("app/questions/page.tsx");
+  const healthFlow = page.match(/const loadHealth[\s\S]*?useEffect\(\(\) => \{ const id =/)?.[0] || "";
+
+  assert.match(page, /const healthRequest\s*=\s*useRef<AbortController \| null>\(null\)/);
+  assert.match(healthFlow, /requestJson<QuestionHealthResponse>\(`\/api\/questions\/stats\?\$\{params\}`/);
+  assert.match(healthFlow, /healthRequest\.current\?\.abort\(\)/);
+  assert.match(healthFlow, /signal: controller\.signal/);
+  assert.match(healthFlow, /setHealthState\("loading"\)/);
+  assert.match(healthFlow, /setHealthState\("error"\)/);
+  assert.doesNotMatch(healthFlow, /\bfetch\s*\(/);
+  assert.match(page, /题库健康指标读取失败/);
+  assert.match(page, /重新读取健康指标/);
+  assert.match(page, /health && healthState !== "loading" && renderHealth\(healthState === "error"\)/);
+  assert.match(page, /上次成功读取的题库健康指标/);
+});
+
 test("question pagination is clamped after filtering instead of returning a false empty page", async () => {
   const route = await read("app/api/questions/route.ts");
 
@@ -99,6 +116,7 @@ test("question list styling follows the quiet study room tokens and mobile touch
   assert.match(css, /\.savedSearchBar input\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*1rem/s);
   assert.match(css, /\.savedSearchBar button\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /\.savedViewStatus\s*\{[^}]*font-size:\s*0\.875rem/s);
+  assert.match(css, /\.questionHealthState\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });
