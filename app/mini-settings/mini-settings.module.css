@@ -1,0 +1,531 @@
+.page {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  color: #172820;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.intro,
+.panel,
+.scope,
+.securityNote,
+.notice,
+.flowItem {
+  border: 1px solid #dfe5dd;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.intro {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, #f4f8ed, #fff);
+}
+
+.introMain h2,
+.panel h2,
+.scope h2 {
+  margin: 0;
+  color: #183b31;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  line-height: 1.2;
+}
+
+.introText,
+.panelDescription,
+.scope p,
+.securityNote p,
+.notice,
+.statusDescription,
+.noAction,
+.inviteReceipt p,
+.helper,
+.emptyBlock p,
+.loadError p {
+  margin: 0;
+  color: #5c7066;
+}
+
+.introText {
+  max-width: 68ch;
+  margin-top: 0.75rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  color: #567a64;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.securityNote {
+  align-self: start;
+  padding: 1rem;
+  background: #f8fbf7;
+}
+
+.securityNote strong,
+.securityNote p {
+  display: block;
+}
+
+.securityNote strong {
+  margin-bottom: 0.35rem;
+  color: #2d5d48;
+}
+
+.flow {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flowItem {
+  display: flex;
+  min-height: 4rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.flowIndex {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #d9ecce;
+  color: #285642;
+  font-weight: 800;
+}
+
+.flowItem b,
+.flowItem small {
+  display: block;
+}
+
+.flowItem small,
+.cardMain p,
+.cardMain small,
+.count,
+.countGroup,
+.statusDescription,
+.noAction,
+.helper {
+  font-size: 0.875rem;
+}
+
+.flowItem small,
+.cardMain p,
+.cardMain small,
+.count,
+.countGroup,
+.helper {
+  color: #53665b;
+}
+
+.notice {
+  padding: 0.875rem 1rem;
+  background: #eff7ed;
+  border-color: #cfe2cc;
+}
+
+.noticeError {
+  background: #fff1ed;
+  border-color: #efc9c0;
+  color: #873e35;
+}
+
+.sectionGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.panel {
+  min-width: 0;
+  padding: 1.25rem;
+}
+
+.bindingPanel {
+  grid-column: 1 / -1;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panelDescription {
+  max-width: 66ch;
+  margin-top: 0.65rem;
+}
+
+.count,
+.countGroup {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.countGroup {
+  display: grid;
+  gap: 0.25rem;
+  text-align: right;
+}
+
+.formGrid {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+  color: #385c4c;
+  font-weight: 700;
+}
+
+.field select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #bdcfc4;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #172820;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+}
+
+.field select:focus,
+.button:focus-visible {
+  outline: 3px solid #b5d9a7;
+  outline-offset: 2px;
+}
+
+.helper {
+  margin: 0.75rem 0;
+  line-height: 1.5;
+}
+
+.button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.buttonPrimary {
+  background: #1d503f;
+  color: #fff;
+}
+
+.buttonSecondary {
+  border-color: #9fbaaa;
+  background: #f7fbf6;
+  color: #255642;
+}
+
+.buttonDanger {
+  border-color: #d9a49a;
+  background: #fff8f5;
+  color: #8a3d34;
+}
+
+.cardList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.accountCard,
+.bindingCard {
+  display: grid;
+  gap: 0.875rem;
+  min-width: 0;
+  border: 1px solid #e0e8e0;
+  border-radius: 0.65rem;
+  padding: 1rem;
+  background: #fbfdf9;
+}
+
+.cardMain {
+  min-width: 0;
+}
+
+.cardMain h3 {
+  margin: 0;
+  color: #1f4839;
+  font-size: 1.05rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.cardMain p,
+.cardMain small {
+  display: block;
+  margin: 0.25rem 0 0;
+}
+
+.accountCard .button,
+.bindingActions .button {
+  width: 100%;
+}
+
+.loading {
+  margin: 0;
+  color: #5f7469;
+}
+
+.loadError {
+  display: grid;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid #edcfc8;
+  border-radius: 0.6rem;
+  padding: 1rem;
+  background: #fff8f5;
+}
+
+.loadError strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #873e35;
+}
+
+.emptyBlock {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: start;
+  border: 1px dashed #cbd8cb;
+  border-radius: 0.6rem;
+  padding: 1rem;
+  background: #fbfdf9;
+}
+
+.emptyMark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #e5efdf;
+  color: #427054;
+  font-weight: 800;
+}
+
+.emptyBlock h3 {
+  margin: 0;
+  color: #2b503f;
+  font-size: 1rem;
+}
+
+.emptyBlock p {
+  margin-top: 0.3rem;
+}
+
+.inviteReceipt {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  border: 2px solid #b9d7ac;
+  border-radius: 0.7rem;
+  padding: 1rem;
+  background: #f4faef;
+}
+
+.inviteHeading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #2b5d43;
+}
+
+.inviteHeading span {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.inviteCode {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #173d30;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: clamp(1.8rem, 8vw, 2.7rem);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+}
+
+.inviteMeta {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.inviteMeta div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #d6e6d0;
+  padding-top: 0.5rem;
+}
+
+.inviteMeta dt,
+.inviteMeta dd {
+  margin: 0;
+}
+
+.inviteMeta dt {
+  color: #5b7762;
+  font-size: 0.875rem;
+}
+
+.inviteMeta dd {
+  color: #254e3b;
+  font-weight: 700;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.inviteReceipt p {
+  font-size: 0.875rem;
+}
+
+.bindingTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.bindingTop .cardMain h3 span {
+  color: #7e9686;
+}
+
+.status {
+  display: inline-flex;
+  min-height: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.statusPending {
+  background: #fff1cf;
+  color: #825d1a;
+}
+
+.statusActive {
+  background: #dcefd8;
+  color: #2e6747;
+}
+
+.statusRejected,
+.statusDisabled {
+  background: #f3e6e3;
+  color: #81463e;
+}
+
+.statusDescription {
+  margin: 0;
+}
+
+.bindingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.noAction {
+  margin: 0;
+  border-top: 1px solid #e2e9e1;
+  padding-top: 0.65rem;
+  color: #7a6c68;
+}
+
+.scope {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  background: #f7faf4;
+}
+
+@media (min-width: 640px) {
+  .formGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accountCard {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .accountCard .button {
+    width: auto;
+  }
+
+  .loadError {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (min-width: 768px) {
+  .intro,
+  .scope {
+    grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.6fr);
+    align-items: start;
+  }
+
+  .flow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .flowItem {
+    min-height: 5rem;
+  }
+
+  .bindingActions .button {
+    width: auto;
+  }
+}
+
+@media (min-width: 1024px) {
+  .sectionGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel,
+  .intro,
+  .scope {
+    padding: 1.5rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  .page {
+    max-width: 86rem;
+    margin-inline: auto;
+  }
+}
