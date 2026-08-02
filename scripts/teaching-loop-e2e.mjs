@@ -183,6 +183,7 @@ function cleanup() {
   const paperIds = `SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)}`;
   const questionIds = `SELECT id FROM questions WHERE stem LIKE ${quote(`${marker}%`)}`;
   const importIds = `SELECT id FROM schedule_imports WHERE source_name LIKE ${quote(`${marker}%`)}`;
+  const paperDependencyMarker = quote(`${marker}_paper_dependency%`);
   sql(`PRAGMA foreign_keys=ON;
     DELETE FROM audit_logs WHERE entity_type='lesson' AND CAST(entity_id AS INTEGER) IN (${lessonIds});
     DELETE FROM feedback_evidence WHERE feedback_id IN (${feedbackIds});
@@ -201,6 +202,12 @@ function cleanup() {
     DELETE FROM feedback WHERE id IN (${feedbackIds});
     DELETE FROM attendance WHERE lesson_id IN (${lessonIds});
     DELETE FROM student_lesson_records WHERE lesson_id IN (${lessonIds});
+    DELETE FROM assessment_results WHERE assessment_id IN (SELECT id FROM assessments WHERE title LIKE ${paperDependencyMarker});
+    DELETE FROM assessments WHERE title LIKE ${paperDependencyMarker};
+    DELETE FROM exam_projects WHERE name LIKE ${paperDependencyMarker};
+    DELETE FROM question_sets WHERE name LIKE ${paperDependencyMarker};
+    DELETE FROM export_jobs WHERE id LIKE ${paperDependencyMarker};
+    DELETE FROM paper_files WHERE storage_key LIKE ${paperDependencyMarker};
     DELETE FROM export_jobs WHERE paper_id IN (${paperIds});
     DELETE FROM paper_questions WHERE paper_id IN (${paperIds}) OR question_id IN (${questionIds});
     DELETE FROM paper_files WHERE paper_id IN (${paperIds});
@@ -857,6 +864,53 @@ async function exerciseRound(round, cookie) {
   return { round, lessonId, idempotent: true, undoRestoredDraft: true, protectedArtifacts: true, pricingSnapshot: true, benchmarkMs };
 }
 
+async function exerciseDemoCleanup(cookie) {
+  const demoQuestion = rows(`SELECT entity_id AS id FROM demo_records WHERE entity_type='question' ORDER BY id LIMIT 1`)[0];
+  assert.ok(Number(demoQuestion?.id) > 0);
+  const demoReview = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { questionIds: [Number(demoQuestion.id)], rerun: true } });
+  assert.equal(demoReview.response.status, 200, JSON.stringify(demoReview.data));
+
+  const before = rows(`SELECT
+    (SELECT COUNT(*) FROM demo_records) AS records,
+    (SELECT COUNT(*) FROM ai_question_reviews r JOIN demo_records d ON d.entity_type='question' AND d.entity_id=r.question_id) AS aiReviews,
+    (SELECT COUNT(*) FROM assessments a JOIN demo_records d ON d.entity_type='paper' AND d.entity_id=a.paper_id) AS paperAssessments`)[0];
+  assert.ok(Number(before.records) > 0);
+  assert.ok(Number(before.aiReviews) > 0);
+  assert.ok(Number(before.paperAssessments) > 0);
+
+  const demoPaper = rows(`SELECT entity_id AS id FROM demo_records WHERE entity_type='paper' ORDER BY id LIMIT 1`)[0];
+  const demoLesson = rows(`SELECT entity_id AS id FROM demo_records WHERE entity_type='lesson' ORDER BY id LIMIT 1`)[0];
+  assert.ok(Number(demoPaper?.id) > 0);
+  assert.ok(Number(demoLesson?.id) > 0);
+  const dependencyMarker = `${marker}_paper_dependency`;
+  sql(`INSERT INTO assessments (title,paper_id) VALUES (${quote(`${dependencyMarker}_assessment`)},${Number(demoPaper.id)});
+    INSERT INTO question_sets (name,paper_id) VALUES (${quote(`${dependencyMarker}_question_set`)},${Number(demoPaper.id)});
+    INSERT INTO export_jobs (id,paper_id,format,mode) VALUES (${quote(`${dependencyMarker}_export`)},${Number(demoPaper.id)},'docx','teacher');
+    INSERT INTO paper_files (paper_id,original_name,storage_key,mime_type,size,fingerprint) VALUES (${Number(demoPaper.id)},'local-e2e.docx',${quote(`${dependencyMarker}_file`)},'application/vnd.openxmlformats-officedocument.wordprocessingml.document',1,${quote(`${dependencyMarker}_fingerprint`)});
+    INSERT INTO lesson_workflow_state (lesson_id,homework_paper_id) VALUES (${Number(demoLesson.id)},${Number(demoPaper.id)}) ON CONFLICT(lesson_id) DO UPDATE SET homework_paper_id=excluded.homework_paper_id;
+    INSERT INTO exam_projects (academic_year,name,category,stage,grade,paper_id) VALUES ('2026-2027',${quote(`${dependencyMarker}_exam_project`)},'期末','初中','八年级',${Number(demoPaper.id)});`);
+
+  const cleared = await request("/api/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
+  assert.equal(cleared.response.status, 200, JSON.stringify({ data: cleared.data, logs: logs.slice(-20) }));
+  assert.equal(cleared.data.ok, true);
+
+  const after = rows(`SELECT
+    (SELECT COUNT(*) FROM demo_records) AS records,
+    (SELECT COUNT(*) FROM questions WHERE stem LIKE '【演示】%') AS questions,
+    (SELECT COUNT(*) FROM papers WHERE title LIKE '【演示】%') AS papers,
+    (SELECT COUNT(*) FROM assessments WHERE title LIKE '【演示】%') AS assessments,
+    (SELECT COUNT(*) FROM ai_question_reviews r LEFT JOIN questions q ON q.id=r.question_id WHERE q.id IS NULL) AS orphanAiReviews,
+    (SELECT COUNT(*) FROM assessments WHERE title=${quote(`${dependencyMarker}_assessment`)} AND paper_id IS NULL) AS keptAssessment,
+    (SELECT COUNT(*) FROM question_sets WHERE name=${quote(`${dependencyMarker}_question_set`)} AND paper_id IS NULL) AS keptQuestionSet,
+    (SELECT COUNT(*) FROM exam_projects WHERE name=${quote(`${dependencyMarker}_exam_project`)} AND paper_id IS NULL) AS keptExamProject,
+    (SELECT COUNT(*) FROM export_jobs WHERE id=${quote(`${dependencyMarker}_export`)}) AS exportJobs,
+    (SELECT COUNT(*) FROM paper_files WHERE storage_key=${quote(`${dependencyMarker}_file`)}) AS paperFiles,
+    (SELECT COUNT(*) FROM lesson_workflow_state WHERE lesson_id=${Number(demoLesson.id)}) AS lessonWorkflowStates`)[0];
+  assert.deepEqual(after, { records: 0, questions: 0, papers: 0, assessments: 0, orphanAiReviews: 0, keptAssessment: 1, keptQuestionSet: 1, keptExamProject: 1, exportJobs: 0, paperFiles: 0, lessonWorkflowStates: 0 });
+  assert.deepEqual(rows("PRAGMA foreign_key_check"), []);
+  return { confirmed: true, trackedRecords: Number(before.records), aiReviews: Number(before.aiReviews), paperAssessments: Number(before.paperAssessments) };
+}
+
 try {
   const aiMockBase = await startAiMock();
   await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\n`, { mode: 0o600 });
@@ -882,8 +936,9 @@ try {
     const ai = await exerciseAiWorkflows(cookie);
     const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
     cleanup();
+    const demoCleanup = await exerciseDemoCleanup(cookie);
     await mkdir(path.dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, ai, rounds, generatedAt: new Date().toISOString() }, null, 2));
+    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, ai, demoCleanup, rounds, generatedAt: new Date().toISOString() }, null, 2));
     console.log(`综合演示数据、DeepSeek 本地模拟与今日教学闭环回归通过：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
   }
 } finally {

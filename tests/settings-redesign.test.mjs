@@ -111,6 +111,40 @@ test("demo operations retain tracking and explicitly limit clearing to marked re
   assert.match(page, /真实教学数据不受影响|真实教学记录不会受影响/);
 });
 
+test("demo cleanup removes paper dependents before tracked demo papers", () => {
+  const deleteAssessmentResults = demoApi.indexOf("DELETE FROM assessment_results");
+  const deleteAssessments = demoApi.indexOf("DELETE FROM assessments");
+  const clearAssessmentPaper = demoApi.indexOf("UPDATE assessments SET paper_id=NULL");
+  const deleteQuestionSets = demoApi.indexOf("DELETE FROM question_sets");
+  const clearQuestionSetPaper = demoApi.indexOf("UPDATE question_sets SET paper_id=NULL");
+  const deleteExportJobs = demoApi.indexOf("DELETE FROM export_jobs");
+  const deletePaperFiles = demoApi.indexOf("DELETE FROM paper_files");
+  const clearWorkflowPaper = demoApi.indexOf("UPDATE lesson_workflow_state SET homework_paper_id=NULL");
+  const clearExamProjectPaper = demoApi.indexOf("UPDATE exam_projects SET paper_id=NULL");
+  const deletePapers = demoApi.indexOf("DELETE FROM papers");
+
+  for (const [label, index] of Object.entries({
+    deleteAssessmentResults,
+    deleteAssessments,
+    clearAssessmentPaper,
+    deleteQuestionSets,
+    clearQuestionSetPaper,
+    deleteExportJobs,
+    deletePaperFiles,
+    clearWorkflowPaper,
+    clearExamProjectPaper,
+    deletePapers,
+  })) {
+    assert.ok(index >= 0, `missing ${label} cleanup`);
+  }
+  assert.ok(deleteAssessmentResults < deleteAssessments, "assessment results must be removed before assessments");
+  assert.ok(deleteAssessments < deletePapers, "assessments still reference their paper and must be removed first");
+  assert.ok(deleteQuestionSets < deletePapers, "question sets may still reference their source paper and must be removed first");
+  for (const index of [clearAssessmentPaper, clearQuestionSetPaper, deleteExportJobs, deletePaperFiles, clearWorkflowPaper, clearExamProjectPaper]) {
+    assert.ok(index < deletePapers, "every paper foreign-key dependent must be cleared before tracked demo papers");
+  }
+});
+
 test("password flow clears client fields and explains old-session invalidation without echoing secrets", () => {
   assert.match(page, /currentPassword/);
   assert.match(page, /setPasswordForm\(\{\s*\.\.\.blankPassword\s*\}\)|setPasswordForm\(\{\s*currentPassword:\s*["']{2}/);
