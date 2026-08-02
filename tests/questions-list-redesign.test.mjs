@@ -83,6 +83,23 @@ test("question health metrics distinguish loading, failure, and real zero values
   assert.match(page, /上次成功读取的题库健康指标/);
 });
 
+test("question filter facets preserve known options and recover from request failures", async () => {
+  const page = await read("app/questions/page.tsx");
+  const facetFlow = page.match(/const loadFacets[\s\S]*?const loadHealth/)?.[0] || "";
+
+  assert.match(page, /const facetRequest\s*=\s*useRef<AbortController \| null>\(null\)/);
+  assert.match(facetFlow, /requestJson<QuestionFacetsResponse>\(`\/api\/questions\/facets\?\$\{params\}`/);
+  assert.match(facetFlow, /facetRequest\.current\?\.abort\(\)/);
+  assert.match(facetFlow, /signal: controller\.signal/);
+  assert.match(facetFlow, /setFacetState\("loading"\)/);
+  assert.match(facetFlow, /setFacetState\("error"\)/);
+  assert.match(facetFlow, /Object\.values\(data\.facets\)\.every\(Array\.isArray\)/);
+  assert.doesNotMatch(facetFlow, /\bfetch\s*\(/);
+  assert.match(page, /教材目录筛选读取失败/);
+  assert.match(page, /重新读取教材目录/);
+  assert.match(page, /教材目录选项来自上次成功读取/);
+});
+
 test("question pagination is clamped after filtering instead of returning a false empty page", async () => {
   const route = await read("app/api/questions/route.ts");
 
@@ -117,6 +134,7 @@ test("question list styling follows the quiet study room tokens and mobile touch
   assert.match(css, /\.savedSearchBar button\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /\.savedViewStatus\s*\{[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /\.questionHealthState\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
+  assert.match(css, /\.facetState\s*\{[^}]*min-height:\s*44px[^}]*font-size:\s*0\.875rem/s);
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });
