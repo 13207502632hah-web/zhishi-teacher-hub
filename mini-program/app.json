@@ -5,6 +5,7 @@
     "pages/submit/index",
     "pages/bind/index",
     "pages/portal/index",
+    "pages/web-portal/index",
     "pages/review/index",
     "pages/publish/index",
     "pages/inbox/index",

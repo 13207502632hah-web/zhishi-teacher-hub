@@ -83,7 +83,7 @@ export function WorkspaceNavigation({
           <span>知</span>
           <div>
             <b>知师研室</b>
-            <small>政治教学工作台</small>
+            <small>{learner ? "学生学习门户" : "政治教学工作台"}</small>
           </div>
         </Link>
 
@@ -110,10 +110,17 @@ export function WorkspaceNavigation({
           <span>{session.user?.name?.slice(0, 1) || "访"}</span>
           <div>
             <b>{session.user?.name || "公开访客"}</b>
-            <small>{session.roleName || "公开资源"} · 个人工作区</small>
+            <small>{session.roleName || "公开资源"} · {learner ? "个人学习空间" : "个人工作区"}</small>
           </div>
           {session.authenticated && (
-            <Link aria-label="退出登录" href="/api/auth/logout?return_to=%2Fresources">
+            <Link
+              aria-label="退出登录"
+              href={
+                learner
+                  ? "/api/portal/session"
+                  : "/api/auth/logout?return_to=%2Fresources"
+              }
+            >
               退出
             </Link>
           )}

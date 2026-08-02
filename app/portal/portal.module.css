@@ -1,0 +1,580 @@
+.page {
+  box-sizing: border-box;
+  color: var(--zs-ink, #173f35);
+  font-size: 1rem;
+  min-width: 0;
+  overflow-x: clip;
+  width: 100%;
+}
+
+.page *,
+.page *::before,
+.page *::after {
+  box-sizing: border-box;
+}
+
+.hero,
+.priority,
+.panel,
+.switcher,
+.empty,
+.state {
+  background: var(--zs-surface, #fff);
+  border: 1px solid var(--zs-line, #dfe6df);
+  border-radius: 1rem;
+  min-width: 0;
+}
+
+.hero {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1.125rem;
+}
+
+.eyebrow,
+.panelEyebrow {
+  color: var(--zs-muted, #687870);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.heroTitle {
+  color: var(--zs-ink, #173f35);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(1.5rem, 7vw, 2.2rem);
+  line-height: 1.25;
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.heroCopy,
+.privacyNote,
+.bodyText,
+.emptyCopy,
+.stateCopy {
+  font-size: 1rem;
+  line-height: 1.65;
+  margin: 0.5rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.heroCopy,
+.bodyText,
+.emptyCopy,
+.stateCopy {
+  color: var(--zs-muted, #687870);
+}
+
+.privacyNote {
+  background: var(--zs-paper-deep, #f2f5ef);
+  border-left: 0.25rem solid var(--zs-gold, #d5b86a);
+  color: var(--zs-muted, #687870);
+  margin: 0;
+  padding: 0.75rem;
+}
+
+.switcher {
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.switcherLabel {
+  color: var(--zs-muted, #687870);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+}
+
+.select {
+  background: var(--zs-surface, #fff);
+  border: 1px solid var(--zs-line, #dfe6df);
+  border-radius: 0.5rem;
+  color: var(--zs-ink, #173f35);
+  font: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  width: 100%;
+}
+
+.priority {
+  background: var(--zs-pine-deep, #214b3e);
+  border-color: var(--zs-pine-deep, #214b3e);
+  color: #fff;
+  margin-bottom: 1rem;
+  padding: 1.125rem;
+}
+
+.priority .eyebrow,
+.priorityTitle,
+.priorityBody,
+.priorityBody p {
+  color: #fff;
+}
+
+.priorityHeader {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.priorityHeader .eyebrow {
+  color: var(--zs-gold, #e0c675);
+}
+
+.priorityTitle {
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(1.35rem, 6vw, 1.8rem);
+  line-height: 1.3;
+  margin: 0;
+}
+
+.priorityBody {
+  align-items: end;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 0.875rem;
+}
+
+.priorityBody strong {
+  display: block;
+  font-size: 1.125rem;
+  line-height: 1.45;
+}
+
+.priorityBody p {
+  font-size: 1rem;
+  line-height: 1.55;
+  margin: 0.25rem 0 0;
+  opacity: 0.82;
+  overflow-wrap: anywhere;
+}
+
+.priorityLink,
+.stateActionButton,
+.attachmentLink {
+  align-items: center;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  font-size: 1rem;
+  justify-content: center;
+  line-height: 1.35;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.625rem 0.875rem;
+  text-decoration: none;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.priorityLink {
+  background: var(--zs-gold, #e0c675);
+  color: var(--zs-ink, #173f35);
+  font-weight: 750;
+  width: 100%;
+}
+
+.priorityLink:hover,
+.priorityLink:focus-visible,
+.stateActionButton:hover,
+.stateActionButton:focus-visible,
+.attachmentLink:hover,
+.attachmentLink:focus-visible {
+  transform: translateY(-1px);
+}
+
+.metrics {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
+.metrics article {
+  background: var(--zs-paper, #fbfcfa);
+  border: 1px solid var(--zs-line, #dfe6df);
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+  padding: 0.875rem;
+}
+
+.metrics span,
+.metrics small,
+.metaText,
+.time {
+  color: var(--zs-muted, #687870);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.metrics strong {
+  color: var(--zs-pine, #315d4d);
+  font-size: 1.625rem;
+  line-height: 1.2;
+}
+
+.contentGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.panel {
+  padding: 1rem;
+}
+
+.panelHeader {
+  align-items: start;
+  border-bottom: 1px solid var(--zs-line, #dfe6df);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.875rem;
+  min-width: 0;
+  padding-bottom: 0.75rem;
+}
+
+.panelTitle {
+  color: var(--zs-ink, #173f35);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(1.25rem, 5vw, 1.55rem);
+  line-height: 1.3;
+  margin: 0.125rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.panelCount {
+  color: var(--zs-pine, #315d4d);
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  padding-top: 0.2rem;
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.assignment,
+.feedback,
+.resource {
+  background: var(--zs-paper, #fbfcfa);
+  border: 1px solid var(--zs-line, #dfe6df);
+  border-radius: 0.75rem;
+  min-width: 0;
+  padding: 0.875rem;
+}
+
+.assignmentPriority {
+  border-left: 0.3rem solid var(--zs-gold, #d5b86a);
+}
+
+.assignmentHeader,
+.feedbackHeader,
+.resourceHeader {
+  align-items: start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.assignmentTitle,
+.resource h3,
+.result h3 {
+  color: var(--zs-ink, #173f35);
+  font-size: 1.125rem;
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.assignmentHeader .metaText {
+  margin-top: 0.125rem;
+}
+
+.assignmentMeta {
+  align-items: center;
+  border-bottom: 1px solid var(--zs-line, #dfe6df);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+
+.assignmentMeta span {
+  color: var(--zs-muted, #687870);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.badge,
+.badgeSuccess,
+.feedbackType {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  padding: 0.3rem 0.5rem;
+  white-space: nowrap;
+}
+
+.badgeWarning {
+  background: #fff2cd;
+  color: #76551d;
+}
+
+.badgeSuccess {
+  background: #e4f0e8;
+  color: var(--zs-pine, #315d4d);
+}
+
+.revision {
+  background: #fff7df;
+  border-left: 0.25rem solid var(--zs-gold, #d5b86a);
+  color: #76551d;
+  font-size: 1rem;
+  line-height: 1.55;
+  margin: 0.75rem 0 0;
+  padding: 0.625rem 0.75rem;
+}
+
+.attachments {
+  border-top: 1px solid var(--zs-line, #dfe6df);
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.attachments strong {
+  color: var(--zs-ink, #173f35);
+  font-size: 0.875rem;
+}
+
+.attachmentList {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.attachmentLink {
+  background: var(--zs-surface, #fff);
+  border: 1px solid var(--zs-line, #dfe6df);
+  color: var(--zs-pine, #315d4d);
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+  width: 100%;
+}
+
+.feedbackHeader {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.feedbackType {
+  background: var(--zs-paper-deep, #f2f5ef);
+  color: var(--zs-pine, #315d4d);
+}
+
+.time {
+  margin-left: auto;
+}
+
+.feedback pre {
+  font-family: inherit;
+  white-space: pre-wrap;
+}
+
+.resultGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.result {
+  background: var(--zs-paper, #fbfcfa);
+  border: 1px solid var(--zs-line, #dfe6df);
+  border-radius: 0.75rem;
+  min-width: 0;
+  padding: 0.875rem;
+}
+
+.result h3 {
+  margin-top: 0.25rem;
+}
+
+.result > strong {
+  color: var(--zs-pine, #315d4d);
+  display: block;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin-top: 0.5rem;
+}
+
+.result > strong small {
+  color: var(--zs-muted, #687870);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.resourceHeader {
+  align-items: center;
+}
+
+.resourceHeader .metaText {
+  flex: 0 0 auto;
+}
+
+.resource .attachmentLink {
+  margin-top: 0.75rem;
+}
+
+.empty {
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.emptyTitle {
+  color: var(--zs-ink, #173f35);
+  font-size: 1.125rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.emptyCopy {
+  margin-top: 0.25rem;
+}
+
+.state {
+  margin: 1rem auto;
+  max-width: 42rem;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.stateAlert {
+  border-color: #c56b5c;
+}
+
+.stateIcon {
+  align-items: center;
+  background: var(--zs-gold, #d5b86a);
+  border-radius: 50%;
+  color: var(--zs-ink, #173f35);
+  display: inline-flex;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: 1.25rem;
+  height: 2.75rem;
+  justify-content: center;
+  width: 2.75rem;
+}
+
+.stateAlert .stateIcon {
+  background: #f8d8d2;
+  color: #8b3b32;
+  font-family: inherit;
+  font-weight: 800;
+}
+
+.stateTitle {
+  color: var(--zs-ink, #173f35);
+  font-size: 1.25rem;
+  line-height: 1.4;
+  margin: 0.75rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.stateCopy {
+  max-width: 36rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.stateAction {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.stateActionButton {
+  background: var(--zs-pine, #315d4d);
+  border: 1px solid var(--zs-pine, #315d4d);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+@media (min-width: 40rem) {
+  .hero,
+  .panel,
+  .switcher,
+  .priority,
+  .empty {
+    padding: 1.25rem;
+  }
+
+  .priorityBody {
+    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .priorityLink {
+    width: auto;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .resultGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .hero {
+    align-items: center;
+    grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+  }
+
+  .contentGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .contentGrid > .panel:first-child {
+    grid-row: span 2;
+  }
+}
+
+@media (min-width: 80rem) {
+  .page {
+    margin: 0 auto;
+    max-width: 76rem;
+  }
+
+  .heroTitle {
+    font-size: 2.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

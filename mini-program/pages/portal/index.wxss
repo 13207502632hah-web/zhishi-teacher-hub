@@ -1,0 +1,4 @@
+.portalButton {
+  margin-top: 28rpx;
+  width: 100%;
+}

@@ -204,6 +204,6 @@ test("stage four enforces roles, logs sensitive actions and requires destructive
   assert.match(access,/requirePermission/); assert.match(shell,/teacher-login/); assert.match(shell,/资源中心仍可公开浏览/); assert.match(navigation,/aria-current/); assert.match(shell,/跳到主要内容/); assert.match(teacherAuth,/HttpOnly/); assert.match(teacherAuth,/SameSite=Lax/); assert.match(teacherAuth,/crypto\.subtle/); assert.match(teacherLogin,/教师管理员登录/);
   for (const label of ["账号与角色","助教","学生","家长","操作日志","二次确认后导出","删除全部教学数据"]) assert.match(settings,new RegExp(label));
   assert.match(settingsApi,/assign_role/); assert.match(exportApi,/Content-Disposition/); assert.match(exportApi,/audit\(access,\s*"export"/); assert.match(deleteApi,/confirmation !== "删除全部教学数据"/); assert.match(deleteApi,/delete_all/);
-  assert.match(portalApi,/status='confirmed'/); assert.match(portalApi,/guardian_user_id/); assert.match(privateStudent,/view_sensitive/);
+  assert.match(portalApi,/status='confirmed'/); assert.match(portalApi,/portalAccountId/); assert.match(portalApi,/mini_bindings/); assert.doesNotMatch(portalApi,/guardian_user_id/); assert.match(privateStudent,/view_sensitive/);
   assert.match(css,/prefers-reduced-motion/); assert.match(css,/:focus-visible/); assert.match(schema,/visibility/); assert.match(schema,/guardianUserId/);
 });

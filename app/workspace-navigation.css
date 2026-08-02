@@ -369,8 +369,13 @@
   }
 
   .workspaceProfile > a {
+    align-items: center;
     color: #CCD8D3;
+    display: inline-flex;
     font-size: 0.875rem;
+    justify-content: center;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
   }
 
   .mobileTabBar,

@@ -183,8 +183,23 @@ function cleanup() {
   const paperIds = `SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)}`;
   const questionIds = `SELECT id FROM questions WHERE stem LIKE ${quote(`${marker}%`)}`;
   const importIds = `SELECT id FROM schedule_imports WHERE source_name LIKE ${quote(`${marker}%`)}`;
+  const portalAccountIds = `SELECT id FROM wechat_accounts WHERE open_id LIKE ${quote(`test:${marker}_portal_%`)}`;
+  const portalBindingIds = `SELECT id FROM mini_bindings WHERE account_id IN (${portalAccountIds})`;
   const paperDependencyMarker = quote(`${marker}_paper_dependency%`);
   sql(`PRAGMA foreign_keys=ON;
+    CREATE TEMP TABLE IF NOT EXISTS portal_cleanup_invites(id INTEGER PRIMARY KEY);
+    DELETE FROM portal_cleanup_invites;
+    INSERT OR IGNORE INTO portal_cleanup_invites(id) SELECT invite_id FROM mini_bindings WHERE account_id IN (${portalAccountIds}) AND invite_id IS NOT NULL;
+    DELETE FROM audit_logs WHERE entity_type='mini_binding' AND CAST(entity_id AS INTEGER) IN (${portalBindingIds});
+    DELETE FROM sync_events WHERE account_id IN (${portalAccountIds});
+    DELETE FROM parent_student_links WHERE parent_account_id IN (${portalAccountIds});
+    DELETE FROM mini_sessions WHERE account_id IN (${portalAccountIds});
+    DELETE FROM mini_bindings WHERE account_id IN (${portalAccountIds});
+    DELETE FROM mini_invites WHERE id IN (SELECT id FROM portal_cleanup_invites)
+      OR (used_at IS NOT NULL
+        AND student_id IN (SELECT entity_id FROM demo_records WHERE entity_type='student')
+        AND NOT EXISTS(SELECT 1 FROM mini_bindings WHERE mini_bindings.invite_id=mini_invites.id));
+    DELETE FROM wechat_accounts WHERE id IN (${portalAccountIds});
     DELETE FROM audit_logs WHERE entity_type='lesson' AND CAST(entity_id AS INTEGER) IN (${lessonIds});
     DELETE FROM feedback_evidence WHERE feedback_id IN (${feedbackIds});
     DELETE FROM lesson_completion_runs WHERE lesson_id IN (${lessonIds});
@@ -253,11 +268,16 @@ function seed(round) {
   return { lessonId: Number(lesson.id), studentIds: students.map((item) => Number(item.id)), questionIds, topic, dueAt, today };
 }
 
-async function request(pathname, { cookie, method = "GET", body } = {}) {
+async function request(pathname, { bearer, cookie, method = "GET", body, redirect = "follow" } = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
-    headers: { ...(body ? { "content-type": "application/json" } : {}), ...(cookie ? { cookie } : {}) },
+    headers: {
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+      ...(cookie ? { cookie } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
+    redirect,
   });
   const text = await response.text();
   let data = null;
@@ -864,6 +884,99 @@ async function exerciseRound(round, cookie) {
   return { round, lessonId, idempotent: true, undoRestoredDraft: true, protectedArtifacts: true, pricingSnapshot: true, benchmarkMs };
 }
 
+async function exercisePortalRole(cookie, role, studentId) {
+  const testCode = `${marker}_portal_${role}`;
+  const loginResult = await request("/api/mini/login", {
+    method: "POST",
+    body: { testCode, role, displayName: role === "parent" ? "本地回归家长" : "本地回归学生" },
+  });
+  assert.equal(loginResult.response.status, 200, JSON.stringify(loginResult.data));
+  assert.ok(loginResult.data?.token);
+  assert.ok(Number(loginResult.data?.accountId) > 0);
+
+  const invite = await request("/api/mini/invites", {
+    cookie,
+    method: "POST",
+    body: { role, studentId },
+  });
+  assert.equal(invite.response.status, 200, JSON.stringify(invite.data));
+  assert.match(String(invite.data?.code || ""), /^\d{6}$/);
+
+  const bindingRequest = await request("/api/mini/bind", {
+    bearer: loginResult.data.token,
+    method: "POST",
+    body: { code: invite.data.code },
+  });
+  assert.equal(bindingRequest.response.status, 202, JSON.stringify(bindingRequest.data));
+
+  const bindingList = await request("/api/mini/invites", { cookie });
+  assert.equal(bindingList.response.status, 200, JSON.stringify(bindingList.data));
+  const binding = bindingList.data?.bindings?.find((item) =>
+    Number(item.accountId) === Number(loginResult.data.accountId)
+      && Number(item.studentId) === Number(studentId)
+      && item.role === role
+      && item.status === "pending",
+  );
+  assert.ok(Number(binding?.id) > 0, JSON.stringify(bindingList.data));
+
+  const confirmation = await request(`/api/mini/bindings/${binding.id}`, {
+    cookie,
+    method: "POST",
+    body: { decision: "confirm" },
+  });
+  assert.equal(confirmation.response.status, 200, JSON.stringify(confirmation.data));
+
+  const exchange = await request("/api/portal/session", {
+    bearer: loginResult.data.token,
+    method: "POST",
+  });
+  assert.equal(exchange.response.status, 200, JSON.stringify(exchange.data));
+  const portalCookie = exchange.response.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(portalCookie?.startsWith("zhishi_portal_session="));
+  assert.match(exchange.response.headers.get("cache-control") || "", /private, no-store/);
+
+  const session = await request("/api/session", { cookie: portalCookie });
+  assert.equal(session.response.status, 200, JSON.stringify(session.data));
+  assert.equal(session.data?.role, role);
+  const portal = await request("/api/portal", { cookie: portalCookie });
+  assert.equal(portal.response.status, 200, JSON.stringify(portal.data));
+  assert.equal(portal.data?.role, role);
+  assert.equal(portal.data?.bindingStatus, "active");
+  assert.deepEqual(portal.data?.students?.map((student) => Number(student.id)), [Number(studentId)]);
+  if (role === "parent") assert.deepEqual(portal.data?.results, []);
+
+  const forbidden = await request("/api/dashboard", { cookie: portalCookie });
+  assert.equal(forbidden.response.status, 403, JSON.stringify(forbidden.data));
+
+  const disabled = await request(`/api/mini/bindings/${binding.id}`, {
+    cookie,
+    method: "POST",
+    body: { decision: "disable" },
+  });
+  assert.equal(disabled.response.status, 200, JSON.stringify(disabled.data));
+  const disabledPortal = await request("/api/portal", { cookie: portalCookie });
+  assert.equal(disabledPortal.response.status, 200, JSON.stringify(disabledPortal.data));
+  assert.equal(disabledPortal.data?.bindingStatus, "disabled");
+  assert.deepEqual(disabledPortal.data?.students, []);
+
+  const logout = await request("/api/portal/session", { cookie: portalCookie, method: "DELETE" });
+  assert.equal(logout.response.status, 200, JSON.stringify(logout.data));
+  assert.match(logout.response.headers.get("set-cookie") || "", /zhishi_portal_session=;/);
+  const afterLogout = await request("/api/portal", { cookie: logout.response.headers.get("set-cookie")?.split(";")[0] });
+  assert.equal(afterLogout.response.status, 401, JSON.stringify(afterLogout.data));
+
+  return { role, bindingConfirmed: true, scopeProtected: true, disabledBindingHidden: true, logoutCleared: true };
+}
+
+async function exercisePortalSessions(cookie) {
+  const student = rows("SELECT s.id FROM students s JOIN demo_records d ON d.entity_type='student' AND d.entity_id=s.id ORDER BY s.id LIMIT 1")[0];
+  assert.ok(Number(student?.id) > 0);
+  return Promise.all([
+    exercisePortalRole(cookie, "student", Number(student.id)),
+    exercisePortalRole(cookie, "parent", Number(student.id)),
+  ]);
+}
+
 async function exerciseDemoCleanup(cookie) {
   const demoQuestion = rows(`SELECT entity_id AS id FROM demo_records WHERE entity_type='question' ORDER BY id LIMIT 1`)[0];
   assert.ok(Number(demoQuestion?.id) > 0);
@@ -913,7 +1026,7 @@ async function exerciseDemoCleanup(cookie) {
 
 try {
   const aiMockBase = await startAiMock();
-  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\n`, { mode: 0o600 });
+  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nWECHAT_TEST_MODE=true\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\n`, { mode: 0o600 });
   const devServerCli = path.join(root, "node_modules", "vinext", "dist", "cli.js");
   server = spawn(process.execPath, [devServerCli, "dev"], {
     cwd: root,
@@ -933,13 +1046,14 @@ try {
     const access = await exerciseAnonymousAiBoundary();
     const cookie = await login();
     const demo = await exerciseComprehensiveDemo(cookie);
+    const portalSessions = await exercisePortalSessions(cookie);
     const ai = await exerciseAiWorkflows(cookie);
     const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
     cleanup();
     const demoCleanup = await exerciseDemoCleanup(cookie);
     await mkdir(path.dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, ai, demoCleanup, rounds, generatedAt: new Date().toISOString() }, null, 2));
-    console.log(`综合演示数据、DeepSeek 本地模拟与今日教学闭环回归通过：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
+    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, portalSessions, ai, demoCleanup, rounds, generatedAt: new Date().toISOString() }, null, 2));
+    console.log(`综合演示数据、学生/家长门户会话、DeepSeek 本地模拟与今日教学闭环回归通过：门户角色 ${portalSessions.length} 个，AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
   }
 } finally {
   try { cleanup(); } catch {}

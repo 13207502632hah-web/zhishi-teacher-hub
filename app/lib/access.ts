@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
+import { getPortalAccess } from "./portal-auth";
 import { getTeacherAdminSession } from "./teacher-auth";
 
 export type RoleCode = "teacher" | "assistant" | "student" | "parent";
-export type AccessContext = { id: number; name: string; email: string; roles: RoleCode[]; role: RoleCode };
+export type AccessContext = { id: number; name: string; email: string; roles: RoleCode[]; role: RoleCode; portalAccountId?: number };
 
 const permissions: Record<RoleCode, string[]> = {
   teacher: ["*"],
@@ -23,6 +24,8 @@ async function seedRoles() {
 
 export async function getAccess(): Promise<AccessContext | null> {
   if (await getTeacherAdminSession()) return getTeacherAdminAccess();
+  const portal = await getPortalAccess();
+  if (portal) return { id: portal.userId || 0, name: portal.name, email: "", roles: [portal.role], role: portal.role, portalAccountId: portal.accountId };
   return null;
 }
 
@@ -48,7 +51,9 @@ export function can(access: AccessContext, permission: string) {
 
 export async function requirePermission(permission: string): Promise<AccessContext | Response> {
   const access = await getAccess();
-  if (!access) return Response.json({ error: "请先使用教师管理员账号登录", signIn: "/teacher-login" }, { status: 401 });
+  if (!access) return permission === "portal:read"
+    ? Response.json({ error: "请从微信小程序进入学习门户", code: "PORTAL_AUTH_REQUIRED", signIn: "/portal" }, { status: 401 })
+    : Response.json({ error: "请先使用教师管理员账号登录", signIn: "/teacher-login" }, { status: 401 });
   if (!can(access, permission)) return Response.json({ error: "当前角色没有执行此操作的权限" }, { status: 403 });
   return access;
 }

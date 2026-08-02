@@ -1,0 +1,4 @@
+<view wx:if="{{error}}" class="page">
+  <view class="card error">{{error}}</view>
+</view>
+<web-view src="{{src}}" wx:else></web-view>
