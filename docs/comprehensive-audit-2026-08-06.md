@@ -77,7 +77,8 @@
 
 > 执行状态（2026-08-06）：P1-01～P1-06 已完成并推送（`38c8c46` /
 > `756ef65` / `dedbef0`）；P2-01～P2-03、P2-05～P2-07 已完成；P2-04、P2-08
-> 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3 待定。
+> 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3-03 已完成，
+> P3-01/P3-02/P3-04 待执行。
 
 #### P1（发布/质量门禁阻断）
 
@@ -120,7 +121,8 @@
 ## 4. 详细修复计划单
 
 > 批次状态：P1-01～P1-06 已完成；P2-01～P2-03、P2-05～P2-07 已完成；
-> P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3 待定。
+> P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3-03 已完成，
+> P3-01/P3-02/P3-04 待执行。
 
 ### P1-01 提交并激活 GitHub CI 与模板
 
@@ -231,7 +233,7 @@
 - 优先级：P2
 - 现状：已修正 `surface-audit.mjs`：mini 路由按“login/读接口 → logout 最后”顺序探测，避免 `logout` 提前销毁会话造成伪 401；`mini/submissions` 教师 token 被 403 拒绝按合法业务规则计入。
 - 理由：审计脚本自身误报会污染结论，导致真实缺陷被淹没；后续修复需依赖稳定的异常清单。
-- 修复：保留上述顺序与 403 规则；`reproduce-runtime-issues.mjs` 固化 mini 会话持久化断言（login 200 → me 200 → logout 200 → me-after 401）；文档注明脚本需用 Node 24 运行（`node:sqlite`）。
+- 修复：保留上述顺序与 403 规则；`reproduce-runtime-issues.mjs` 固化 mini 会话持久化断言（login 200 → me 200 → logout 200 → me-after 401）；文档注明脚本需 Node 22.13+，Node 22 与 Node 24 均已验证（`node:sqlite`）。
 - 验收：连续运行 `node scripts/surface-audit.mjs` 两次，异常清单稳定为“26 项 P1-03 + 2 项删除缺陷”，不再出现 mini 伪 401/403。
 
 ### P3-01 品牌/个人化文案参数化
@@ -306,3 +308,12 @@
 - `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
 - `pnpm test`：构建成功，257 项测试全部通过（新增 assistant 导航权限回归
   1 项）。
+
+### 批次 D-1 验证（2026-08-06，P3-03）
+
+- 版本策略已统一：CI 固定 Node 22（`.github/workflows/ci.yml` 三个 job），
+  README、CONTRIBUTING、getting-started、testing 均声明“Node 22.13+ 或
+  Node 24 均可”，并注明 `node:sqlite` 在 22.13+ 打印 ExperimentalWarning
+  不影响结果；新增 `.nvmrc`（22）供 nvm 用户固定开发版本。
+- 计划单中“文档注明脚本需用 Node 24 运行”的表述已改为“Node 22.13+，
+  Node 22 与 Node 24 均已验证”，不再与 CI 版本冲突。

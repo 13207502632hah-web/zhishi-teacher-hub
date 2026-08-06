@@ -2,7 +2,8 @@
 
 ## 前置要求
 
-- Node.js `>=22.13.0`，推荐使用 pnpm。
+- Node.js `>=22.13.0`，推荐使用 pnpm。CI 固定 Node 22（`.github/workflows/ci.yml`），
+  本地使用 Node 22.13+ 或 Node 24 均可。
 - 首次运行需要网络安装依赖。
 
 ## 安装与启动

@@ -2,7 +2,9 @@
 
 ## 开发环境
 
-- Node.js `>=22.13.0`，推荐 pnpm。
+- Node.js `>=22.13.0`，推荐 pnpm。CI 固定 Node 22（`.github/workflows/ci.yml`），
+  本地使用 Node 22.13+ 或 Node 24 均可；`node:sqlite` 相关脚本在 Node 22.13+
+  会打印 ExperimentalWarning，不影响结果。
 - 本地环境变量按 [docs/getting-started.md](docs/getting-started.md) 配置，
   真实密钥只写入被忽略的 `.dev.vars`。
 
