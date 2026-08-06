@@ -75,6 +75,7 @@ pnpm dev
 | `pnpm lint` | ESLint 全量检查 |
 | `pnpm test` | 构建后运行单元/源码校验测试 |
 | `pnpm teaching:e2e` | 本地 D1 教学闭环端到端回归 |
+| `pnpm mini:production-guard` | 模拟生产环境验证小程序接口整体禁用 |
 | `pnpm db:generate` | 修改 `db/schema.ts` 后生成 Drizzle 迁移 |
 | `pnpm mini:verify` | 微信小程序自动化验收（功能暂停中） |
 

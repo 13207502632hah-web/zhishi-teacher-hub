@@ -64,9 +64,13 @@ test("mini client has role pages, environment config, session expiry and recover
   assert.match(readme, /不是已经提交审核或正式发布/);
 });
 
-test("formal login fails safely and production rejects test codes", async () => {
-  const [login, accounts] = await Promise.all([read("app/api/mini/login/route.ts"), read("app/api/mini/accounts/route.ts")]);
+test("formal login fails safely and production gate rejects all mini entry points", async () => {
+  const [login, accounts, auth] = await Promise.all([read("app/api/mini/login/route.ts"), read("app/api/mini/accounts/route.ts"), read("app/lib/mini-auth.ts")]);
   assert.match(login, /WECHAT_APP_ID/); assert.match(login, /WECHAT_APP_SECRET/); assert.match(login, /CF_PAGES_ENV !== "production"/); assert.match(login, /当前环境禁止测试登录/);
+  assert.match(login, /if \(miniProductionDisabled\(\)\) return miniDisabledResponse\(\);/);
+  assert.match(login, /miniDisabledResponse/);
+  assert.match(auth, /if \(miniProductionDisabled\(\)\) return miniDisabledResponse\(\);/);
+  assert.match(auth, /MINI_FEATURE_DISABLED/);
   assert.doesNotMatch(login, /console\.log|AppSecret/);
   assert.match(accounts, /linkTeacher/); assert.match(accounts, /role='teacher'/); assert.match(accounts, /user_id=\?/);
 });

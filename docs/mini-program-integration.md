@@ -46,6 +46,14 @@ flowchart LR
 
 仅当 `WECHAT_TEST_MODE=true` 且运行环境不是生产环境时接受 `testCode`。生产环境即使误配测试开关，也拒绝测试登录。无 AppID 时只表述为开发者工具测试，不表述为正式微信登录。
 
+### 生产禁用门禁
+
+当 `NODE_ENV=production` 或 `CF_PAGES_ENV=production` 时，`/api/mini/login`
+与所有经过 `requireMini` 的小程序接口直接返回 503
+`MINI_FEATURE_DISABLED`，不会创建微信账号、会话或同步事件。即使生产环境
+误配 `WECHAT_TEST_MODE=true` 与 AppID/AppSecret，小程序功能仍保持暂停。
+恢复正式接入前，必须先在开发/预发环境解除并验证该门禁。
+
 ### 绑定流程
 
 1. 教师网站选择学生和身份，生成一次性邀请码；数据库只保存邀请码哈希。

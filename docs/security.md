@@ -63,5 +63,8 @@
 ## 部署
 
 - 生产环境不提交 `.dev.vars`、`.env*` 或任何密钥文件。
-- 生产必须保持 `WECHAT_TEST_MODE=false`；微信小程序当前暂停，不参与发布。
+- 生产必须保持 `WECHAT_TEST_MODE=false`；代码层在 `NODE_ENV=production` 或
+  `CF_PAGES_ENV=production` 时直接拒绝全部 mini API（503
+  `MINI_FEATURE_DISABLED`），即使误配 AppID 也不会创建账号或会话；微信
+  小程序当前暂停，不参与发布。
 - 修改密码、角色或班级授权等敏感操作均写入审计日志，可在设置中查看。

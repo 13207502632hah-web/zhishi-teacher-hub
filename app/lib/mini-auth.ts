@@ -9,11 +9,21 @@ export type MiniAccess = {
   expiresAt: string;
 };
 
+export function miniProductionDisabled() {
+  const runtime = env as unknown as Record<string, string | undefined>;
+  return runtime.NODE_ENV === "production" || runtime.CF_PAGES_ENV === "production";
+}
+
+export function miniDisabledResponse() {
+  return Response.json({ error: "小程序功能暂停，生产环境未开放", code: "MINI_FEATURE_DISABLED" }, { status: 503 });
+}
+
 export async function miniTokenHash(token: string) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export async function requireMini(request: Request, roles?: MiniAccess["role"][]): Promise<MiniAccess | Response> {
+  if (miniProductionDisabled()) return miniDisabledResponse();
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
   if (!token) return Response.json({ error: "请先登录小程序", code: "MINI_AUTH_REQUIRED" }, { status: 401 });
   const hash = await miniTokenHash(token);

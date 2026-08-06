@@ -78,7 +78,7 @@
 > 执行状态（2026-08-06）：P1-01～P1-06 已完成并推送（`38c8c46` /
 > `756ef65` / `dedbef0`）；P2-01～P2-03、P2-05～P2-07 已完成；P2-04、P2-08
 > 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3-03 已完成，
-> P3-01 已完成，P3-02/P3-04 待执行。
+> P3-01 已完成，P3-02 已完成，P3-04 待执行。
 
 #### P1（发布/质量门禁阻断）
 
@@ -122,7 +122,7 @@
 
 > 批次状态：P1-01～P1-06 已完成；P2-01～P2-03、P2-05～P2-07 已完成；
 > P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3-03 已完成，
-> P3-01 已完成，P3-02/P3-04 待执行。
+> P3-01 已完成，P3-02 已完成，P3-04 待执行。
 
 ### P1-01 提交并激活 GitHub CI 与模板
 
@@ -249,8 +249,14 @@
 - 优先级：P3
 - 现状：`login` 有 `NODE_ENV`/`WECHAT_TEST_MODE` 防护，其余 mini API 依赖会话/令牌。
 - 理由：暂停中的功能不应在生产意外可用。
-- 修复：确认生产部署不会启用 mini 正式登录；增加系统级测试断言生产环境拒绝。
-- 验收：模拟生产环境访问 mini 登录/同步返回 403/503，且不产生数据写入。
+- 修复：新增 `miniProductionDisabled()`/`miniDisabledResponse()` 门禁，`login`
+  在解析 body 与任何写入前先拒绝生产请求；新增 `scripts/mini-production-guard-e2e.mjs`
+  以 `NODE_ENV=production` + `CF_PAGES_ENV=production` + 故意误配的测试凭据启动本地
+  服务，覆盖 login（测试码/正式 code）、sync、me 与零写入断言，并挂载为
+  `pnpm mini:production-guard`。
+- 验收：模拟生产环境访问 mini 登录/同步返回 503 `MINI_FEATURE_DISABLED`，
+  `wechat_accounts`/`mini_sessions`/`sync_events` 数量不变。
+- 完成状态：已完成（2026-08-06，见“批次 D-3 验证”）。
 
 ### P3-03 固定 Node 版本并注明 SQLite 提示
 
@@ -278,7 +284,7 @@
   P2-04/P2-08 的审计脚本与文档已补齐，业务级 e2e 断言继续扩展；P2-05～
   P2-07 已完成。
 - 批次 D（可选优化）：P3-01 → P3-02 → P3-03 → P3-04。
-  待执行。
+  P3-01～P3-03 已完成并推送；P3-04 待执行。
 
 ## 6. 验证证据（2026-08-06）
 
@@ -327,6 +333,28 @@
 - `pnpm lint`：通过（eslint 全量）。
 - `pnpm test`：构建成功，257 项测试全部通过（新增 `brand.ts` 参数化断言，
   并让测试加载器递归解析 TS 内部 `import`）。
+- `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+
+### 批次 D-3 验证（2026-08-06，P3-02）
+
+- `app/lib/mini-auth.ts` 新增 `miniProductionDisabled()` 与
+  `miniDisabledResponse()`；`app/api/mini/login/route.ts` 在解析 body 与任何
+  写入前先执行同一门禁，生产环境（`NODE_ENV=production` 或
+  `CF_PAGES_ENV=production`）统一返回 503 `MINI_FEATURE_DISABLED`。
+- 新增 `scripts/mini-production-guard-e2e.mjs`：生产环境 + 故意误配
+  `WECHAT_TEST_MODE=true`/AppID/AppSecret 启动本地服务，login（测试码与正式
+  code）、sync、me 全部 503，且 `wechat_accounts`、`mini_sessions`、
+  `sync_events` 零写入；报告 `outputs/mini-production-guard.json`。
+- `package.json` 新增 `mini:production-guard`；`tests/mini-integration.test.mjs`
+  改为断言 login 调用生产门禁并返回 `MINI_FEATURE_DISABLED`；
+  `docs/testing.md`、`docs/mini-program-integration.md`、`docs/security.md`、
+  `.env.example`、`README.md` 已同步说明。
+- `pnpm mini:production-guard`：通过（全部入口 503、零写入）。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，257 项测试全部通过。
 - `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
 - `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 /
   0 异常，报告 `outputs/surface-audit.json`。

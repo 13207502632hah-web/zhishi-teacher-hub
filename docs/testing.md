@@ -8,6 +8,7 @@
 | `pnpm lint` | ESLint 全量检查（含 Next.js 核心与 TypeScript 规则） |
 | `pnpm test` | 先执行生产构建，再运行 `tests/*.test.mjs` |
 | `pnpm teaching:e2e` | 本地 D1 教学闭环端到端回归 |
+| `pnpm mini:production-guard` | 模拟生产环境验证 mini API 整体禁用且无数据写入 |
 | `pnpm build` | 生产构建验证 |
 | `node scripts/surface-audit.mjs` | 全部页面/API 的运行时正常与异常探测 |
 | `node scripts/reproduce-runtime-issues.mjs` | 课时/试卷删除、演示清理、mini 会话闭环回归 |
@@ -60,6 +61,21 @@ scripts/reproduce-runtime-issues.mjs` 会实际创建演示数据、删除课时
 `reproduce-runtime-issues.mjs` 断言清理后 `demo_records`、`lessons`、
 `papers` 均为 0，请在干净的本地开发库上运行，不要在有真实教学数据的库上
 执行。
+
+## 生产环境 mini 禁用门禁
+
+`pnpm mini:production-guard` 以 `NODE_ENV=production`、
+`CF_PAGES_ENV=production` 启动本地服务，同时故意误配
+`WECHAT_TEST_MODE=true` 与 AppID/AppSecret，验证：
+
+- `POST /api/mini/login`（测试码与正式 code）返回 503
+  `MINI_FEATURE_DISABLED`。
+- `GET /api/mini/sync`、`GET /api/mini/me` 返回 503
+  `MINI_FEATURE_DISABLED`。
+- `wechat_accounts`、`mini_sessions`、`sync_events` 数量与请求前完全一致，
+  证明即使环境变量被误配也不会创建账号、会话或同步事件。
+
+报告写入 `outputs/mini-production-guard.json`。
 
 ## 小程序自动化
 

@@ -1,10 +1,11 @@
 import { env } from "cloudflare:workers";
-import { miniTokenHash, type MiniAccess } from "../../../lib/mini-auth";
+import { miniDisabledResponse, miniProductionDisabled, miniTokenHash, type MiniAccess } from "../../../lib/mini-auth";
 import { miniAccountState } from "../../../lib/services/mini-binding-service";
 
 export async function POST(request: Request) {
-  const body = await request.json() as Record<string, string>;
   const runtime = env as unknown as Record<string, string | undefined>;
+  if (miniProductionDisabled()) return miniDisabledResponse();
+  const body = await request.json() as Record<string, string>;
   const testEnabled = runtime.WECHAT_TEST_MODE === "true" && runtime.NODE_ENV !== "production" && runtime.CF_PAGES_ENV !== "production";
   let openId = "";
   const requestedRole: MiniAccess["role"] = body.role === "teacher" || body.role === "parent" ? body.role : "student";
