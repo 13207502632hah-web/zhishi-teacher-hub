@@ -3,6 +3,7 @@
 import Link from "@/app/components/HardNavigationLink";
 import styles from "./route-states.module.css";
 import { useState } from "react";
+import { BRAND_NAME } from "./lib/brand";
 
 type RouteError = Error & { digest?: string };
 
@@ -20,7 +21,7 @@ export default function ErrorPage({ reset }: { error: RouteError; reset: () => v
       <section className={styles.routeStatePanel}>
         <span className={styles.routeStateMark} aria-hidden="true">知</span>
         <div className={styles.routeStateCopy}>
-          <p className={styles.routeStateEyebrow}>知师研室 / 页面暂时离线</p>
+          <p className={styles.routeStateEyebrow}>{BRAND_NAME} / 页面暂时离线</p>
           <h1 className={styles.routeStateTitle}>这个页面暂时没有加载成功</h1>
           <p className={styles.routeStateMessage}>可能是网络波动或服务暂时繁忙。系统不会因为本次失败自动重复提交或修改教学记录。</p>
         </div>

@@ -16,7 +16,7 @@ async function sourceFiles(directory) {
 }
 
 test("dashboard uses the political-teaching workspace navigation", async () => {
-  const [page, shell, navigation, layout, dashboardApi] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/components/navigation.ts"), read("app/layout.tsx"), read("app/api/dashboard/route.ts")]);
+  const [page, shell, navigation, layout, dashboardApi, brand] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/components/navigation.ts"), read("app/layout.tsx"), read("app/api/dashboard/route.ts"), read("app/lib/brand.ts")]);
   for (const label of ["今日","题库","组卷","课时","学生","测验与成绩","课程反馈","教学反思","数据中心","资源中心","教研与运营"]) assert.match(navigation, new RegExp(label));
   assert.match(shell, /WorkspaceNavigation/);
   for (const label of ["今日教学工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "今天建议先完成的3件事", "集中待办"]) assert.match(page, new RegExp(label));
@@ -24,7 +24,10 @@ test("dashboard uses the political-teaching workspace navigation", async () => {
   assert.match(page,/\/api\/dashboard\?days=\$\{days\}/);
   assert.match(page,/工作台暂时无法读取/);
   assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
-  assert.match(layout, /知师研室｜初高中教师教学工作台/);
+  assert.match(layout, /title: METADATA_TITLE/);
+  assert.match(brand, /BRAND_NAME = "知师研室"/);
+  assert.match(brand, /BRAND_TAGLINE = "初高中教师教学工作台"/);
+  assert.ok(brand.includes('METADATA_TITLE = `${BRAND_NAME}｜${BRAND_TAGLINE}`;'), "brand metadata title stays parameterized");
   assert.match(dashboardApi, /l\.topic,l\.mode,l\.location,l\.online_link AS onlineLink,l\.status/);
 });
 

@@ -3,6 +3,7 @@
 import Link from "@/app/components/HardNavigationLink";
 import { useEffect, useState } from "react";
 import { AppShell } from "./components/AppShell";
+import { BRAND_EDITION, BRAND_NAME, BRAND_SUBJECT, PUBLIC_TEACHER_SPACE } from "./lib/brand";
 import { EmptyState, MetricCard, Panel, StatusBadge } from "./components/ui/Primitives";
 import { taskDueLabel } from "./lib/display-format";
 import { HttpError, requestJson } from "./lib/http-client";
@@ -125,7 +126,7 @@ export function Dashboard() {
       </Panel>
     </div>
 
-    <section className="questionWorkbenchCompact"><div><p>政治题库与组卷</p><h2>备课需要题目时，从这里继续</h2><span>原文优先、人工校对、教材目录检索；系统不会替您补写答案或知识点。</span></div><div className="questionWorkbenchActions"><Link href="/questions?import=1"><b>01</b><span>导入 Word</span><small>多 DOCX 队列</small></Link><Link href="/questions?status=review"><b>02</b><span>继续校对</span><small>{data.pendingReview} 道待处理</small></Link><Link href="/questions"><b>03</b><span>搜索题目</span><small>目录、关键词、标签</small></Link><Link href="/papers"><b>04</b><span>开始组卷</span><small>{paperCart} 道已加入草稿</small></Link></div></section>
+    <section className="questionWorkbenchCompact"><div><p>{BRAND_SUBJECT}题库与组卷</p><h2>备课需要题目时，从这里继续</h2><span>原文优先、人工校对、教材目录检索；系统不会替您补写答案或知识点。</span></div><div className="questionWorkbenchActions"><Link href="/questions?import=1"><b>01</b><span>导入 Word</span><small>多 DOCX 队列</small></Link><Link href="/questions?status=review"><b>02</b><span>继续校对</span><small>{data.pendingReview} 道待处理</small></Link><Link href="/questions"><b>03</b><span>搜索题目</span><small>目录、关键词、标签</small></Link><Link href="/papers"><b>04</b><span>开始组卷</span><small>{paperCart} 道已加入草稿</small></Link></div></section>
 
     {data.aiAvailable && <section className="aiWorkbenchCompact"><div><p>教师专属辅助</p><h2>DeepSeek：只做草稿和建议</h2><span>所有结果先由教师确认；用量为当前教师本月真实服务端统计。</span></div><div className="questionWorkbenchActions"><Link href="/feedback"><b>{data.aiPendingFeedbackDrafts}</b><span>待处理 AI 反馈草稿</span><small>可恢复、逐项核对</small></Link><Link href="/questions?status=review"><b>{data.aiPendingQuestionReviews}</b><span>待确认题库建议</span><small>安全字段与敏感字段分开</small></Link><Link href="/settings"><b>{data.aiMonthCalls}</b><span>本月 AI 用量</span><small>{data.aiMonthTokens.toLocaleString()} Token · ${data.aiMonthCost.toFixed(4)}</small></Link></div></section>}
 
@@ -147,10 +148,10 @@ const teachingLoop = [
 ];
 
 export default function PublicHome() {
-  return <AppShell title="知师研室" publicLanding>
+  return <AppShell title={BRAND_NAME} publicLanding>
     <section className="publicHomeHero">
       <div className="publicHomeHero__copy">
-        <p className="publicHomeEyebrow"><span>莫老师的政治教学工作室</span><i aria-hidden="true" /></p>
+        <p className="publicHomeEyebrow"><span>{PUBLIC_TEACHER_SPACE}</span><i aria-hidden="true" /></p>
         <h1>把一节课，做成<br />可积累的教学资产。</h1>
         <p className="publicHomeLead">从备课、上课到作业、反馈与结算，把真实教学过程安静地收进一个工作台。数据归教师管理，重要结果始终由教师确认。</p>
         <div className="publicHomeActions">
@@ -160,12 +161,12 @@ export default function PublicHome() {
         <ul className="publicHomeTrust" aria-label="工作台原则">
           <li>私人数据不公开</li>
           <li>教师确认后生效</li>
-          <li>初高中政治教学</li>
+          <li>初高中{BRAND_SUBJECT}教学</li>
         </ul>
       </div>
 
       <div className="publicHomeDesk" aria-label="一节课的教学闭环示意">
-        <div className="publicHomeDesk__folio">知师研室 · 第 07 册</div>
+        <div className="publicHomeDesk__folio">{BRAND_NAME} · {BRAND_EDITION}</div>
         <div className="publicHomeDesk__heading">
           <div><span>今日课题</span><strong>理解权利与义务</strong></div>
           <span className="publicHomeDesk__sample">示例课时<br />教学手记</span>

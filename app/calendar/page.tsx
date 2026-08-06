@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { Panel, StatusBadge } from "../components/ui/Primitives";
 import { HttpError, requestJson } from "../lib/http-client";
+import { BRAND_NAME, TEACHER_DISPLAY_NAME } from "../lib/brand";
 
 type CalendarSubscription = {
   id?: number;
@@ -170,7 +171,7 @@ export default function CalendarPage() {
             <span aria-hidden="true">私</span>
             <div>
               <b>地址本身就是访问凭据</b>
-              <p>事件会显示学生姓名（无姓名时显示课程类型）、课程、时间和地点；不包含课时费、联系方式、反馈或作业。请只添加到莫老师自己的设备。</p>
+              <p>事件会显示学生姓名（无姓名时显示课程类型）、课程、时间和地点；不包含课时费、联系方式、反馈或作业。请只添加到{TEACHER_DISPLAY_NAME}自己的设备。</p>
             </div>
           </div>
 
@@ -216,7 +217,7 @@ export default function CalendarPage() {
                   在 Apple 日历中打开
                 </a>
                 <a
-                  download="知师研室课程日历.ics"
+                  download={`${BRAND_NAME}课程日历.ics`}
                   href={url}
                   onClick={markAddressSaved}
                 >

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { SessionProvider } from "./components/SessionProvider";
 import { getAccess, roleName } from "./lib/access";
+import { BRAND_NAME, METADATA_DESCRIPTION, METADATA_TITLE } from "./lib/brand";
 import "./globals.css";
 import "./responsive-fixes.css";
 import "./question-bank.css";
@@ -25,16 +26,16 @@ import "./class-detail.css";
 import "./students-overview.css";
 
 export const metadata: Metadata = {
-  title: "知师研室｜初高中教师教学工作台",
-  description: "面向初高中教师的备课、组卷、学情与教研工作台。",
+  title: METADATA_TITLE,
+  description: METADATA_DESCRIPTION,
   openGraph: {
-    title: "知师研室｜让教学准备，更从容一点",
-    description: "面向初高中教师的备课、组卷、学情与教研工作台。",
+    title: `${BRAND_NAME}｜让教学准备，更从容一点`,
+    description: METADATA_DESCRIPTION,
     images: ["/og.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "知师研室｜让教学准备，更从容一点",
+    title: `${BRAND_NAME}｜让教学准备，更从容一点`,
     images: ["/og.png"],
   },
   icons: {

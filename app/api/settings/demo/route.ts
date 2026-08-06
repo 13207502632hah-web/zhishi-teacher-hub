@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
+import { BRAND_NAME } from "../../../lib/brand";
 import {
   DEMO_SCENARIO_VERSION,
   demoAttendanceStatuses,
@@ -108,7 +109,7 @@ async function supplementComprehensiveDemo(access: { id: number; name: string })
   for (const [index, questionId] of allQuestionIds.entries()) await db.prepare("UPDATE questions SET use_count=?,is_favorite=?,is_frequent=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(index % 5, index % 7 === 0 ? 1 : 0, index % 6 === 0 ? 1 : 0, questionId).run();
 
   let comprehensivePaper = await db.prepare("SELECT id FROM papers WHERE title='【演示】综合业务验收卷' ORDER BY id LIMIT 1").first<Row>();
-  if (!comprehensivePaper) comprehensivePaper = await db.prepare("INSERT INTO papers(title,type,stage,grade,textbook_version,duration_minutes,instructions,total_score,year,academic_year,exam_category,semester,region,school,source,tags,use_status,parse_status,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id").bind("【演示】综合业务验收卷", "阶段测", "初高中", "九年级 / 高一", "统编版", 60, "本卷用于演示题库筛选、组卷、打印和作业关联；正式使用前请教师复核。", curatedQuestionIds.reduce((sum, id, index) => sum + Number(demoQuestionScenarios[index]?.score || (id ? 0 : 0)), 0), new Date().getFullYear(), `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`, "综合验收", "第一学期", "天津", "【演示】知师研室", "【演示数据】", "演示数据,综合组卷", "assigned", "completed", "completed").first<Row>();
+  if (!comprehensivePaper) comprehensivePaper = await db.prepare("INSERT INTO papers(title,type,stage,grade,textbook_version,duration_minutes,instructions,total_score,year,academic_year,exam_category,semester,region,school,source,tags,use_status,parse_status,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id").bind("【演示】综合业务验收卷", "阶段测", "初高中", "九年级 / 高一", "统编版", 60, "本卷用于演示题库筛选、组卷、打印和作业关联；正式使用前请教师复核。", curatedQuestionIds.reduce((sum, id, index) => sum + Number(demoQuestionScenarios[index]?.score || (id ? 0 : 0)), 0), new Date().getFullYear(), `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`, "综合验收", "第一学期", "天津", `【演示】${BRAND_NAME}`, "【演示数据】", "演示数据,综合组卷", "assigned", "completed", "completed").first<Row>();
   if (comprehensivePaper) {
     await trackOnce(DEMO_SCENARIO_VERSION, "paper", comprehensivePaper.id);
     for (const [position, questionId] of curatedQuestionIds.entries()) {

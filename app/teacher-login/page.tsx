@@ -2,6 +2,7 @@
 
 import Link from "@/app/components/HardNavigationLink";
 import { HttpError, requestJson } from "@/app/lib/http-client";
+import { BRAND_MARK, BRAND_NAME, WORKSPACE_TITLE } from "@/app/lib/brand";
 import { FormEvent, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -35,7 +36,7 @@ export default function TeacherLoginPage() {
   };
 
   return <main className="teacherLogin">
-    <Link className="teacherLoginBrand" href="/" aria-label="返回知师研室首页"><span aria-hidden="true">知</span><div><b>知师研室</b><small>政治教学工作台</small></div></Link>
+    <Link className="teacherLoginBrand" href="/" aria-label={`返回${BRAND_NAME}首页`}><span aria-hidden="true">{BRAND_MARK}</span><div><b>{BRAND_NAME}</b><small>{WORKSPACE_TITLE}</small></div></Link>
     <div className="teacherLoginLayout">
       <section className="teacherLoginStory" aria-labelledby="teacher-login-story-title">
         <p>静雅备课室</p>

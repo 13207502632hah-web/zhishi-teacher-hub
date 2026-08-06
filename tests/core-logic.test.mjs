@@ -1,18 +1,31 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const ts = require("../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js");
 
-const loadTsModule = async (path) => {
-  const source = await readFile(new URL(`../${path}`, import.meta.url), "utf8");
+const tsModuleCache = new Map();
+const requireTs = (absolutePath) => {
+  if (tsModuleCache.has(absolutePath)) return tsModuleCache.get(absolutePath).exports;
+  const source = readFileSync(absolutePath, "utf8");
   const { outputText: code } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
   const evaluatedModule = { exports: {} };
-  new Function("module", "exports", code)(evaluatedModule, evaluatedModule.exports);
+  tsModuleCache.set(absolutePath, evaluatedModule);
+  const localRequire = (specifier) => {
+    if (!specifier.startsWith(".")) return require(specifier);
+    const resolved = fileURLToPath(new URL(specifier, pathToFileURL(absolutePath)));
+    return requireTs(/\.[cm]?[jt]s$/.test(resolved) ? resolved : `${resolved}.ts`);
+  };
+  new Function("module", "exports", "require", code)(evaluatedModule, evaluatedModule.exports, localRequire);
   return evaluatedModule.exports;
+};
+
+const loadTsModule = async (path) => {
+  return requireTs(fileURLToPath(new URL(`../${path}`, import.meta.url)));
 };
 
 test("Word parser keeps question, answer, analysis and knowledge for political papers", async () => {

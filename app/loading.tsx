@@ -1,12 +1,13 @@
 import styles from "./route-states.module.css";
+import { BRAND_MARK, BRAND_NAME } from "./lib/brand";
 
 export default function Loading() {
   return (
     <main className={styles.routeState} aria-busy="true" aria-live="polite">
       <section className={styles.routeStatePanel} aria-label="正在加载">
-        <span className={styles.routeStateMark} aria-hidden="true">知</span>
+        <span className={styles.routeStateMark} aria-hidden="true">{BRAND_MARK}</span>
         <div className={styles.routeStateCopy}>
-          <p className={styles.routeStateEyebrow}>知师研室 / 请稍候</p>
+          <p className={styles.routeStateEyebrow}>{BRAND_NAME} / 请稍候</p>
           <h1 className={styles.routeStateTitle}>正在整理教学工作台</h1>
           <p className={styles.routeStateMessage}>正在读取课时、题库和待办。页面内容准备好后会显示在这里。</p>
         </div>

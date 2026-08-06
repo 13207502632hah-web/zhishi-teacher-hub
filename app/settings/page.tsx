@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { AppShell } from "../components/AppShell";
 import { HttpError, requestJson } from "../lib/http-client";
 import { aiBoolean } from "../lib/ai/settings";
+import { BRAND_NAME } from "../lib/brand";
 import styles from "./settings.module.css";
 
 const DELETE_CONFIRMATION = "删除全部教学数据";
@@ -319,7 +320,7 @@ export default function SettingsPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `知师研室数据备份-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.download = `${BRAND_NAME}数据备份-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.append(anchor);
       anchor.click();
       anchor.remove();

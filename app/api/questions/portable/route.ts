@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { questions } from "../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 import { questionValues } from "../values";
+import { BRAND_NAME } from "../../../lib/brand";
 
 const columns = ["stem", "material", "options", "answer", "analysis", "questionType", "difficulty", "score", "stage", "grade", "textbookVersion", "volume", "unit", "topic", "knowledgePoints", "secondaryKnowledge", "coreCompetencies", "abilityLevel", "source", "year", "region", "examType", "tags"] as const;
 const quote = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
   else if (format === "markdown") { body = rows.map((row, index) => `## ${index + 1}. ${row.stem}\n\n${row.material ? `> ${row.material}\n\n` : ""}${row.options || ""}\n\n- 题型：${row.questionType}\n- 难度：${row.difficulty || "未标注"}\n- 知识点：${row.knowledgePoints || "未标注"}\n- 来源：${row.source || "未标注"}`).join("\n\n---\n\n"); type = "text/markdown;charset=utf-8"; extension = "md"; }
   else body = JSON.stringify({ schema: "zhishi-question-bank/v1", exportedAt: new Date().toISOString(), answerIncluded: true, questions: rows }, null, 2);
   await audit(access, "export_questions", "question", ids.join(",") || status, { format, count: rows.length, answerIncluded: format !== "markdown" });
-  return new Response(body, { headers: { "Content-Type": type, "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`知师研室题库-${status}-${date}.${extension}`)}`, "Cache-Control": "no-store" } });
+  return new Response(body, { headers: { "Content-Type": type, "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${BRAND_NAME}题库-${status}-${date}.${extension}`)}`, "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {

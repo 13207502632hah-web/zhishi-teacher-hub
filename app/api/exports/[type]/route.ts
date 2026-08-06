@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
+import { BRAND_NAME } from "../../../lib/brand";
 
 const safeCell = (value: unknown) => { let text = String(value ?? ""); if (/^[=+\-@]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
 const csv = (headers: string[], rows: unknown[][]) => `\uFEFF${[headers, ...rows].map((row) => row.map(safeCell).join(",")).join("\r\n")}`;
@@ -22,6 +23,6 @@ export async function GET(request: Request, context: { params: Promise<{ type: s
     headers = ["课时日期","作业","班级","学生","状态","分数","教师备注","提交时间"]; rows = (result.results as any[]).map((item) => [item.date,item.title,item.className,item.name,item.status,item.score,item.teacher_note,item.submitted_at]); label = "作业完成情况";
   } else return Response.json({ error: "不支持的导出类型" }, { status: 404 });
   await audit(access, "export", type, assessmentId || null, { format: "csv", rows: rows.length });
-  const filename = encodeURIComponent(`知师研室-${label}-${new Date().toISOString().slice(0,10)}.csv`);
+  const filename = encodeURIComponent(`${BRAND_NAME}-${label}-${new Date().toISOString().slice(0,10)}.csv`);
   return new Response(csv(headers, rows), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename*=UTF-8''${filename}`, "Cache-Control": "no-store" } });
 }

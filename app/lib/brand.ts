@@ -1,0 +1,11 @@
+export const BRAND_NAME = "知师研室";
+export const BRAND_MARK = "知";
+export const BRAND_TAGLINE = "初高中教师教学工作台";
+export const BRAND_SUBJECT = "政治";
+export const BRAND_PUBLIC_SPACE = "公开资源与私人教学记录严格分离";
+export const BRAND_EDITION = "第 07 册";
+export const TEACHER_DISPLAY_NAME = "莫老师";
+export const PUBLIC_TEACHER_SPACE = "莫老师的政治教学与资源空间";
+export const WORKSPACE_TITLE = "政治教学工作台";
+export const METADATA_TITLE = `${BRAND_NAME}｜${BRAND_TAGLINE}`;
+export const METADATA_DESCRIPTION = "面向初高中教师的备课、组卷、学情与教研工作台。";

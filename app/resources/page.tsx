@@ -11,6 +11,7 @@ import {
 } from "react";
 import { AppShell } from "../components/AppShell";
 import { HttpError, requestJson } from "../lib/http-client";
+import { BRAND_NAME, BRAND_SUBJECT, TEACHER_DISPLAY_NAME } from "../lib/brand";
 import styles from "./resources.module.css";
 
 type Resource = {
@@ -312,9 +313,9 @@ export default function ResourcesPage() {
 
       <section className={styles.hero} aria-labelledby="resource-intro-title">
         <div className={styles.heroCopy}>
-          <p className={styles.eyebrow}>知师研室 · 备课灵感库 · 资源检索</p>
+          <p className={styles.eyebrow}>{BRAND_NAME} · 备课灵感库 · 资源检索</p>
           <h2 id="resource-intro-title">让教学准备更有据可查。</h2>
-          <p>这里独立收纳政治教学资源、课堂活动和可复用方法。公开内容供访客检索；班级、学生、课时和反馈仍保存在私人教师工作台。</p>
+          <p>这里独立收纳{BRAND_SUBJECT}教学资源、课堂活动和可复用方法。公开内容供访客检索；班级、学生、课时和反馈仍保存在私人教师工作台。</p>
           <div className={styles.heroTags}><span>初中 / 高中</span><span>题库导入</span><span>私密优先</span></div>
         </div>
         <div className={styles.shortcutGrid} aria-label="教师工作台入口">
@@ -355,7 +356,7 @@ export default function ResourcesPage() {
       </section>
 
       <section className={styles.methodSection} id="teaching-method" aria-labelledby="teaching-method-title">
-        <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>莫老师的教学方法</p><h2 id="teaching-method-title">保留方法说明，把重点放回资源检索</h2></div><span>资料边界先于分享速度</span></div>
+        <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>{TEACHER_DISPLAY_NAME}的教学方法</p><h2 id="teaching-method-title">保留方法说明，把重点放回资源检索</h2></div><span>资料边界先于分享速度</span></div>
         <div className={styles.methodGrid}><Link href="/classes"><strong>01 · 建立班级与学生</strong><span>必要的学习信息留在私人工作台，联系方式不在公开资源中展示。</span></Link><Link href="/lessons?new=1"><strong>02 · 记录一节真实课时</strong><span>目标、重难点、课堂活动和课后表现分开记录，方便后续检索。</span></Link><Link href="/questions?import=1"><strong>03 · 导入并校对试题</strong><span>答案版 Word 先进入待校对区，核对题干、答案、解析和知识点。</span></Link><Link href="/reflections?new=1"><strong>04 · 复盘并沉淀策略</strong><span>只把确认过的有效做法整理为资源，下一次备课再复用。</span></Link></div>
       </section>
 

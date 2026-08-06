@@ -3,6 +3,7 @@
 import Link from "@/app/components/HardNavigationLink";
 import { useState } from "react";
 import styles from "./route-states.module.css";
+import { BRAND_NAME } from "./lib/brand";
 
 type GlobalErrorProps = {
   error: Error & { digest?: string };
@@ -25,7 +26,7 @@ export default function GlobalError({ reset }: GlobalErrorProps) {
           <section className={styles.routeStatePanel}>
             <span className={styles.routeStateMark} aria-hidden="true">知</span>
             <div className={styles.routeStateCopy}>
-              <p className={styles.routeStateEyebrow}>知师研室 / 需要重新开始</p>
+              <p className={styles.routeStateEyebrow}>{BRAND_NAME} / 需要重新开始</p>
               <h1 className={styles.routeStateTitle}>页面暂时无法显示</h1>
               <p className={styles.routeStateMessage}>基础页面加载没有完成。请重试，或从安全入口重新开始。</p>
             </div>

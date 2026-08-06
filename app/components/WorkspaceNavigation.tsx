@@ -7,6 +7,7 @@ import {
   mobilePrimaryNavigation,
   type NavigationItem,
 } from "./navigation";
+import { BRAND_MARK, BRAND_NAME, WORKSPACE_TITLE } from "@/app/lib/brand";
 
 type WorkspaceNavigationProps = {
   items: NavigationItem[];
@@ -80,10 +81,10 @@ export function WorkspaceNavigation({
     <>
       <aside className="workspaceSidebar">
         <Link href="/" className="workspaceBrand">
-          <span>知</span>
+          <span>{BRAND_MARK}</span>
           <div>
-            <b>知师研室</b>
-            <small>政治教学工作台</small>
+            <b>{BRAND_NAME}</b>
+            <small>{WORKSPACE_TITLE}</small>
           </div>
         </Link>
 
@@ -170,7 +171,7 @@ export function WorkspaceNavigation({
           >
             <header>
               <div>
-                <p>知师研室</p>
+                <p>{BRAND_NAME}</p>
                 <h2 id="mobile-more-title">更多功能</h2>
               </div>
               <button
