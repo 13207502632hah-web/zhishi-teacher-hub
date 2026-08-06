@@ -49,6 +49,14 @@ function decodeXml(value: string) {
   return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code))).replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
 }
 
+/** ExcelJS row.values 返回的是单元格值；WPS 富文本值需要取 richText 里的纯文本。 */
+export function cellValueToText(value: unknown) {
+  const richText = (value as { richText?: Array<{ text: string }> } | null)?.richText;
+  if (Array.isArray(richText)) return richText.map((part) => part.text).join("");
+  const cell = value as { text?: unknown; result?: unknown } | null;
+  return cell?.text ?? cell?.result ?? value;
+}
+
 function sharedStringValues(xml: string) {
   const values: string[] = [];
   for (const item of xml.matchAll(/<(?:[\w.-]+:)?si\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?si>/gi)) values.push([...item[1].matchAll(/<(?:[\w.-]+:)?t\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?t>/gi)].map((match) => decodeXml(match[1])).join(""));

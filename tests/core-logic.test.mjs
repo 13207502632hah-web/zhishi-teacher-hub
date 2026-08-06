@@ -442,6 +442,35 @@ test("schedule import expands a horizontal calendar matrix without inventing emp
   assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
 });
 
+test("schedule import accepts WPS-style short dates, time ranges and combined class/student headers", async () => {
+  const { detectScheduleMapping, normalizeScheduleRow, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
+  const mapping = detectScheduleMapping(["序号", "日期", "星期", "时间", "学生/班级", "地点"]);
+  assert.equal(mapping.date, "日期");
+  assert.equal(mapping.startTime, "时间");
+  assert.equal(mapping.studentClass, "学生/班级");
+  const classRow = normalizeScheduleRow({ 日期: "08月10日", 时间: "08:00-10:00", "学生/班级": "道法初三S班（陈晓亮）", 地点: "晶彩大厦" }, mapping, "2026年8月课表.xlsx");
+  assert.equal(classRow.date, "2026-08-10");
+  assert.equal(classRow.startTime, "08:00");
+  assert.equal(classRow.endTime, "10:00");
+  assert.equal(classRow.className, "道法初三S班（陈晓亮）");
+  assert.deepEqual(classRow.studentNames, []);
+  assert.deepEqual(validateNormalizedSchedule(classRow), []);
+  const studentRow = normalizeScheduleRow({ 日期: "08月15日", 时间: "15:30-17:30", "学生/班级": "王林威", 地点: "鼎盛大厦" }, mapping, "2026年8月课表.xlsx");
+  assert.equal(studentRow.date, "2026-08-15");
+  assert.equal(studentRow.startTime, "15:30");
+  assert.equal(studentRow.endTime, "17:30");
+  assert.deepEqual(studentRow.studentNames, ["王林威"]);
+  assert.equal(studentRow.className, "");
+  assert.deepEqual(validateNormalizedSchedule(studentRow), []);
+});
+
+test("XLSX reader extracts WPS rich text cell values", async () => {
+  const { cellValueToText } = await loadTsModule("app/lib/xlsx-compat.ts");
+  assert.equal(cellValueToText({ richText: [{ text: "学生/班级" }, { text: "（合并）" }] }), "学生/班级（合并）");
+  const date = new Date("2026-08-10T00:00:00.000Z");
+  assert.ok(cellValueToText(date) instanceof Date);
+});
+
 test("XLSX compatibility reader handles prefixed worksheet XML and shared strings", async () => {
   const { worksheetXmlToTable } = await loadTsModule("app/lib/xlsx-compat.ts");
   const table = worksheetXmlToTable(`<?xml version="1.0"?><x:worksheet xmlns:x="urn:test"><x:sheetData><x:row r="1"><x:c r="A1" t="str"><x:v>上课日期</x:v></x:c><x:c r="C1" t="s"><x:v>0</x:v></x:c></x:row><x:row r="2"><x:c r="B2"><x:v>8</x:v></x:c></x:row></x:sheetData></x:worksheet>`, ["周一"]);
