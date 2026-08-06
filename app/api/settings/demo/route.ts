@@ -300,29 +300,79 @@ export async function DELETE(request: Request) {
   const body = await request.json() as { confirmation?: string }; if (body.confirmation !== "清除演示数据") return Response.json({ error: "请输入“清除演示数据”确认" }, { status: 400 });
   const records = await env.DB.prepare("SELECT run_id AS runId,entity_type AS entityType,entity_id AS entityId FROM demo_records").all<{ runId: string; entityType: string; entityId: number }>();
   if (!records.results.length) return Response.json({ error: "当前没有可清除的演示数据" }, { status: 404 });
-  const ids = (type: string) => records.results.filter((row) => row.entityType === type).map((row) => row.entityId), questionIds = ids("question"), lessonIds = ids("lesson"), paperIds = ids("paper"), assessmentIds = ids("assessment"), wrongQuestionIds = ids("wrong_question"), questionSetIds = ids("question_set"), studentIds = ids("student"), classIds = ids("class");
-  const assignmentIds = (await env.DB.prepare(`SELECT id FROM assignments WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds).all<Row>()).results.map((row) => Number(row.id));
-  const submissionIds = (await env.DB.prepare(`SELECT id FROM assignment_submissions WHERE assignment_id IN (${marks(assignmentIds)})`).bind(...assignmentIds).all<Row>()).results.map((row) => Number(row.id));
-  const submissionVersionIds = (await env.DB.prepare(`SELECT id FROM submission_versions WHERE submission_id IN (${marks(submissionIds)})`).bind(...submissionIds).all<Row>()).results.map((row) => Number(row.id));
-  const financeIds = (await env.DB.prepare(`SELECT id FROM lesson_finance WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds).all<Row>()).results.map((row) => Number(row.id));
-  const packageIds = [...new Set([...ids("lesson_package"), ...(await env.DB.prepare(`SELECT id FROM lesson_packages WHERE student_id IN (${marks(studentIds)}) AND name LIKE '【演示】%'`).bind(...studentIds).all<Row>()).results.map((row) => Number(row.id))])];
+  const ids = (type: string) => records.results.filter((row) => row.entityType === type).map((row) => row.entityId);
+  const questionIds = ids("question"), lessonIds = ids("lesson"), paperIds = ids("paper"), assessmentIds = ids("assessment"), assessmentResultIds = ids("assessment_result"), wrongQuestionIds = ids("wrong_question"), questionSetIds = ids("question_set"), studentIds = ids("student"), classIds = ids("class"), feedbackIds = ids("feedback"), settlementIds = ids("settlement"), pricingRuleIds = ids("pricing_rule"), institutionIds = ids("institution"), courseIds = ids("course"), feedbackTemplateIds = ids("feedback_template"), reflectionIds = ids("reflection"), resourceIds = ids("resource");
+  const queryIds = async (sql: string, values: number[]) => (await env.DB.prepare(sql).bind(...values).all<Row>()).results.map((row) => Number(row.id));
+  const demoPaperIds = [...new Set([...paperIds, ...(await queryIds("SELECT id FROM papers WHERE title LIKE '【演示】%'", []))])];
+  const demoProjectIds = await queryIds(`SELECT DISTINCT project_id AS id FROM exam_project_students WHERE student_id IN (${marks(studentIds)}) OR assessment_result_id IN (${marks(assessmentResultIds)})`, [...studentIds, ...assessmentResultIds]);
+  const demoAssessmentIds = [...new Set([...assessmentIds, ...(await queryIds(`SELECT id FROM assessments WHERE class_id IN (${marks(classIds)})`, classIds))])];
+  const demoResultIds = [...new Set([...assessmentResultIds, ...(await queryIds(`SELECT id FROM assessment_results WHERE assessment_id IN (${marks(demoAssessmentIds)}) OR student_id IN (${marks(studentIds)})`, [...demoAssessmentIds, ...studentIds]))])];
+  const demoFeedbackIds = [...new Set([...feedbackIds, ...(await queryIds(`SELECT id FROM feedback WHERE lesson_id IN (${marks(lessonIds)}) OR student_id IN (${marks(studentIds)}) OR class_id IN (${marks(classIds)})`, [...lessonIds, ...studentIds, ...classIds]))])];
+  const assignmentIds = await queryIds(`SELECT id FROM assignments WHERE lesson_id IN (${marks(lessonIds)}) OR class_id IN (${marks(classIds)})`, [...lessonIds, ...classIds]);
+  const submissionIds = await queryIds(`SELECT id FROM assignment_submissions WHERE assignment_id IN (${marks(assignmentIds)}) OR student_id IN (${marks(studentIds)})`, [...assignmentIds, ...studentIds]);
+  const submissionVersionIds = await queryIds(`SELECT id FROM submission_versions WHERE submission_id IN (${marks(submissionIds)})`, submissionIds);
+  const submissionReviewIds = await queryIds(`SELECT id FROM submission_reviews WHERE submission_id IN (${marks(submissionIds)})`, submissionIds);
+  const financeIds = await queryIds(`SELECT id FROM lesson_finance WHERE lesson_id IN (${marks(lessonIds)})`, lessonIds);
+  const packageIds = [...new Set([...ids("lesson_package"), ...(await queryIds(`SELECT id FROM lesson_packages WHERE student_id IN (${marks(studentIds)})`, studentIds))])];
+  const gradeRunIds = await queryIds(`SELECT DISTINCT run_id AS id FROM grade_promotion_items WHERE student_id IN (${marks(studentIds)})`, studentIds);
+  // 空集合会生成安全的 IN (NULL)，避免 IN () 语法错误；顺序按外键依赖从引用表到实体表。
   const statements = [
-    env.DB.prepare(`DELETE FROM ai_feedback_learning_events WHERE feedback_id IN (${marks(ids("feedback"))})`).bind(...ids("feedback")),
-    env.DB.prepare(`UPDATE feedback SET ai_draft_id=NULL WHERE id IN (${marks(ids("feedback"))})`).bind(...ids("feedback")),
-    env.DB.prepare(`DELETE FROM ai_feedback_drafts WHERE feedback_id IN (${marks(ids("feedback"))}) OR lesson_id IN (${marks(lessonIds)})`).bind(...ids("feedback"), ...lessonIds),
-    env.DB.prepare(`DELETE FROM ai_question_reviews WHERE question_id IN (${marks(questionIds)})`).bind(...questionIds),
-    env.DB.prepare(`DELETE FROM feedback_evidence WHERE feedback_id IN (${marks(ids("feedback"))})`).bind(...ids("feedback")),
+    // 反馈与 AI 草稿：按演示课时、学生、班级或记录 ID 全量清理。
+    env.DB.prepare(`DELETE FROM ai_feedback_learning_events WHERE feedback_id IN (${marks(demoFeedbackIds)})`).bind(...demoFeedbackIds),
+    env.DB.prepare(`UPDATE feedback SET ai_draft_id=NULL WHERE id IN (${marks(demoFeedbackIds)})`).bind(...demoFeedbackIds),
+    env.DB.prepare(`DELETE FROM feedback_evidence WHERE feedback_id IN (${marks(demoFeedbackIds)})`).bind(...demoFeedbackIds),
+    env.DB.prepare(`DELETE FROM ai_feedback_drafts WHERE lesson_id IN (${marks(lessonIds)}) OR student_id IN (${marks(studentIds)}) OR feedback_id IN (${marks(demoFeedbackIds)})`).bind(...lessonIds, ...studentIds, ...demoFeedbackIds),
+    env.DB.prepare(`DELETE FROM feedback WHERE id IN (${marks(demoFeedbackIds)})`).bind(...demoFeedbackIds),
+
+    // 小程序、提醒与同步：解除对演示学生的引用，避免删除学生时外键失败。
+    env.DB.prepare(`DELETE FROM parent_student_links WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+    env.DB.prepare(`DELETE FROM mini_bindings WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+    env.DB.prepare(`DELETE FROM mini_invites WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+    env.DB.prepare(`UPDATE wechat_accounts SET student_id=NULL WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+    env.DB.prepare(`UPDATE sync_events SET student_id=NULL WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+    env.DB.prepare(`UPDATE reminder_tasks SET student_id=NULL WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+
+    // 学情、年级升级、计费与结算。
+    env.DB.prepare(`DELETE FROM knowledge_evidence WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
     env.DB.prepare(`DELETE FROM student_mastery_adjustments WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
-    env.DB.prepare(`DELETE FROM settlement_items WHERE settlement_id IN (${marks(ids("settlement"))}) OR lesson_finance_id IN (${marks(financeIds)})`).bind(...ids("settlement"), ...financeIds),
-    env.DB.prepare(`DELETE FROM settlements WHERE id IN (${marks(ids("settlement"))})`).bind(...ids("settlement")),
-    env.DB.prepare(`DELETE FROM package_ledger WHERE package_id IN (${marks(packageIds)})`).bind(...packageIds),
+    env.DB.prepare(`DELETE FROM grade_promotion_items WHERE student_id IN (${marks(studentIds)})`).bind(...studentIds),
+    env.DB.prepare(`DELETE FROM grade_promotion_runs WHERE id IN (${marks(gradeRunIds)}) AND NOT EXISTS (SELECT 1 FROM grade_promotion_items WHERE run_id=grade_promotion_runs.id)`).bind(...gradeRunIds),
+    env.DB.prepare(`DELETE FROM settlement_items WHERE settlement_id IN (${marks(settlementIds)}) OR lesson_finance_id IN (${marks(financeIds)})`).bind(...settlementIds, ...financeIds),
+    env.DB.prepare(`DELETE FROM settlements WHERE id IN (${marks(settlementIds)})`).bind(...settlementIds),
+    env.DB.prepare(`DELETE FROM package_ledger WHERE lesson_id IN (${marks(lessonIds)}) OR package_id IN (${marks(packageIds)})`).bind(...lessonIds, ...packageIds),
     env.DB.prepare(`DELETE FROM lesson_packages WHERE id IN (${marks(packageIds)})`).bind(...packageIds),
-    env.DB.prepare(`DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (${marks(financeIds)})`).bind(...financeIds),
+    env.DB.prepare(`DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (${marks(financeIds)}) OR student_id IN (${marks(studentIds)})`).bind(...financeIds, ...studentIds),
     env.DB.prepare(`DELETE FROM lesson_finance WHERE id IN (${marks(financeIds)})`).bind(...financeIds),
-    env.DB.prepare(`DELETE FROM pricing_rules WHERE id IN (${marks(ids("pricing_rule"))})`).bind(...ids("pricing_rule")),
-    env.DB.prepare(`DELETE FROM institutions WHERE id IN (${marks(ids("institution"))})`).bind(...ids("institution")),
-    env.DB.prepare(`DELETE FROM review_assets WHERE review_id IN (SELECT id FROM submission_reviews WHERE submission_id IN (${marks(submissionIds)}))`).bind(...submissionIds),
-    env.DB.prepare(`DELETE FROM submission_reviews WHERE submission_id IN (${marks(submissionIds)})`).bind(...submissionIds),
+    env.DB.prepare(`DELETE FROM pricing_rules WHERE id IN (${marks(pricingRuleIds)}) OR student_id IN (${marks(studentIds)})`).bind(...pricingRuleIds, ...studentIds),
+    env.DB.prepare(`DELETE FROM institutions WHERE id IN (${marks(institutionIds)})`).bind(...institutionIds),
+
+    // 课时工作流与导入引用。
+    env.DB.prepare(`DELETE FROM lesson_workflow_state WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds),
+    env.DB.prepare(`DELETE FROM lesson_completion_runs WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds),
+    env.DB.prepare(`UPDATE schedule_import_rows SET lesson_id=NULL WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds),
+    env.DB.prepare(`UPDATE feedback_imports SET matched_lesson_id=NULL, confirmed_lesson_id=NULL WHERE matched_lesson_id IN (${marks(lessonIds)}) OR confirmed_lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds, ...lessonIds),
+
+    // 识别：同时覆盖演示题目和演示学生/测验产生的任务。
+    env.DB.prepare(`DELETE FROM recognition_items WHERE job_id IN (SELECT id FROM recognition_jobs WHERE assessment_id IN (${marks(demoAssessmentIds)}) OR student_id IN (${marks(studentIds)})) OR question_id IN (${marks(questionIds)})`).bind(...demoAssessmentIds, ...studentIds, ...questionIds),
+    env.DB.prepare(`DELETE FROM recognition_jobs WHERE assessment_id IN (${marks(demoAssessmentIds)}) OR student_id IN (${marks(studentIds)})`).bind(...demoAssessmentIds, ...studentIds),
+
+    // 试卷、考试项目、测验：先清理引用与成员，再删实体。
+    env.DB.prepare(`DELETE FROM paper_questions WHERE paper_id IN (${marks(demoPaperIds)}) OR question_id IN (${marks(questionIds)})`).bind(...demoPaperIds, ...questionIds),
+    env.DB.prepare(`DELETE FROM paper_files WHERE paper_id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`DELETE FROM export_jobs WHERE paper_id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`UPDATE assessments SET paper_id=NULL, exam_project_id=NULL WHERE paper_id IN (${marks(demoPaperIds)}) OR exam_project_id IN (${marks(demoProjectIds)})`).bind(...demoPaperIds, ...demoProjectIds),
+    env.DB.prepare(`UPDATE question_sets SET paper_id=NULL WHERE paper_id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`UPDATE exam_projects SET paper_id=NULL WHERE paper_id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`UPDATE lesson_workflow_state SET homework_paper_id=NULL WHERE homework_paper_id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`UPDATE assignments SET paper_id=NULL WHERE paper_id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`DELETE FROM exam_project_students WHERE project_id IN (${marks(demoProjectIds)}) OR student_id IN (${marks(studentIds)}) OR assessment_result_id IN (${marks(demoResultIds)})`).bind(...demoProjectIds, ...studentIds, ...demoResultIds),
+    env.DB.prepare(`DELETE FROM exam_projects WHERE id IN (${marks(demoProjectIds)}) AND NOT EXISTS (SELECT 1 FROM exam_project_students WHERE project_id=exam_projects.id)`).bind(...demoProjectIds),
+    env.DB.prepare(`DELETE FROM assessment_question_results WHERE assessment_result_id IN (${marks(demoResultIds)}) OR question_id IN (${marks(questionIds)})`).bind(...demoResultIds, ...questionIds),
+    env.DB.prepare(`DELETE FROM ai_question_reviews WHERE question_id IN (${marks(questionIds)})`).bind(...questionIds),
+
+    // 作业与提交。
+    env.DB.prepare(`DELETE FROM review_assets WHERE review_id IN (${marks(submissionReviewIds)})`).bind(...submissionReviewIds),
+    env.DB.prepare(`DELETE FROM submission_reviews WHERE id IN (${marks(submissionReviewIds)})`).bind(...submissionReviewIds),
     env.DB.prepare(`DELETE FROM review_annotations WHERE submission_version_id IN (${marks(submissionVersionIds)})`).bind(...submissionVersionIds),
     env.DB.prepare(`DELETE FROM excellent_submissions WHERE submission_version_id IN (${marks(submissionVersionIds)})`).bind(...submissionVersionIds),
     env.DB.prepare(`DELETE FROM submission_assets WHERE submission_version_id IN (${marks(submissionVersionIds)})`).bind(...submissionVersionIds),
@@ -331,23 +381,23 @@ export async function DELETE(request: Request) {
     env.DB.prepare(`DELETE FROM assignment_targets WHERE assignment_id IN (${marks(assignmentIds)})`).bind(...assignmentIds),
     env.DB.prepare(`DELETE FROM assignment_settings WHERE assignment_id IN (${marks(assignmentIds)})`).bind(...assignmentIds),
     env.DB.prepare(`DELETE FROM assignment_submissions WHERE assignment_id IN (${marks(assignmentIds)}) OR student_id IN (${marks(studentIds)})`).bind(...assignmentIds, ...studentIds),
-    env.DB.prepare(`DELETE FROM assignments WHERE id IN (${marks(assignmentIds)}) OR lesson_id IN (${marks(lessonIds)})`).bind(...assignmentIds, ...lessonIds),
-    env.DB.prepare(`DELETE FROM paper_questions WHERE paper_id IN (${marks(paperIds)})`).bind(...paperIds),
-    env.DB.prepare(`DELETE FROM papers WHERE id IN (${marks(paperIds)})`).bind(...paperIds),
-    env.DB.prepare(`DELETE FROM lesson_questions WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds),
-    env.DB.prepare(`DELETE FROM wrong_questions WHERE id IN (${marks(wrongQuestionIds)}) OR student_id IN (${marks(studentIds)})`).bind(...wrongQuestionIds, ...studentIds),
-    env.DB.prepare(`DELETE FROM assessment_results WHERE assessment_id IN (${marks(assessmentIds)})`).bind(...assessmentIds),
-    env.DB.prepare(`DELETE FROM assessments WHERE id IN (${marks(assessmentIds)})`).bind(...assessmentIds),
-    env.DB.prepare(`DELETE FROM attendance WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds),
-    env.DB.prepare(`DELETE FROM student_lesson_records WHERE lesson_id IN (${marks(lessonIds)})`).bind(...lessonIds),
-    env.DB.prepare(`DELETE FROM feedback WHERE id IN (${marks(ids("feedback"))})`).bind(...ids("feedback")),
-    env.DB.prepare(`DELETE FROM feedback_templates WHERE id IN (${marks(ids("feedback_template"))})`).bind(...ids("feedback_template")),
-    env.DB.prepare(`DELETE FROM reflections WHERE id IN (${marks(ids("reflection"))})`).bind(...ids("reflection")),
-    env.DB.prepare(`DELETE FROM resources WHERE id IN (${marks(ids("resource"))})`).bind(...ids("resource")),
+    env.DB.prepare(`DELETE FROM assignments WHERE id IN (${marks(assignmentIds)}) OR lesson_id IN (${marks(lessonIds)}) OR class_id IN (${marks(classIds)})`).bind(...assignmentIds, ...lessonIds, ...classIds),
+
+    // 核心实体：试卷、课时题目、错题、测验结果、出勤、反馈、反思、资源、题库、课时、课程、班级。
+    env.DB.prepare(`DELETE FROM papers WHERE id IN (${marks(demoPaperIds)})`).bind(...demoPaperIds),
+    env.DB.prepare(`DELETE FROM lesson_questions WHERE lesson_id IN (${marks(lessonIds)}) OR question_id IN (${marks(questionIds)})`).bind(...lessonIds, ...questionIds),
+    env.DB.prepare(`DELETE FROM wrong_questions WHERE id IN (${marks(wrongQuestionIds)}) OR student_id IN (${marks(studentIds)}) OR lesson_id IN (${marks(lessonIds)}) OR question_id IN (${marks(questionIds)})`).bind(...wrongQuestionIds, ...studentIds, ...lessonIds, ...questionIds),
+    env.DB.prepare(`DELETE FROM assessment_results WHERE id IN (${marks(demoResultIds)}) OR assessment_id IN (${marks(demoAssessmentIds)}) OR student_id IN (${marks(studentIds)})`).bind(...demoResultIds, ...demoAssessmentIds, ...studentIds),
+    env.DB.prepare(`DELETE FROM assessments WHERE id IN (${marks(demoAssessmentIds)})`).bind(...demoAssessmentIds),
+    env.DB.prepare(`DELETE FROM attendance WHERE lesson_id IN (${marks(lessonIds)}) OR student_id IN (${marks(studentIds)})`).bind(...lessonIds, ...studentIds),
+    env.DB.prepare(`DELETE FROM student_lesson_records WHERE lesson_id IN (${marks(lessonIds)}) OR student_id IN (${marks(studentIds)})`).bind(...lessonIds, ...studentIds),
+    env.DB.prepare(`DELETE FROM feedback_templates WHERE id IN (${marks(feedbackTemplateIds)})`).bind(...feedbackTemplateIds),
+    env.DB.prepare(`DELETE FROM reflections WHERE id IN (${marks(reflectionIds)}) OR lesson_id IN (${marks(lessonIds)})`).bind(...reflectionIds, ...lessonIds),
+    env.DB.prepare(`DELETE FROM resources WHERE id IN (${marks(resourceIds)})`).bind(...resourceIds),
     env.DB.prepare(`DELETE FROM questions WHERE id IN (${marks(questionIds)})`).bind(...questionIds),
     env.DB.prepare(`DELETE FROM question_sets WHERE id IN (${marks(questionSetIds)})`).bind(...questionSetIds),
     env.DB.prepare(`DELETE FROM lessons WHERE id IN (${marks(lessonIds)})`).bind(...lessonIds),
-    env.DB.prepare(`DELETE FROM courses WHERE id IN (${marks(ids("course"))}) OR class_id IN (${marks(classIds)})`).bind(...ids("course"), ...classIds),
+    env.DB.prepare(`DELETE FROM courses WHERE id IN (${marks(courseIds)}) OR class_id IN (${marks(classIds)})`).bind(...courseIds, ...classIds),
     env.DB.prepare(`DELETE FROM enrollments WHERE student_id IN (${marks(studentIds)}) OR class_id IN (${marks(classIds)})`).bind(...studentIds, ...classIds),
     env.DB.prepare(`DELETE FROM staff_class_access WHERE class_id IN (${marks(classIds)})`).bind(...classIds),
     env.DB.prepare(`DELETE FROM students WHERE id IN (${marks(studentIds)})`).bind(...studentIds),

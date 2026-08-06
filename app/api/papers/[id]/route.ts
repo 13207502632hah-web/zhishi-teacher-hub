@@ -55,9 +55,26 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const access = await requirePermission("papers:write"); if (isDenied(access)) return access;
-  const id = await idFrom(context), db = getDb();
-  await db.delete(paperQuestions).where(eq(paperQuestions.paperId, id));
-  const [paper] = await db.delete(papers).where(eq(papers.id, id)).returning();
+  const id = await idFrom(context);
+  const existing = await env.DB.prepare("SELECT id FROM papers WHERE id=?").bind(id).first();
+  if (!existing) return Response.json({ error: "试卷不存在" }, { status: 404 });
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM paper_questions WHERE paper_id=?").bind(id),
+      env.DB.prepare("DELETE FROM paper_files WHERE paper_id=?").bind(id),
+      env.DB.prepare("DELETE FROM export_jobs WHERE paper_id=?").bind(id),
+      env.DB.prepare("UPDATE assessments SET paper_id=NULL WHERE paper_id=?").bind(id),
+      env.DB.prepare("UPDATE question_sets SET paper_id=NULL WHERE paper_id=?").bind(id),
+      env.DB.prepare("UPDATE exam_projects SET paper_id=NULL WHERE paper_id=?").bind(id),
+      env.DB.prepare("UPDATE lesson_workflow_state SET homework_paper_id=NULL WHERE homework_paper_id=?").bind(id),
+      env.DB.prepare("UPDATE assignments SET paper_id=NULL WHERE paper_id=?").bind(id),
+      env.DB.prepare("DELETE FROM papers WHERE id=?").bind(id),
+    ]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    await audit(access, "delete_failed", "paper", id, { error: detail });
+    return Response.json({ error: "试卷删除失败", detail }, { status: 500 });
+  }
   await audit(access, "delete", "paper", id);
-  return paper ? Response.json({ ok: true }) : Response.json({ error: "试卷不存在" }, { status: 404 });
+  return Response.json({ ok: true, id });
 }

@@ -41,9 +41,49 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
-  const id = await idFrom(context), denied = await requireLessonAccess(access, id); if (denied) return denied;
-  await env.DB.batch([env.DB.prepare("UPDATE feedback SET ai_draft_id=NULL WHERE ai_draft_id IN (SELECT id FROM ai_feedback_drafts WHERE lesson_id=?)").bind(id), env.DB.prepare("DELETE FROM ai_feedback_drafts WHERE lesson_id=?").bind(id)]);
-  const [row] = await getDb().delete(lessons).where(eq(lessons.id, id)).returning();
+  const id = await idFrom(context);
+  const existing = await env.DB.prepare("SELECT id FROM lessons WHERE id=?").bind(id).first();
+  if (!existing) return Response.json({ error: "课时不存在" }, { status: 404 });
+  const denied = await requireLessonAccess(access, id); if (denied) return denied;
+  try {
+    await env.DB.batch([
+      // 先清反馈/AI 草稿，再清理所有引用课时的子表，最后删除课时本身。
+      env.DB.prepare("DELETE FROM ai_feedback_learning_events WHERE feedback_id IN (SELECT id FROM feedback WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("UPDATE feedback SET ai_draft_id=NULL WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM feedback_evidence WHERE feedback_id IN (SELECT id FROM feedback WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM ai_feedback_drafts WHERE lesson_id=? OR feedback_id IN (SELECT id FROM feedback WHERE lesson_id=?)").bind(id, id),
+      env.DB.prepare("DELETE FROM feedback WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM attendance WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM student_lesson_records WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM lesson_questions WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM wrong_questions WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM lesson_workflow_state WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM lesson_completion_runs WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM reflections WHERE lesson_id=?").bind(id),
+      env.DB.prepare("UPDATE schedule_import_rows SET lesson_id=NULL WHERE lesson_id=?").bind(id),
+      env.DB.prepare("UPDATE feedback_imports SET matched_lesson_id=NULL, confirmed_lesson_id=NULL WHERE matched_lesson_id=? OR confirmed_lesson_id=?").bind(id, id),
+      env.DB.prepare("DELETE FROM settlement_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM lesson_finance WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM package_ledger WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM review_assets WHERE review_id IN (SELECT id FROM submission_reviews WHERE submission_id IN (SELECT id FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)))").bind(id),
+      env.DB.prepare("DELETE FROM submission_reviews WHERE submission_id IN (SELECT id FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?))").bind(id),
+      env.DB.prepare("DELETE FROM review_annotations WHERE submission_version_id IN (SELECT id FROM submission_versions WHERE submission_id IN (SELECT id FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)))").bind(id),
+      env.DB.prepare("DELETE FROM excellent_submissions WHERE submission_version_id IN (SELECT id FROM submission_versions WHERE submission_id IN (SELECT id FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)))").bind(id),
+      env.DB.prepare("DELETE FROM submission_assets WHERE submission_version_id IN (SELECT id FROM submission_versions WHERE submission_id IN (SELECT id FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)))").bind(id),
+      env.DB.prepare("DELETE FROM submission_versions WHERE submission_id IN (SELECT id FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?))").bind(id),
+      env.DB.prepare("DELETE FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM assignment_assets WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM assignment_targets WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM assignment_settings WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id=?)").bind(id),
+      env.DB.prepare("DELETE FROM assignments WHERE lesson_id=?").bind(id),
+      env.DB.prepare("DELETE FROM lessons WHERE id=?").bind(id),
+    ]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    await audit(access, "delete_failed", "lesson", id, { error: detail });
+    return Response.json({ error: "课时删除失败", detail }, { status: 500 });
+  }
   await audit(access, "delete", "lesson", id);
-  return row ? Response.json({ ok: true }) : Response.json({ error: "课时不存在" }, { status: 404 });
+  return Response.json({ ok: true, id });
 }

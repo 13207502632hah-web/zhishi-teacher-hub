@@ -4,7 +4,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const account = String(body.account || "").trim();
   const password = String(body.password || "");
-  const address = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const address = request.headers.get("cf-connecting-ip") || "unknown";
   const key = `ip:${address}`;
   const attempt = await loginAttemptStatus(key);
   if (attempt.blocked) return Response.json({ error: "登录尝试过多，请稍后再试" }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(attempt.retryAfterSeconds) } });
