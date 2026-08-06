@@ -2,30 +2,37 @@
 
 ## 页面与路由
 
-| 模块 | 路由 | 第一阶段状态 |
+| 模块 | 路由 | 实现状态 |
 | --- | --- | --- |
-| 工作台 | `/` | 实现：今日课程、待办、本周概览、待复核题目、班级/学生规模、关注学生、快捷入口、近期动态 |
-| 课时记录 | `/lessons` | 实现：列表与日历、搜索、班级/状态筛选、新建、编辑、复制、完成、取消、调课、补课、费用、时间冲突提示、打印 |
-| 作业中心 | `/assignments` | 实现：草稿/发布、班级或指定学生、附件、提交待办、批改草稿、确认回传、订正版本与小程序同步 |
-| 课时详情 | `/lessons/[id]` | 实现：课前—课堂—作业—反馈—反思时间线 |
-| 学生与班级 | `/classes`、`/students` | 实现：班级编辑与归档、学生档案编辑、学校/教材/考试目标、筛选、隐私最小展示 |
-| 题库与组卷 | `/questions`、`/papers` | 已实现：Word 四步校对导入、重复检测、批量标签/知识点/状态、检索、标记、组卷、学生版/教师版/答案解析版打印 |
-| 课程反馈 | `/feedback` | 已实现：单节/阶段模板、真实数据汇总、确认、复制与打印 |
-| 教学反思 | `/reflections` | 已实现：私密反思、日历、检索、策略沉淀 |
-| 数据中心 | `/analytics` | 已实现：周/月/学期真实指标；数据不足不输出结论 |
-| 资源中心 | `/resources` | 公开可访问；私有资源按角色展示，保留原品牌视觉与资源入口 |
+| 工作台 | `/workspace` | 今日课程、待办、本周概览、关注学生、快捷入口、近期动态 |
+| 课时记录 | `/lessons`、`/lessons/[id]` | 列表与日历、搜索筛选、新建编辑、课前—课堂—作业—反馈—反思时间线、完成/取消/调课/补课、费用、时间冲突提示、打印 |
+| 作业中心 | `/assignments` | 草稿/发布、班级或指定学生、附件、提交待办、批改确认、订正版本；作业发布与提交使用稳定 `operationId` 幂等 |
+| 课程反馈 | `/feedback` | 单节/阶段模板、真实数据汇总、确认、复制与打印 |
+| 反馈反向解析 | `/feedback-imports` | 从已有文本反向解析为结构化反馈草稿 |
+| 课表导入 | `/schedule-imports` | 课表批量导入、指纹去重、差异预览与提交 |
+| Apple 日历 | `/calendar` | 课时日历视图与外部日历集成 |
+| 学生与班级 | `/classes`、`/classes/[id]`、`/students` | 班级编辑与归档、学生档案、学校/教材/考试目标、筛选、隐私最小展示 |
+| 测验与成绩 | `/assessments` | 测验项目与成绩记录 |
+| 考试项目 | `/exam-projects` | 考试项目规划与结果追踪 |
+| 答题卡校对 | `/recognition` | 答题卡识别结果的人工校对 |
+| 学年晋升 | `/academic-years` | 学年切换与学生年级晋升 |
+| 题库与组卷 | `/questions`、`/papers` | Word 四步校对导入、重复检测、批量标签/知识点/状态、检索、标记、组卷、学生版/教师版/答案解析版打印 |
+| 教学反思 | `/reflections` | 私密反思、日历、检索、策略沉淀 |
+| 数据中心 | `/analytics` | 周/月/学期真实指标；数据不足不输出结论 |
+| 资源中心 | `/resources` | 公开可访问；私有资源按角色展示 |
+| 课时结算 | `/finance` | 结算预览、预览令牌确认、实收登记、月度汇总与导出 |
+| 设置 | `/settings` | 角色与账号、助教班级授权、演示数据一键创建/清除、导出、删除与审计日志 |
 | 我的学习 | `/portal` | 学生/家长最小权限视图，只显示关联且已确认内容 |
-| 设置 | `/settings` | 已实现：角色、账号关联、助教班级授权、演示数据一键创建/清除、导出、删除与审计日志 |
+| 微信小程序 | `/mini-settings` | 功能暂停中；代码保留在 `mini-program/`，不参与线上发布 |
 
 ## 组件清单
 
 - `AppShell`：侧边导航、移动端顶部栏、当前页面定位。
 - `Dashboard`：今日课程、待办、本周指标、关注学生、快捷入口、动态流。
-- `LessonList`、`LessonForm`、`LessonTimeline`：课时检索、编辑与详情闭环。
-- `ClassCard`、`ClassForm`、`StudentList`、`StudentProfile`：班级归档、学生档案与成长信息。
-- `EmptyState`、`MetricCard`、`StatusBadge`、`ConfirmDialog`：通用状态与安全确认。
-- 第二阶段：`QuestionEditor`、`ImportWizard`、`QuestionReview`、`PaperBuilder`。
-- 第三阶段：`FeedbackEditor`、`ReflectionEditor`、`AnalyticsChart`。
+- `EmptyState`、`MetricCard`、`StatusBadge`：通用状态、指标与标签。
+- `QuestionModal`：题库新增/编辑表单。
+- `ResourceError`、`LoadingLine`：数据加载失败与等待状态。
+- `ModuleSection`、`Insufficient`、`StudentTrend`、`HomeworkTrend`：数据中心模块化展示与数据不足提示。
 
 ## 数据库关系图
 
