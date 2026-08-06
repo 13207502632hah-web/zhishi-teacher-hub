@@ -16,6 +16,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .artifacts --ignore-pattern public/ocr",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
+    "db:init": "node scripts/init-local-d1.mjs",
     "mini:prepare": "node scripts/mini-automation.mjs prepare",
     "mini:dev": "node scripts/mini-automation.mjs dev",
     "mini:check": "node scripts/mini-automation.mjs check",
