@@ -17,7 +17,7 @@
 - 本地静态盘点：`app/` 页面与 API 路由清单、`db/schema.ts`、`drizzle/` 迁移、`app/lib`、`tests/`、`.github/`、`.env.example`、README 与 docs。
 - 鉴权扫描：对 118 个 `app/api/**/route.ts` 做关键词级扫描，并抽查关键路由实现。
 - 文档一致性：README / ARCHITECTURE / docs 与实际路由、功能开关对照。
-- 运行时验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（构建 + 257 项测试）、`pnpm teaching:e2e`（演示数据 + 教学闭环 + AI 模拟 + 异常路径）。
+- 运行时验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（构建 + 259 项测试）、`pnpm teaching:e2e`（演示数据 + 教学闭环 + AI 模拟 + 异常路径）。
 
 ## 2. GitHub 同类项目对照
 
@@ -47,7 +47,7 @@
 - 审计日志、幂等写入、结算 previewToken、删除二次确认；
 - Drizzle 迁移、演示数据创建/清除、本地 OCR、AI 草稿边界；
 - README、ARCHITECTURE、security/testing/demo-data/getting-started 文档；
-- 257 项单元/源码测试 + 教学闭环 e2e 全绿。
+- 259 项单元/源码测试 + 教学闭环 e2e 全绿。
 
 主要差距：
 
@@ -67,7 +67,7 @@
 - 运行时探测：`scripts/surface-audit.mjs` 对 29 页面 + 118 API 共执行 317 项正常/异常探测；修复后最终 0 项异常（原 28 项 = 26 项页面服务端 gate（P1-03）+ 2 项真实删除缺陷（P1-04/P1-05），已在批次 A 消除）。
 - 数据库：`db/schema.ts` 84 张表；`drizzle/` 28 个迁移。
 - 领域层：`app/lib` 33 个文件。
-- 测试：`tests/` 38 个 `*.test.mjs`，共 257 项全部通过（新增 assistant 导航权限回归 1 项）；`scripts/teaching-loop-e2e.mjs` 通过，报告写入 `outputs/teaching-loop-e2e.json`。
+- 测试：`tests/` 39 个 `*.test.mjs`，共 259 项全部通过（新增 assistant 导航权限回归 1 项、API 清单与严格模式 2 项）；`scripts/teaching-loop-e2e.mjs` 通过，报告写入 `outputs/teaching-loop-e2e.json`。
 - 运行时复现：`scripts/reproduce-runtime-issues.mjs` 已抓取 3 个真实 500（课时删除、试卷删除、演示数据清理），并验证 mini 登录/会话/登出闭环，报告写入 `outputs/runtime-repro.json` 与 `outputs/runtime-repro-server.log`。
 - 残留扫描：未发现真实 `TODO/FIXME/HACK/@ts-ignore`；密钥仅出现在 `.env.example` 空值位。
 - CI 文件：`.github/workflows/ci.yml`、`.github/ISSUE_TEMPLATE/*.yml`、`.github/PULL_REQUEST_TEMPLATE.md` 存在，但整个 `.github/` 尚未纳入 Git。
@@ -77,8 +77,7 @@
 
 > 执行状态（2026-08-06）：P1-01～P1-06 已完成并推送（`38c8c46` /
 > `756ef65` / `dedbef0`）；P2-01～P2-03、P2-05～P2-07 已完成；P2-04、P2-08
-> 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3-03 已完成，
-> P3-01 已完成，P3-02 已完成，P3-04 待执行。
+> 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3-01～P3-04 已完成。
 
 #### P1（发布/质量门禁阻断）
 
@@ -121,8 +120,7 @@
 ## 4. 详细修复计划单
 
 > 批次状态：P1-01～P1-06 已完成；P2-01～P2-03、P2-05～P2-07 已完成；
-> P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3-03 已完成，
-> P3-01 已完成，P3-02 已完成，P3-04 待执行。
+> P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3-01～P3-04 已完成。
 
 ### P1-01 提交并激活 GitHub CI 与模板
 
@@ -273,6 +271,7 @@
 - 理由：便于持续追踪“所有功能都测过”。
 - 修复：引入简单覆盖率/清单脚本（如 `scripts/api-inventory.mjs` 输出 API 清单与测试引用）。
 - 验收：清单脚本可运行，未覆盖路由可被发现。
+- 完成状态：已完成（2026-08-06，见“批次 D-4 验证”）。
 
 ## 5. 执行顺序建议
 
@@ -284,13 +283,13 @@
   P2-04/P2-08 的审计脚本与文档已补齐，业务级 e2e 断言继续扩展；P2-05～
   P2-07 已完成。
 - 批次 D（可选优化）：P3-01 → P3-02 → P3-03 → P3-04。
-  P3-01～P3-03 已完成并推送；P3-04 待执行。
+  P3-01～P3-04 已完成并推送。
 
 ## 6. 验证证据（2026-08-06）
 
 - `pnpm typecheck`：通过（tsc --noEmit）。
 - `pnpm lint`：通过（eslint 全量，忽略 dist/.next/.artifacts/public/ocr）。
-- `pnpm test`：构建成功，256 项测试全部通过（0 fail / 0 skipped）。
+- `pnpm test`：构建成功，259 项测试全部通过（0 fail / 0 skipped）。
 - `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`：12 个鉴权端点拒绝匿名、演示数据幂等、AI 模拟 12 次调用、2 轮教学闭环、1000 题基准。
 - `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 / 28 异常（26 项 P1-03 页面服务端 gate + 2 项删除缺陷）；mini 顺序与 403 误报已消除，报告 `outputs/surface-audit.json`。
 - `node scripts/reproduce-runtime-issues.mjs`（Node 24）：teacher login 200 → demo create 200（verified）→ `DELETE /api/lessons/1` 500 → `DELETE /api/papers/1` 500 → demo cleanup 500 → mini login 200 → mini me 200 → mini logout 200 → mini me-after 401；`mini_sessions` 回到 0，`demo_records` 残留证明清理失败，报告 `outputs/runtime-repro.json`。
@@ -356,5 +355,27 @@
 - `pnpm lint`：通过（eslint 全量）。
 - `pnpm test`：构建成功，257 项测试全部通过。
 - `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+
+### 批次 D-4 验证（2026-08-06，P3-04）
+
+- 新增 `scripts/api-inventory.mjs` 与 `tests/api-inventory.test.mjs`：
+  `pnpm api:inventory` 扫描 118 个 `app/api/**/route.ts`，输出路由方法、
+  测试/回归脚本引用与页面调用位置；`--strict` 在存在未覆盖路由时以退出码 1
+  结束，可作 CI 覆盖门禁。报告 `outputs/api-inventory.json`。
+- 当前基线：118 个 API 中 114 个有测试/脚本引用，4 个未覆盖（`/api/exam-projects/
+  [id]/analytics`、`/api/finance/context` 仅被页面调用；`/api/finance/exceptions`、
+  `/api/question-sets/[id]/source` 全仓库无引用），已登记为 P2-04 业务 e2e 扩展
+  的跟踪项。
+- 顺带修复真实数据缺口：`/api/dashboard/route.ts` 的 upcoming/overdue 课时
+  查询原先漏取 `mode`、`location`、`online_link`，导致仪表盘显示“地点待补”，
+  而日历 ICS 已带真实地点；现已补齐字段，教学闭环 e2e 验证通过。
+- `pnpm api:inventory`：通过（118 路由 / 114 覆盖 / 4 未覆盖 / 2 仅页面调用）。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，259 项测试全部通过（新增 API 清单 2 项）。
+- `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
+- `pnpm mini:production-guard`：通过。
 - `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 /
   0 异常，报告 `outputs/surface-audit.json`。

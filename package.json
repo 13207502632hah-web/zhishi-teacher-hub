@@ -24,7 +24,8 @@
     "mini:verify": "node scripts/mini-automation.mjs verify",
     "mini:preview": "node scripts/mini-automation.mjs preview",
     "mini:production-guard": "node scripts/mini-production-guard-e2e.mjs",
-    "teaching:e2e": "node scripts/teaching-loop-e2e.mjs"
+    "teaching:e2e": "node scripts/teaching-loop-e2e.mjs",
+    "api:inventory": "node scripts/api-inventory.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/chi_sim": "1.0.0",

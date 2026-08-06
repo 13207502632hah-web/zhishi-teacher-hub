@@ -9,6 +9,7 @@
 | `pnpm test` | 先执行生产构建，再运行 `tests/*.test.mjs` |
 | `pnpm teaching:e2e` | 本地 D1 教学闭环端到端回归 |
 | `pnpm mini:production-guard` | 模拟生产环境验证 mini API 整体禁用且无数据写入 |
+| `pnpm api:inventory` | 输出全部 API 契约清单与测试/脚本引用覆盖 |
 | `pnpm build` | 生产构建验证 |
 | `node scripts/surface-audit.mjs` | 全部页面/API 的运行时正常与异常探测 |
 | `node scripts/reproduce-runtime-issues.mjs` | 课时/试卷删除、演示清理、mini 会话闭环回归 |
@@ -47,6 +48,21 @@ transpile 后执行 `app/lib/*`。
 
 e2e 依赖设置页的演示数据接口（`/api/settings/demo`）生成合成教学数据，
 创建、重复执行与清除的边界见 [演示数据说明](demo-data.md)。
+
+## API 清单与测试引用
+
+`pnpm api:inventory` 扫描 `app/api/**/route.ts`，为每个 API 输出：
+
+- `path` 与 `file`：路由 URL 模板与源码文件。
+- `methods`：该路由实际导出的 HTTP 方法（GET/POST/PUT/PATCH/DELETE 等）。
+- `references`：`tests/*.test.mjs` 与回归脚本中的引用来源及次数，同时兼容
+  `app/api/.../route.ts` 文件路径和 `/api/...` URL 两种写法。
+- `appReferences`：`app/` 页面与客户端源码中的调用位置，用于区分“仅页面调用
+  但尚无测试”与“全仓库无引用”两类未覆盖。
+
+报告写入 `outputs/api-inventory.json`；运行 `pnpm api:inventory -- --strict`
+时，只要存在未覆盖路由就以退出码 1 结束，适合作为 CI 覆盖门禁。当前基线：
+118 个 API 中 114 个有测试/脚本引用，4 个未覆盖（其中 2 个仅被页面调用）。
 
 ## 全面审计脚本
 
