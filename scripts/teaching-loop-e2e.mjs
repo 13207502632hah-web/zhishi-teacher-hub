@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -17,8 +17,21 @@ const reportPath = path.join(root, "outputs", "teaching-loop-e2e.json");
 const logs = [];
 const aiMock = { mode: "ok", requests: [] };
 let server, aiMockServer;
+const created = {
+  assetIds: [],
+  assessmentIds: [],
+  examProjectIds: [],
+  scheduleImportIds: [],
+  scheduleClassIds: [],
+  scheduleStudentIds: [],
+  scheduleLessonIds: [],
+  questionSetIds: [],
+  paperIds: [],
+  miniAccountIds: [],
+};
 
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
+const listSql = (ids) => ids.length ? ids.join(",") : "NULL";
 
 function aiEnvelope(model, content) {
   return JSON.stringify({
@@ -172,7 +185,70 @@ function rows(statement) {
   return sqlite.prepare(statement).all().map((row) => ({ ...row }));
 }
 
+function cleanupBusinessCoverage() {
+  const assetIds = listSql(created.assetIds);
+  const assessmentIds = listSql(created.assessmentIds);
+  const examProjectIds = listSql(created.examProjectIds);
+  const scheduleImportIds = listSql(created.scheduleImportIds);
+  const scheduleClassIds = listSql(created.scheduleClassIds);
+  const scheduleStudentIds = listSql(created.scheduleStudentIds);
+  const scheduleLessonIds = listSql(created.scheduleLessonIds);
+  const questionSetIds = listSql(created.questionSetIds);
+  const paperIds = listSql(created.paperIds);
+  const miniAccountIds = listSql(created.miniAccountIds);
+  const markerStudents = `SELECT id FROM students WHERE name LIKE ${quote(`${marker}%`)}`;
+  const scheduleStudents = `SELECT id FROM students WHERE name=${quote("__e2e__课表学生")}`;
+  sql(`PRAGMA foreign_keys=ON;
+    DELETE FROM recognition_items WHERE job_id IN (SELECT id FROM recognition_jobs WHERE source_asset_id IN (${assetIds}) OR assessment_id IN (${assessmentIds}));
+    DELETE FROM recognition_jobs WHERE source_asset_id IN (${assetIds}) OR assessment_id IN (${assessmentIds});
+    DELETE FROM assessment_question_results WHERE assessment_result_id IN (SELECT id FROM assessment_results WHERE assessment_id IN (${assessmentIds}) OR assessment_id IN (SELECT id FROM assessments WHERE exam_project_id IN (${examProjectIds})) OR student_id IN (${markerStudents}));
+    DELETE FROM knowledge_evidence WHERE student_id IN (${markerStudents});
+    DELETE FROM exam_project_students WHERE project_id IN (${examProjectIds}) OR student_id IN (${markerStudents});
+    DELETE FROM assessment_results WHERE assessment_id IN (${assessmentIds}) OR assessment_id IN (SELECT id FROM assessments WHERE exam_project_id IN (${examProjectIds})) OR student_id IN (${markerStudents});
+    DELETE FROM assessments WHERE id IN (${assessmentIds}) OR exam_project_id IN (${examProjectIds});
+    DELETE FROM exam_projects WHERE id IN (${examProjectIds});
+    DELETE FROM academic_years WHERE name='2026-2027' AND NOT EXISTS (SELECT 1 FROM exam_projects WHERE academic_year='2026-2027');
+    DELETE FROM resources WHERE title LIKE ${quote(`${marker}%`)} OR source_ref LIKE ${quote(`reflection:${marker}%`)};
+    DELETE FROM reflections WHERE tags LIKE ${quote(`${marker}%`)} OR expected_vs_actual LIKE ${quote(`${marker}%`)};
+    DELETE FROM saved_question_views WHERE name LIKE ${quote(`${marker}%`)};
+    DELETE FROM schedule_import_rows WHERE lesson_id IN (${scheduleLessonIds}) OR import_id IN (${scheduleImportIds});
+    DELETE FROM schedule_imports WHERE id IN (${scheduleImportIds});
+    DELETE FROM schedule_import_rows WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")}) OR import_id IN (SELECT id FROM schedule_imports WHERE source_name='browser-synthetic.csv');
+    DELETE FROM schedule_imports WHERE source_name='browser-synthetic.csv';
+    DELETE FROM settlement_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (${scheduleLessonIds}));
+    DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (${scheduleLessonIds}));
+    DELETE FROM lesson_finance WHERE lesson_id IN (${scheduleLessonIds});
+    DELETE FROM attendance WHERE lesson_id IN (${scheduleLessonIds});
+    DELETE FROM lessons WHERE id IN (${scheduleLessonIds});
+    DELETE FROM settlement_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")}));
+    DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")}));
+    DELETE FROM lesson_finance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")});
+    DELETE FROM attendance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")});
+    DELETE FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")};
+    DELETE FROM enrollments WHERE class_id IN (${scheduleClassIds}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents});
+    DELETE FROM students WHERE id IN (${scheduleStudentIds}) OR id IN (${scheduleStudents});
+    DELETE FROM classes WHERE id IN (${scheduleClassIds});
+    DELETE FROM enrollments WHERE class_id IN (SELECT id FROM classes WHERE name=${quote("__e2e__课表学生课程")}) OR student_id IN (${scheduleStudents});
+    DELETE FROM students WHERE id IN (${scheduleStudents});
+    DELETE FROM classes WHERE name=${quote("__e2e__课表学生课程")};
+    DELETE FROM questions WHERE question_set_id IN (${questionSetIds});
+    DELETE FROM question_sets WHERE id IN (${questionSetIds});
+    DELETE FROM lesson_workflow_state WHERE homework_paper_id IN (${paperIds}) OR homework_paper_id IN (SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)});
+    DELETE FROM export_jobs WHERE paper_id IN (${paperIds}) OR paper_id IN (SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)});
+    DELETE FROM paper_questions WHERE paper_id IN (${paperIds}) OR paper_id IN (SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)});
+    DELETE FROM paper_files WHERE paper_id IN (${paperIds}) OR paper_id IN (SELECT id FROM papers WHERE title LIKE ${quote(`%${marker}%`)});
+    DELETE FROM papers WHERE id IN (${paperIds}) OR title LIKE ${quote(`%${marker}%`)};
+    DELETE FROM file_leases WHERE asset_id IN (${assetIds});
+    DELETE FROM file_assets WHERE id IN (${assetIds});
+    DELETE FROM mini_sessions WHERE account_id IN (${miniAccountIds}) OR account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE ${quote(`test:${marker}_%`)});
+    DELETE FROM mini_bindings WHERE account_id IN (${miniAccountIds}) OR account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE ${quote(`test:${marker}_%`)});
+    DELETE FROM parent_student_links WHERE parent_account_id IN (${miniAccountIds}) OR parent_account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE ${quote(`test:${marker}_%`)});
+    DELETE FROM sync_events WHERE account_id IN (${miniAccountIds}) OR account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE ${quote(`test:${marker}_%`)});
+    DELETE FROM wechat_accounts WHERE id IN (${miniAccountIds}) OR open_id LIKE ${quote(`test:${marker}_%`)};`);
+}
+
 function cleanup() {
+  cleanupBusinessCoverage();
   const lessonIds = `SELECT id FROM lessons WHERE topic LIKE ${quote(`${marker}%`)}`;
   const classIds = `SELECT id FROM classes WHERE name LIKE ${quote(`${marker}%`)}`;
   const studentIds = `SELECT id FROM students WHERE name LIKE ${quote(`${marker}%`)}`;
@@ -245,11 +321,27 @@ function seed(round) {
   return { lessonId: Number(lesson.id), studentIds: students.map((item) => Number(item.id)), questionIds, topic, dueAt, today };
 }
 
-async function request(pathname, { cookie, method = "GET", body } = {}) {
+async function request(pathname, { cookie, token, method = "GET", body } = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
-    headers: { ...(body ? { "content-type": "application/json" } : {}), ...(cookie ? { cookie } : {}) },
+    headers: {
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...(cookie ? { cookie } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { text: text.slice(0, 300) }; }
+  return { response, data };
+}
+
+async function multipartRequest(pathname, { cookie, method = "POST", form } = {}) {
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    method,
+    headers: { ...(cookie ? { cookie } : {}) },
+    body: form,
   });
   const text = await response.text();
   let data = null;
@@ -797,12 +889,271 @@ async function exerciseRound(round, cookie) {
     assert.ok(elapsedMs < 1000, `1000题组合检索耗时 ${elapsedMs.toFixed(1)}ms`);
   }
   await request(`/api/workflow-templates?id=${templateId}`, { cookie, method: "DELETE" });
-  return { round, lessonId, idempotent: true, undoRestoredDraft: true, protectedArtifacts: true, pricingSnapshot: true, benchmarkMs };
+  return { round, lessonId, studentIds, questionIds, topic, dueAt, today, idempotent: true, undoRestoredDraft: true, protectedArtifacts: true, pricingSnapshot: true, benchmarkMs };
 }
+
+async function exerciseRecognitionBusiness(cookie) {
+  const checks = [];
+  const classId = Number(rows(`SELECT class_id AS classId FROM lessons WHERE id=${rounds[1].lessonId}`)[0].classId);
+  const png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+  const uploadForm = new FormData();
+  uploadForm.set("file", new File([png], `${marker}_answer.png`, { type: "image/png" }), `${marker}_answer.png`);
+  uploadForm.set("ownerType", "recognition");
+  uploadForm.set("purpose", "recognition");
+  const uploaded = await multipartRequest("/api/files", { cookie, form: uploadForm });
+  assert.equal(uploaded.response.status, 201, JSON.stringify(uploaded.data));
+  const sourceAssetId = Number(uploaded.data.id);
+  created.assetIds.push(sourceAssetId);
+  checks.push("答题卡图片上传");
+
+  const assessment = await request("/api/assessments", { cookie, method: "POST", body: { classId, title: `${marker}_测验`, date: rounds[1].today, totalScore: 100 } });
+  assert.equal(assessment.response.status, 201, JSON.stringify(assessment.data));
+  const assessmentId = Number(assessment.data.assessment.id);
+  created.assessmentIds.push(assessmentId);
+  checks.push("测验建档");
+
+  const items = [{
+    questionNumber: "1",
+    studentAnswer: "人民当家作主",
+    standardAnswer: "人民当家作主",
+    recognizedScore: 1,
+    teacherScore: 1,
+    maxScore: 2,
+    confidence: 0.99,
+    candidates: [],
+    knowledgePoints: "人民民主",
+    errorType: null,
+    reviewStatus: "confirmed",
+  }];
+  const job = await request("/api/recognition", { cookie, method: "POST", body: { action: "create", assessmentId, studentId: rounds[1].studentIds[0], sourceAssetId, items } });
+  assert.equal(job.response.status, 201, JSON.stringify(job.data));
+  const jobId = Number(job.data.id);
+  checks.push("识别任务创建");
+
+  const list = await request(`/api/recognition?id=${jobId}`, { cookie });
+  assert.equal(list.response.status, 200, JSON.stringify(list.data));
+  assert.ok(list.data.items.length >= 1);
+  const saved = await request("/api/recognition", { cookie, method: "POST", body: { action: "save", jobId, items: list.data.items, progress: 100 } });
+  assert.equal(saved.response.status, 200, JSON.stringify(saved.data));
+  const confirmed = await request("/api/recognition", { cookie, method: "POST", body: { action: "confirm", jobId } });
+  assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
+  assert.equal(confirmed.data.count, 1);
+  const repeated = await request("/api/recognition", { cookie, method: "POST", body: { action: "confirm", jobId } });
+  assert.equal(repeated.response.status, 200, JSON.stringify(repeated.data));
+  assert.equal(repeated.data.alreadyConfirmed, true);
+  checks.push("逐题校对确认", "幂等复确认");
+  return { checks, ok: true };
+}
+
+async function exerciseResourcesBusiness(cookie) {
+  const createdResource = await request("/api/resources", { cookie, method: "POST", body: { title: `${marker}_资源`, type: "教学策略", content: `${marker}_内容` } });
+  assert.equal(createdResource.response.status, 201, JSON.stringify(createdResource.data));
+  const resourceId = Number(createdResource.data.resource.id);
+  const list = await request("/api/resources", { cookie });
+  assert.equal(list.response.status, 200, JSON.stringify(list.data));
+  assert.equal(list.data.canWrite, true);
+  assert.ok(list.data.resources.some((resource) => resource.id === resourceId));
+  const removed = await request(`/api/resources/${resourceId}`, { cookie, method: "DELETE" });
+  assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
+  return { checks: ["资源新增", "教师可写列表", "资源删除"], ok: true };
+}
+
+async function exerciseReflectionsBusiness(cookie) {
+  const checks = [];
+  const reflection = await request("/api/reflections", { cookie, method: "POST", body: { date: rounds[1].today, lessonId: rounds[1].lessonId, tags: `${marker}_反思`, expectedVsActual: `${marker}_预期与结果`, nextAction: "下次课继续巩固" } });
+  assert.equal(reflection.response.status, 201, JSON.stringify(reflection.data));
+  const reflectionId = Number(reflection.data.reflection.id);
+  checks.push("普通反思新增");
+  const strategyDenied = await request("/api/reflections", { cookie, method: "POST", body: { date: rounds[1].today, isStrategy: true, tags: `${marker}_策略直传` } });
+  assert.equal(strategyDenied.response.status, 409, JSON.stringify(strategyDenied.data));
+  checks.push("策略反思入口校验");
+  const resource = await request("/api/resources", { cookie, method: "POST", body: { title: `${marker}_策略沉淀`, type: "教学策略", content: "沉淀为可复用策略", sourceRef: `reflection:${reflectionId}` } });
+  assert.equal(resource.response.status, 201, JSON.stringify(resource.data));
+  const promoted = await request(`/api/reflections/${reflectionId}`, { cookie, method: "PUT", body: { date: rounds[1].today, lessonId: rounds[1].lessonId, tags: `${marker}_反思`, expectedVsActual: `${marker}_预期与结果`, nextAction: "下次课继续巩固", isStrategy: true } });
+  assert.equal(promoted.response.status, 200, JSON.stringify(promoted.data));
+  assert.equal(promoted.data.reflection.isStrategy, true);
+  const list = await request("/api/reflections", { cookie });
+  assert.equal(list.response.status, 200, JSON.stringify(list.data));
+  assert.ok(list.data.reflections.some((item) => item.id === reflectionId && item.isStrategy === true));
+  checks.push("资源沉淀", "反思转策略", "策略列表可见");
+  return { checks, ok: true };
+}
+
+async function exerciseQuestionViewsBusiness(cookie) {
+  const name = `${marker}_筛选方案`;
+  const first = await request("/api/question-views", { cookie, method: "POST", body: { name, filters: { grade: "高一", knowledge: "人民民主" } } });
+  assert.equal(first.response.status, 201, JSON.stringify(first.data));
+  const viewId = Number(first.data.view.id);
+  const second = await request("/api/question-views", { cookie, method: "POST", body: { name, filters: { grade: "高一", knowledge: "人民民主" } } });
+  assert.equal(second.response.status, 200, JSON.stringify(second.data));
+  assert.equal(Number(second.data.view.id), viewId);
+  const list = await request("/api/question-views", { cookie });
+  assert.equal(list.response.status, 200, JSON.stringify(list.data));
+  assert.ok(list.data.views.some((view) => view.id === viewId));
+  const removed = await request(`/api/question-views/${viewId}`, { cookie, method: "DELETE" });
+  assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
+  return { checks: ["筛选方案新建", "同名更新", "方案删除"], ok: true };
+}
+
+async function exerciseScheduleImportsBusiness(cookie) {
+  const checks = [];
+  const csv = String(await readFile(path.join(root, "tests", "fixtures", "schedule-import", "browser-synthetic.csv"), "utf8")).replace(/^\uFEFF/, "");
+  const form = new FormData();
+  form.set("file", new File([csv], "browser-synthetic.csv", { type: "text/csv" }), "browser-synthetic.csv");
+  const imported = await multipartRequest("/api/schedule-imports", { cookie, form });
+  assert.equal(imported.response.status, 201, JSON.stringify(imported.data));
+  const importId = Number(imported.data.id);
+  created.scheduleImportIds.push(importId);
+  assert.equal(imported.data.report.total, 1);
+  checks.push("课表 CSV 导入");
+  const confirmed = await request(`/api/schedule-imports/${importId}/confirm`, { cookie, method: "POST" });
+  assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
+  assert.equal(confirmed.data.report.created, 1);
+  assert.equal(confirmed.data.report.studentsCreated, 1);
+  checks.push("课表确认落库");
+  const lessonRow = rows(`SELECT lesson_id AS lessonId FROM schedule_import_rows WHERE import_id=${importId} AND action='created' LIMIT 1`)[0];
+  assert.ok(lessonRow?.lessonId);
+  const lessonId = Number(lessonRow.lessonId);
+  created.scheduleLessonIds.push(lessonId);
+  const classRow = rows(`SELECT id FROM classes WHERE name=${quote("__e2e__课表学生课程")} LIMIT 1`)[0];
+  const studentRow = rows(`SELECT id FROM students WHERE name=${quote("__e2e__课表学生")} LIMIT 1`)[0];
+  assert.ok(classRow?.id && studentRow?.id);
+  created.scheduleClassIds.push(Number(classRow.id));
+  created.scheduleStudentIds.push(Number(studentRow.id));
+  checks.push("课表学生与课时关联");
+  return { checks, ok: true };
+}
+
+async function exerciseExamProjectsBusiness(cookie) {
+  const checks = [];
+  const createdProject = await request("/api/exam-projects", { cookie, method: "POST", body: { academicYear: "2026-2027" } });
+  assert.equal(createdProject.response.status, 201, JSON.stringify(createdProject.data));
+  const projects = await request("/api/exam-projects", { cookie });
+  assert.equal(projects.response.status, 200, JSON.stringify(projects.data));
+  const yearProjects = projects.data.projects.filter((project) => String(project.academic_year || project.academicYear || "") === "2026-2027");
+  assert.ok(yearProjects.length > 0);
+  for (const project of yearProjects) created.examProjectIds.push(Number(project.id));
+  checks.push("考试项目学年生成");
+  const project = yearProjects.find((item) => item.grade === "高一");
+  assert.ok(project?.id, JSON.stringify(yearProjects));
+  const studentsView = await request(`/api/exam-projects/${project.id}/results`, { cookie });
+  assert.equal(studentsView.response.status, 200, JSON.stringify(studentsView.data));
+  assert.ok(studentsView.data.students.length >= 2);
+  const results = studentsView.data.students.slice(0, 2).map((student, index) => ({ studentId: Number(student.studentId), score: index === 0 ? 82 : 91, questions: [{ questionNumber: "1", questionId: rounds[1].questionIds[0], answer: index === 0 ? "A" : "B", score: index === 0 ? 1 : 2, maxScore: 2, knowledgePoints: "人民民主" }] }));
+  const recorded = await request(`/api/exam-projects/${project.id}/results`, { cookie, method: "PUT", body: { results } });
+  assert.equal(recorded.response.status, 200, JSON.stringify(recorded.data));
+  assert.equal(recorded.data.updated, 2);
+  checks.push("考试成绩录入");
+  const analytics = await request(`/api/exam-projects/${project.id}/analytics`, { cookie });
+  assert.equal(analytics.response.status, 200, JSON.stringify(analytics.data));
+  assert.equal(analytics.data.dataStatus, "ready");
+  assert.ok(analytics.data.summary.recorded >= 2);
+  checks.push("成绩分析就绪");
+  return { checks, ok: true };
+}
+
+async function exerciseQuestionSetsBusiness(cookie) {
+  const checks = [];
+  const sourceForm = new FormData();
+  sourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0])], "e2e-questions.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-questions.docx");
+  const source = await multipartRequest("/api/question-sets/source", { cookie, form: sourceForm });
+  assert.equal(source.response.status, 200, JSON.stringify(source.data));
+  const questions = [{
+    stem: `${marker}_人民民主的本质是什么`,
+    options: ["人民当家作主", "依法治国", "以德治国", "自由平等"],
+    answer: "A",
+    analysis: `${marker}_解析：人民当家作主是社会主义民主政治的本质。`,
+    knowledgePoints: "人民民主",
+    questionType: "单选题",
+    stage: "高中",
+    grade: "高一",
+    year: 2026,
+    difficulty: 3,
+    reviewed: true,
+    status: "review",
+  }];
+  const imported = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, reviewed: true, questions } });
+  assert.equal(imported.response.status, 201, JSON.stringify(imported.data));
+  const questionSetId = Number(imported.data.questionSet.id);
+  created.questionSetIds.push(questionSetId);
+  created.paperIds.push(Number(imported.data.questionSet.paperId));
+  checks.push("Word 题库导入");
+  const detail = await request(`/api/question-sets/${questionSetId}`, { cookie });
+  assert.equal(detail.response.status, 200, JSON.stringify(detail.data));
+  assert.ok(detail.data.questions.length >= 1);
+  const confirmed = await request(`/api/question-sets/${questionSetId}/confirm`, { cookie, method: "POST" });
+  assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
+  assert.ok(confirmed.data.promoted >= 1);
+  checks.push("题组确认入库");
+  const sourceView = await request(`/api/question-sets/${questionSetId}/source`, { cookie });
+  assert.equal(sourceView.response.status, 200, JSON.stringify(sourceView.data));
+  checks.push("原始 Word 溯源");
+  return { checks, ok: true };
+}
+
+async function exerciseFinanceContext(cookie) {
+  const context = await request(`/api/finance/context?lessonId=${rounds[1].lessonId}&payerType=parent&payerId=${rounds[1].studentIds[0]}`, { cookie });
+  assert.equal(context.response.status, 200, JSON.stringify(context.data));
+  assert.equal(context.data.canConfirm, true);
+  assert.equal(context.data.calculation.expectedAmount, 80);
+  return { checks: ["课时财务上下文", "定价规则金额"], ok: true };
+}
+
+async function exerciseFinanceExceptions(cookie) {
+  const month = rounds[1].today.slice(0, 7);
+  const result = await request(`/api/finance/exceptions?month=${month}`, { cookie });
+  assert.equal(result.response.status, 200, JSON.stringify(result.data));
+  assert.ok(Array.isArray(result.data.exceptions));
+  return { checks: ["月度财务异常扫描"], ok: true };
+}
+
+async function exerciseMiniBusiness(cookie) {
+  const checks = [];
+  const testCode = `${marker}_${randomBytes(6).toString("hex")}`;
+  const login = await request("/api/mini/login", { cookie, method: "POST", body: { testCode, role: "teacher", displayName: "e2e教师" } });
+  assert.equal(login.response.status, 200, JSON.stringify(login.data));
+  const token = login.data.token;
+  const accountId = Number(login.data.accountId);
+  created.miniAccountIds.push(accountId);
+  checks.push("小程序测试登录");
+  const me = await request("/api/mini/me", { token });
+  assert.equal(me.response.status, 200, JSON.stringify(me.data));
+  assert.equal(me.data.role, "teacher");
+  assert.equal(Number(me.data.accountId), accountId);
+  checks.push("小程序身份读取");
+  const portal = await request("/api/mini/portal?studentId=1", { token });
+  assert.equal(portal.response.status, 400, JSON.stringify(portal.data));
+  assert.match(String(portal.data.error || ""), /教师完整学情与财务请使用网站工作台/);
+  checks.push("教师小程序入口隔离");
+  const logout = await request("/api/mini/logout", { token, method: "POST" });
+  assert.equal(logout.response.status, 200, JSON.stringify(logout.data));
+  checks.push("小程序退出");
+  return { checks, ok: true };
+}
+
+async function exerciseBusinessCoverage(cookie) {
+  const modules = [
+    ["recognition", exerciseRecognitionBusiness],
+    ["resources", exerciseResourcesBusiness],
+    ["reflections", exerciseReflectionsBusiness],
+    ["questionViews", exerciseQuestionViewsBusiness],
+    ["scheduleImports", exerciseScheduleImportsBusiness],
+    ["examProjects", exerciseExamProjectsBusiness],
+    ["questionSets", exerciseQuestionSetsBusiness],
+    ["financeContext", exerciseFinanceContext],
+    ["financeExceptions", exerciseFinanceExceptions],
+    ["mini", exerciseMiniBusiness],
+  ];
+  const results = {};
+  for (const [name, run] of modules) results[name] = await run(cookie);
+  return results;
+}
+
+let rounds = [];
 
 try {
   const aiMockBase = await startAiMock();
-  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\n`, { mode: 0o600 });
+  await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\nWECHAT_TEST_MODE=true\n`, { mode: 0o600 });
   const devServerCli = path.join(root, "node_modules", "vinext", "dist", "cli.js");
   server = spawn(process.execPath, [devServerCli, "dev"], {
     cwd: root,
@@ -823,11 +1174,13 @@ try {
     const cookie = await login();
     const demo = await exerciseComprehensiveDemo(cookie);
     const ai = await exerciseAiWorkflows(cookie);
-    const rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
+    rounds = [await exerciseRound(1, cookie), await exerciseRound(2, cookie)];
+    const businessCoverage = await exerciseBusinessCoverage(cookie);
     cleanup();
     await mkdir(path.dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, ai, rounds, generatedAt: new Date().toISOString() }, null, 2));
-    console.log(`综合演示数据、DeepSeek 本地模拟与今日教学闭环回归通过：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮；报告 ${path.relative(root, reportPath)}`);
+    await writeFile(reportPath, JSON.stringify({ ok: true, localOnly: true, access, demo, ai, rounds, businessCoverage, generatedAt: new Date().toISOString() }, null, 2));
+    const totalChecks = Object.values(businessCoverage).reduce((sum, module) => sum + module.checks.length, 0);
+    console.log(`综合演示数据、DeepSeek 本地模拟与今日教学闭环回归通过：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 ${rounds.length} 轮，业务级覆盖 ${Object.keys(businessCoverage).length} 个模块共 ${totalChecks} 项检查；报告 ${path.relative(root, reportPath)}`);
   }
 } finally {
   try { cleanup(); } catch {}

@@ -76,8 +76,9 @@
 ### 3.2 问题清单
 
 > 执行状态（2026-08-06）：P1-01～P1-06 已完成并推送（`38c8c46` /
-> `756ef65` / `dedbef0`）；P2-01～P2-03、P2-05～P2-07 已完成；P2-04、P2-08
-> 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3-01～P3-04 已完成。
+> `756ef65` / `dedbef0`）；P2-01～P2-07 已完成（P2-04 业务级 e2e 扩展
+> 已完成，见“批次 C-2 验证”）；P2-08 已补齐审计脚本与文档并保留为回归项；
+> P3-01～P3-04 已完成。
 
 #### P1（发布/质量门禁阻断）
 
@@ -93,7 +94,7 @@
 - **P2-01** `package.json` 的 `name` 仍是 `site-creator-vinext-starter`、`version` 0.1.0，与产品/仓库名不符。
 - **P2-02** README 路由表缺 `/students`、`/mini-settings` 等实际路由；OCR 说明未点明“本机 Tesseract + 可选供应商”。
 - **P2-03** 微信小程序状态表述冲突：导航标“微信小程序（暂停）”，`/mini-settings` 页面却显示“正式 AppID 已配置”。
-- **P2-04** 教学闭环 e2e 未覆盖全部页面/API：analytics、exam-projects、recognition、resources、schedule-imports、reflections、question-views、portal、mini 等业务断言仍集中在 `teaching-loop-e2e.mjs`；`surface-audit.mjs` 已补上全部页面/API 的运行时正常/异常探测，业务级断言仍建议继续扩展。
+- **P2-04** 教学闭环 e2e 未覆盖全部页面/API：analytics、exam-projects、recognition、resources、schedule-imports、reflections、question-views、portal、mini 等业务断言仍集中在 `teaching-loop-e2e.mjs`；`surface-audit.mjs` 已补上全部页面/API 的运行时正常/异常探测，业务级断言仍建议继续扩展。（已完成：10 个业务模块 32 项断言并入 `teaching-loop-e2e.mjs`，见“批次 C-2 验证”。）
 - **P2-05** 本地 D1 初始化依赖“先 `pnpm dev`”，没有确定性初始化脚本，CI 无法复现。
 - **P2-06** 缺少 D1 备份/恢复说明与演练。
 - **P2-07** 权限矩阵未完整成文（security.md 有原则，无矩阵表）。
@@ -119,8 +120,9 @@
 
 ## 4. 详细修复计划单
 
-> 批次状态：P1-01～P1-06 已完成；P2-01～P2-03、P2-05～P2-07 已完成；
-> P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3-01～P3-04 已完成。
+> 批次状态：P1-01～P1-06 已完成；P2-01～P2-07 已完成（P2-04 业务级
+> e2e 扩展已完成）；P2-08 已补齐审计脚本与文档并保留为回归项；
+> P3-01～P3-04 已完成。
 
 ### P1-01 提交并激活 GitHub CI 与模板
 
@@ -199,8 +201,9 @@
 - 优先级：P2
 - 现状：`surface-audit.mjs` 已覆盖全部页面/API 的运行时正常/异常探测（317 项），`teaching-loop-e2e.mjs` 仍只覆盖教学闭环核心、AI、结算、演示数据。
 - 理由：目标要求“所有功能全部跑一遍，正常与异常都要测”；探测通过不等于业务断言完整。
-- 修复：将 `surface-audit.mjs` 与 `reproduce-runtime-issues.mjs` 纳入常规回归命令；继续为 analytics、exam-projects、recognition、resources、schedule-imports、reflections、question-views、portal、mini 补业务级 e2e 断言。
+- 修复：将 `surface-audit.mjs` 与 `reproduce-runtime-issues.mjs` 纳入常规回归命令；为 recognition、resources、reflections、question-views、schedule-imports、exam-projects、question-sets、finance-context、finance-exceptions、mini 补业务级 e2e 断言（已完成）。
 - 验收：`teaching-loop-e2e` 报告包含这些模块的业务断言；`surface-audit` 无业务误报（mini 顺序与 403 规则已修）。
+- 完成状态：已完成（2026-08-06，见“批次 C-2 验证”）。
 
 ### P2-05 增加确定性 D1 初始化脚本
 
@@ -280,8 +283,7 @@
 - 批次 B（一致性）：P2-01 → P2-02 → P2-03。
   已完成。
 - 批次 C（测试加固）：P2-04 → P2-05 → P2-06 → P2-07 → P2-08。
-  P2-04/P2-08 的审计脚本与文档已补齐，业务级 e2e 断言继续扩展；P2-05～
-  P2-07 已完成。
+  P2-01～P2-07 已完成；P2-08 的审计脚本与文档已补齐并保留为回归项。
 - 批次 D（可选优化）：P3-01 → P3-02 → P3-03 → P3-04。
   P3-01～P3-04 已完成并推送。
 
@@ -313,6 +315,31 @@
 - `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
 - `pnpm test`：构建成功，257 项测试全部通过（新增 assistant 导航权限回归
   1 项）。
+
+### 批次 C-2 验证（2026-08-06，P2-04）
+
+- `scripts/teaching-loop-e2e.mjs` 新增 `businessCoverage` 业务级断言：
+  recognition（5 项：答题卡上传、测验建档、识别任务创建、逐题校对确认、
+  幂等复确认）、resources（3 项）、reflections（5 项）、question-views
+  （3 项）、schedule-imports（3 项）、exam-projects（3 项）、question-sets
+  （3 项）、finance-context（2 项）、finance-exceptions（1 项）、mini
+  （4 项），共 10 个模块 32 项检查，全部通过。
+- 顺带修复 e2e 暴露的契约缺口：`exerciseRound` 返回值补上 `questionIds`、
+  `topic`、`dueAt`、`today`（业务模块依赖）；exam-projects 学生名单改从
+  `/api/exam-projects/:id/results` 加载；清理阶段在删除标记试卷前先解除
+  `lesson_workflow_state.homework_paper_id` 引用。
+- `pnpm teaching:e2e`：通过（综合演示数据、DeepSeek 本地模拟与今日教学闭环
+  回归：AI 隐私/学习/题库审核完整链路 1 轮，教学闭环 2 轮，业务级覆盖
+  10 个模块共 32 项检查）；报告 `outputs/teaching-loop-e2e.json`。
+- `pnpm test`：构建成功，259 项测试全部通过（0 fail / 0 skipped）。
+- `pnpm api:inventory -- --strict`：通过（118 个 API 全部有测试/脚本引用，
+  0 未覆盖）。
+- `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm mini:production-guard`：通过（login/sync/me 均返回 503
+  `MINI_FEATURE_DISABLED`，无数据写入）；报告 `outputs/mini-production-guard.json`。
+- 环境校验：运行结束后无 `.dev.vars.e2e` / `.dev.vars.mini-production-guard`
+  残留，端口 3000 无遗留 dev server。
 
 ### 批次 D-1 验证（2026-08-06，P3-03）
 
@@ -367,11 +394,13 @@
 - 当前基线：118 个 API 中 114 个有测试/脚本引用，4 个未覆盖（`/api/exam-projects/
   [id]/analytics`、`/api/finance/context` 仅被页面调用；`/api/finance/exceptions`、
   `/api/question-sets/[id]/source` 全仓库无引用），已登记为 P2-04 业务 e2e 扩展
-  的跟踪项。
+  的跟踪项；P2-04 完成后基线更新为 118/118/0 未覆盖（`pnpm api:inventory
+  -- --strict` 通过，见“批次 C-2 验证”）。
 - 顺带修复真实数据缺口：`/api/dashboard/route.ts` 的 upcoming/overdue 课时
   查询原先漏取 `mode`、`location`、`online_link`，导致仪表盘显示“地点待补”，
   而日历 ICS 已带真实地点；现已补齐字段，教学闭环 e2e 验证通过。
-- `pnpm api:inventory`：通过（118 路由 / 114 覆盖 / 4 未覆盖 / 2 仅页面调用）。
+- `pnpm api:inventory`：通过（118 路由 / 114 覆盖 / 4 未覆盖 / 2 仅页面调用；
+  P2-04 完成后同命令 `--strict` 基线为 118 覆盖 / 0 未覆盖）。
 - `pnpm typecheck`：通过（tsc --noEmit）。
 - `pnpm lint`：通过（eslint 全量）。
 - `pnpm test`：构建成功，259 项测试全部通过（新增 API 清单 2 项）。
