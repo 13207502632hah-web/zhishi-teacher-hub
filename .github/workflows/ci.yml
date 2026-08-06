@@ -59,3 +59,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:init
       - run: pnpm teaching:e2e
+      - run: node scripts/surface-audit.mjs
+      - run: pnpm api:inventory -- --strict
+      - run: pnpm mini:production-guard

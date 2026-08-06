@@ -139,6 +139,10 @@
 - 理由：e2e 是教学闭环最高价值验证；假绿会让回归静默漏过。
 - 修复：在 e2e job 中先执行确定性 D1 初始化（封装 `wrangler d1 migrations apply` 或脚本），去掉 `continue-on-error`，并固定 Node 22；本地无法跑时明确跳过而非假绿。
 - 验收：CI e2e job 在干净 runner 上完整执行 `pnpm teaching:e2e` 且失败会影响合并。
+- 完成状态：已完成（2026-08-06）；e2e job 现顺序执行 `pnpm db:init` →
+  `pnpm teaching:e2e` → `node scripts/surface-audit.mjs` → `pnpm api:inventory
+  -- --strict` → `pnpm mini:production-guard`，无 `continue-on-error`，任一门禁
+  失败都会让 PR/推送变红。
 
 ### P1-03 统一页面服务端鉴权 gate
 
