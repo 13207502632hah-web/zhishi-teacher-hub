@@ -47,7 +47,16 @@ export function navigationForRole(role?: string) {
   if (role === "student" || role === "parent") return learnerNavigation;
   if (role === "assistant") {
     return workspaceNavigation.filter(
-      (item) => !["/reflections", "/analytics"].includes(item.href),
+      (item) =>
+        ![
+          "/reflections",
+          "/analytics",
+          "/assessments",
+          "/exam-projects",
+          "/recognition",
+          "/academic-years",
+          "/finance",
+        ].includes(item.href),
     );
   }
   return workspaceNavigation;

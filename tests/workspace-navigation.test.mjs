@@ -56,3 +56,23 @@ test("mobile navigation uses a fixed five-item bar and an accessible more drawer
   assert.doesNotMatch(styles, /overflow-x:\s*auto/);
   assert.match(layout, /import "\.\/workspace-navigation\.css"/);
 });
+
+test("assistant navigation hides routes whose APIs require analytics or academic-year permissions", async () => {
+  const config = await read("app/components/navigation.ts");
+  const assistantBlock = config.match(
+    /if \(role === "assistant"\)[\s\S]*?return workspaceNavigation\.filter\([\s\S]*?\);\s*\n/,
+  );
+  assert.ok(assistantBlock, "assistant navigation filter must exist");
+  for (const href of [
+    "/reflections",
+    "/analytics",
+    "/assessments",
+    "/exam-projects",
+    "/recognition",
+    "/academic-years",
+    "/finance",
+  ]) {
+    assert.match(assistantBlock[0], new RegExp(`"${href}"`));
+  }
+  assert.match(assistantBlock[0], /!\[[\s\S]*\]\.includes\(item\.href\)/);
+});

@@ -17,7 +17,7 @@
 - 本地静态盘点：`app/` 页面与 API 路由清单、`db/schema.ts`、`drizzle/` 迁移、`app/lib`、`tests/`、`.github/`、`.env.example`、README 与 docs。
 - 鉴权扫描：对 118 个 `app/api/**/route.ts` 做关键词级扫描，并抽查关键路由实现。
 - 文档一致性：README / ARCHITECTURE / docs 与实际路由、功能开关对照。
-- 运行时验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（构建 + 256 项测试）、`pnpm teaching:e2e`（演示数据 + 教学闭环 + AI 模拟 + 异常路径）。
+- 运行时验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（构建 + 257 项测试）、`pnpm teaching:e2e`（演示数据 + 教学闭环 + AI 模拟 + 异常路径）。
 
 ## 2. GitHub 同类项目对照
 
@@ -47,7 +47,7 @@
 - 审计日志、幂等写入、结算 previewToken、删除二次确认；
 - Drizzle 迁移、演示数据创建/清除、本地 OCR、AI 草稿边界；
 - README、ARCHITECTURE、security/testing/demo-data/getting-started 文档；
-- 256 项单元/源码测试 + 教学闭环 e2e 全绿。
+- 257 项单元/源码测试 + 教学闭环 e2e 全绿。
 
 主要差距：
 
@@ -64,16 +64,20 @@
 
 - 页面：29 个 `page.tsx`，均接入 `AppShell`（`teacher-login` 除外）；`/workspace` 额外做服务端 `requireTeacherAdmin`。
 - API：118 个 `route.ts`，静态扫描全部命中鉴权/令牌关键词；`auth/login`、`auth/logout` 为有意公开入口。
-- 运行时探测：`scripts/surface-audit.mjs` 对 29 页面 + 118 API 共执行 317 项正常/异常探测；最终 28 项异常 = 26 项页面服务端 gate（P1-03）+ 2 项真实删除缺陷（P1-04/P1-05）。
+- 运行时探测：`scripts/surface-audit.mjs` 对 29 页面 + 118 API 共执行 317 项正常/异常探测；修复后最终 0 项异常（原 28 项 = 26 项页面服务端 gate（P1-03）+ 2 项真实删除缺陷（P1-04/P1-05），已在批次 A 消除）。
 - 数据库：`db/schema.ts` 84 张表；`drizzle/` 28 个迁移。
 - 领域层：`app/lib` 33 个文件。
-- 测试：`tests/` 38 个 `*.test.mjs`，共 256 项全部通过；`scripts/teaching-loop-e2e.mjs` 通过，报告写入 `outputs/teaching-loop-e2e.json`。
+- 测试：`tests/` 38 个 `*.test.mjs`，共 257 项全部通过（新增 assistant 导航权限回归 1 项）；`scripts/teaching-loop-e2e.mjs` 通过，报告写入 `outputs/teaching-loop-e2e.json`。
 - 运行时复现：`scripts/reproduce-runtime-issues.mjs` 已抓取 3 个真实 500（课时删除、试卷删除、演示数据清理），并验证 mini 登录/会话/登出闭环，报告写入 `outputs/runtime-repro.json` 与 `outputs/runtime-repro-server.log`。
 - 残留扫描：未发现真实 `TODO/FIXME/HACK/@ts-ignore`；密钥仅出现在 `.env.example` 空值位。
 - CI 文件：`.github/workflows/ci.yml`、`.github/ISSUE_TEMPLATE/*.yml`、`.github/PULL_REQUEST_TEMPLATE.md` 存在，但整个 `.github/` 尚未纳入 Git。
 - 环境变量：`.env.example` 提供教师账号、会话密钥、DeepSeek、OCR、微信占位；真实密钥不在仓库。
 
 ### 3.2 问题清单
+
+> 执行状态（2026-08-06）：P1-01～P1-06 已完成并推送（`38c8c46` /
+> `756ef65` / `dedbef0`）；P2-01～P2-03、P2-05～P2-07 已完成；P2-04、P2-08
+> 已补齐审计脚本与文档，业务级 e2e 扩展保留为后续项；P3 待定。
 
 #### P1（发布/质量门禁阻断）
 
@@ -95,6 +99,7 @@
 - **P2-07** 权限矩阵未完整成文（security.md 有原则，无矩阵表）。
 - **P2-08** 审计脚本顺序与状态码误报：`surface-audit.mjs` 原先按字典序探测 mini 路由，`logout` 先于 `me` 执行导致 6 个伪 401；`mini/submissions` 教师角色被 403 拒绝也被误判。脚本已修正，但需保留为回归项。
 - **P2-08 补充（验证踩坑）** `surface-audit.mjs` 成功删除部分演示资源后，`DELETE /api/settings/demo` 因 P1-06 500 无法完整清理，会在 `demo_records` 残留孤儿引用（业务行已删除、demo 记录仍在），导致 `pnpm teaching:e2e` 出现假失败。`demo create` 走 verified 模式只按旧 id 更新，补不回已删除行。已新增 `scripts/repair-demo-records.mjs`，按实体类型检查 `demo_records.entity_id` 是否仍存在于对应业务表并删除孤儿引用；本轮已清理 feedback/reflection/resource 各 4 条。
+- **P2-09** 助教导航与 API 权限不一致：`app/components/navigation.ts` 原先只对 assistant 隐藏 `/reflections`、`/analytics`，但 `/assessments`、`/exam-projects`、`/recognition`、`/finance` 的 API 都要求 `analytics:read`，`/academic-years` 要求 `academic-years:*`，assistant 实际访问会 403。已在批次 C 中同步隐藏这五个入口，并在 `tests/workspace-navigation.test.mjs` 增加源码级回归断言。
 
 #### P3（可选项/体验）
 
@@ -113,6 +118,9 @@
 | P1-06 演示数据清理 500 | 登录后 `DELETE /api/settings/demo` | batch 漏删 `lesson_workflow_state`、`export_jobs` 等引用表，删除 `papers`/`lessons` 时外键失败；空 ID 集合还有 `IN ()` 语法风险 | `runtime-repro-server.log`（route.ts:357）；`demo_records` 残留 124 |
 
 ## 4. 详细修复计划单
+
+> 批次状态：P1-01～P1-06 已完成；P2-01～P2-03、P2-05～P2-07 已完成；
+> P2-04、P2-08 已补齐审计脚本与文档，业务级 e2e 扩展仍保留；P3 待定。
 
 ### P1-01 提交并激活 GitHub CI 与模板
 
@@ -261,9 +269,14 @@
 ## 5. 执行顺序建议
 
 - 批次 A（发布阻断）：P1-01 → P1-02 → P1-03 → P1-04 → P1-05 → P1-06。
+  已完成（`38c8c46` / `756ef65` / `dedbef0`）。
 - 批次 B（一致性）：P2-01 → P2-02 → P2-03。
+  已完成。
 - 批次 C（测试加固）：P2-04 → P2-05 → P2-06 → P2-07 → P2-08。
+  P2-04/P2-08 的审计脚本与文档已补齐，业务级 e2e 断言继续扩展；P2-05～
+  P2-07 已完成。
 - 批次 D（可选优化）：P3-01 → P3-02 → P3-03 → P3-04。
+  待执行。
 
 ## 6. 验证证据（2026-08-06）
 
@@ -279,3 +292,17 @@
 - GitHub 对照：6 个代表性项目 star、语言、技术栈已核验。
 
 后续修复按本计划单逐项执行；执行完批次后重新运行本节全部验证命令，作为回归证据。
+
+### 批次 B/C 验证（2026-08-06，Node 24）
+
+- `node scripts/reproduce-runtime-issues.mjs`：通过。teacher login 200 →
+  demo create 201 → `DELETE /api/lessons/53` 200 → `DELETE /api/papers/22`
+  200 → demo cleanup 200 → mini 会话闭环（login/me/logout 200、me-after
+  401）→ `demoRecords`/`lessons`/`papers` 均为 0，脚本以 0 退出。
+- `node scripts/surface-audit.mjs`：通过。29 页面 / 118 API / 317 探测 /
+  0 异常（原 28 项 P1-03 页面 gate 与 P1-04/P1-05 删除缺陷已消除）。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm teaching:e2e`：通过；报告 `outputs/teaching-loop-e2e.json`。
+- `pnpm test`：构建成功，257 项测试全部通过（新增 assistant 导航权限回归
+  1 项）。

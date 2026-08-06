@@ -75,9 +75,10 @@ async function waitForServer() {
 
 async function main() {
   const database = await findDatabase(path.join(root, ".wrangler", "state", "v3", "d1"));
-  if (!database) throw new Error("未找到本地 D1 数据库，请先运行 pnpm dev 初始化");
+  if (!database) throw new Error("未找到本地 D1 数据库，请先运行 pnpm db:init");
   const results = [];
   const errors = [];
+  const failures = [];
   const record = (item) => {
     results.push(item);
     console.log(`- ${item.name}: ${item.status} ${JSON.stringify(item.body ?? item.detail ?? "").slice(0, 300)}`);
@@ -119,23 +120,46 @@ async function main() {
   const demoCreate = await request("/api/settings/demo", { cookie, method: "POST", body: {} });
   record({ name: "demo create", status: demoCreate.response.status, body: demoCreate.data });
 
-  for (const url of ["/api/lessons/1", "/api/papers/1"]) {
-    const deleted = await request(url, { cookie, method: "DELETE", body: {} });
-    record({ name: `DELETE ${url}`, status: deleted.response.status, body: deleted.data });
+  const targetDb = new DatabaseSync(database, { readOnly: true });
+  const lesson = targetDb
+    .prepare("SELECT l.id AS id FROM lessons l JOIN demo_records d ON d.entity_type='lesson' AND d.entity_id=l.id ORDER BY l.id LIMIT 1")
+    .get();
+  const paper = targetDb
+    .prepare("SELECT p.id AS id FROM papers p JOIN demo_records d ON d.entity_type='paper' AND d.entity_id=p.id ORDER BY p.id LIMIT 1")
+    .get();
+  targetDb.close();
+  if (!lesson || !paper) throw new Error("演示数据创建后未找到可删除的课时/试卷");
+
+  for (const target of [
+    { url: `/api/lessons/${lesson.id}`, kind: "lesson" },
+    { url: `/api/papers/${paper.id}`, kind: "paper" },
+  ]) {
+    const deleted = await request(target.url, { cookie, method: "DELETE", body: {} });
+    record({ name: `DELETE ${target.url}`, status: deleted.response.status, body: deleted.data });
+    if (deleted.response.status !== 200) {
+      failures.push(`DELETE ${target.url} 期望 200，实际 ${deleted.response.status}`);
+    }
   }
 
   const demoCleanup = await request("/api/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
   record({ name: "demo cleanup", status: demoCleanup.response.status, body: demoCleanup.data });
+  if (demoCleanup.response.status !== 200) {
+    failures.push(`demo cleanup 期望 200，实际 ${demoCleanup.response.status}`);
+  }
 
   const miniLogin = await request("/api/mini/login", { method: "POST", body: { role: "teacher", testCode: "runtime-repro" } });
   const token = miniLogin.data?.token || "";
   record({ name: "mini login", status: miniLogin.response.status, detail: token ? `token=${token.slice(0, 8)}…` : JSON.stringify(miniLogin.data) });
+  if (miniLogin.response.status !== 200) failures.push(`mini login 期望 200，实际 ${miniLogin.response.status}`);
   const miniMe = await request("/api/mini/me", { bearer: token });
   record({ name: "mini me before logout", status: miniMe.response.status, body: miniMe.data });
+  if (miniMe.response.status !== 200) failures.push(`mini me 期望 200，实际 ${miniMe.response.status}`);
   const miniLogout = await request("/api/mini/logout", { bearer: token, method: "POST", body: {} });
   record({ name: "mini logout", status: miniLogout.response.status, body: miniLogout.data });
+  if (miniLogout.response.status !== 200) failures.push(`mini logout 期望 200，实际 ${miniLogout.response.status}`);
   const miniMeAfter = await request("/api/mini/me", { bearer: token });
   record({ name: "mini me after logout", status: miniMeAfter.response.status, body: miniMeAfter.data });
+  if (miniMeAfter.response.status !== 401) failures.push(`mini me after logout 期望 401，实际 ${miniMeAfter.response.status}`);
 
   const sqlite = new DatabaseSync(database, { readOnly: true });
   const counts = {
@@ -147,6 +171,13 @@ async function main() {
   };
   sqlite.close();
   record({ name: "db counts", status: 0, body: counts });
+  for (const [key, expected] of [
+    ["demoRecords", 0],
+    ["lessons", 0],
+    ["papers", 0],
+  ]) {
+    if (counts[key] !== expected) failures.push(`${key} 期望 ${expected}，实际 ${counts[key]}`);
+  }
 
   server.kill("SIGINT");
   await new Promise((resolve) => server.once("exit", resolve));
@@ -156,6 +187,13 @@ async function main() {
   await rm(devVars, { force: true });
   console.log(`errors matched: ${errors.length}`);
   for (const line of errors.slice(0, 80)) console.log(line);
+  if (failures.length) {
+    console.error(`regression failures: ${failures.length}`);
+    for (const line of failures) console.error(`- ${line}`);
+    process.exitCode = 1;
+  } else {
+    console.log("all regression assertions passed");
+  }
 }
 
 try {
