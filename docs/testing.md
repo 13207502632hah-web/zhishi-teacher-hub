@@ -27,6 +27,9 @@
 - `public-resource-discovery.test.mjs`：断言资源 API 的公开 `scope`/`limit`/
   `summary` 契约、公开首页真实资源预览、资源中心摘要展示，以及门户文档与
   服务端实现的一致性。
+- `public-resource-detail.test.mjs`：断言公开资源详情页的加载/404/错误状态、
+  公开边界文案、安全外链、分享链接、`AppShell` 公开路由判断，以及详情 API 的
+  “匿名只读公开资源、删除仍按角色鉴权”契约。
 
 新增源码级校验时沿用现有风格：先 `readFile` 目标文件，再用 `assert.match`
 与 `assert.doesNotMatch` 断言可观察契约。涉及纯函数逻辑的测试可直接

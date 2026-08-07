@@ -21,7 +21,7 @@ export function AppShell({ title, subtitle, actions, children, publicLanding = f
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const { session, sessionError } = useSessionState();
-  const publicPage = pathname === "/" || pathname === "/resources";
+  const publicPage = pathname === "/" || pathname === "/resources" || /^\/resources\/\d+$/.test(pathname);
   const toggleTodos = async () => { const next = !todoOpen; setTodoOpen(next); if (next && !todos) { const response = await fetch("/api/dashboard"); if (response.ok) setTodos(await response.json()); } };
   useEffect(() => { const handleShortcut = (event: KeyboardEvent) => { if (!publicPage && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen((value) => !value); return; } if (event.key !== "Escape") return; if (commandOpen) { event.preventDefault(); setCommandOpen(false); return; } const button = document.querySelector<HTMLButtonElement>(".modalBackdrop .modalTitle button"); if (button) { event.preventDefault(); button.click(); } }; document.addEventListener("keydown", handleShortcut); return () => document.removeEventListener("keydown", handleShortcut); }, [commandOpen, publicPage]);
   if (!publicPage && !session?.authenticated) return <div className="authGate"><span>{BRAND_MARK}</span><h1>{sessionError ? "暂时无法确认登录状态" : "请登录教师管理工作台"}</h1><p>{sessionError ? "请检查网络后刷新页面；个人教学数据不会在无法确认身份时显示。" : "资源中心仍可公开浏览；学生姓名、评价和反馈仅供教师管理员登录后查看。"}</p><Link className="primaryButton" href={`/teacher-login?return_to=${encodeURIComponent(pathname)}`}>教师管理员登录</Link><Link className="gateLink" href="/resources">先浏览公开资源</Link></div>;

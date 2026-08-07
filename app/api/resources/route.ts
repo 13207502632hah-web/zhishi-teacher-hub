@@ -22,7 +22,8 @@ export async function GET(request: Request) {
   const base = visibility && search ? and(visibility, search) : visibility || search;
   const rows = limit ? await getDb().select().from(resources).where(base).orderBy(desc(resources.updatedAt)).limit(limit) : await getDb().select().from(resources).where(base).orderBy(desc(resources.updatedAt));
   const [publicRow] = await getDb().select({ count: sql<number>`count(*)` }).from(resources).where(eq(resources.visibility, "public"));
-  const popularTags = Array.from(rows.filter((row) => row.visibility === "public").flatMap((row) => String(row.tags || "").split(/[,，、]/)).map((tag) => tag.trim()).filter(Boolean).reduce((counts, tag) => counts.set(tag, (counts.get(tag) || 0) + 1), new Map<string, number>()).entries()).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([tag]) => tag);
+  const publicTagRows = await getDb().select({ tags: resources.tags }).from(resources).where(eq(resources.visibility, "public"));
+  const popularTags = Array.from(publicTagRows.flatMap((row) => String(row.tags || "").split(/[,，、]/)).map((tag) => tag.trim()).filter(Boolean).reduce((counts, tag) => counts.set(tag, (counts.get(tag) || 0) + 1), new Map<string, number>()).entries()).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([tag]) => tag);
   return Response.json({ resources: rows, canWrite: Boolean(access && can(access, "resources:write")), summary: { publicCount: Number(publicRow?.count || 0), popularTags } });
 }
 

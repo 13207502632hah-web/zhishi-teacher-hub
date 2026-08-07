@@ -347,6 +347,18 @@ async function probeRoute(route, db, cookie, miniToken) {
     return miniToken;
   }
 
+  if (route === "/api/resources/[id]") {
+    const anonymousGet = await request(resolved);
+    record({ group: "api-public", kind: "resource-detail-anonymous", method: "GET", url: resolved, status: anonymousGet.response.status, expected: [200, 404] });
+    const authenticatedGet = await request(resolved, { cookie });
+    record({ group: "api-public", kind: "resource-detail-authenticated", method: "GET", url: resolved, status: authenticatedGet.response.status, expected: [200, 404] });
+    const anonymousDelete = await request(resolved, { method: "DELETE" });
+    record({ group: "api-private", kind: "resource-detail-delete-anonymous", method: "DELETE", url: resolved, status: anonymousDelete.response.status, expected: [401] });
+    const authenticatedDelete = await request(resolved, { cookie, method: "DELETE" });
+    record({ group: "api-private", kind: "resource-detail-delete-authenticated", method: "DELETE", url: resolved, status: authenticatedDelete.response.status, expected: [200, 400, 404, 422] });
+    return miniToken;
+  }
+
   if (isDemoData) {
     const noConfirm = await request(resolved, { cookie, method: "DELETE", body: { confirmation: "错误确认文字" } });
     record({ group: "api-private", kind: "delete-without-confirmation", method: "DELETE", url: resolved, status: noConfirm.response.status, expected: [400] });
@@ -458,7 +470,7 @@ async function main() {
     const pages = await collectPageRoutes();
     for (const page of pages) {
       const resolved = await resolveRoutePath(page, sqlite);
-      const isPublicPage = page === "/" || page === "/teacher-login" || page === "/resources";
+      const isPublicPage = page === "/" || page === "/teacher-login" || page === "/resources" || page === "/resources/[id]";
       const anon = await request(resolved);
       record({
         group: "page",

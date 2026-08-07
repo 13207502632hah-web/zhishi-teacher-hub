@@ -59,3 +59,13 @@ test("resources page surfaces the public discovery summary from the same API", a
   assert.match(page, /当前公开 \{publicSummary\.publicCount/);
   assert.match(page, /publicSummary\.popularTags\?\.slice/);
 });
+
+test("popular tags aggregate across all public resources, not only current result rows", async () => {
+  const api = await read("app/api/resources/route.ts");
+
+  assert.match(api, /publicTagRows/);
+  assert.match(api, /\.from\(resources\)\.where\(eq\(resources\.visibility,\s*["`]public["`]\)\)/);
+  assert.match(api, /Array\.from\(publicTagRows\.flatMap/);
+  assert.match(api, /popularTags/);
+  assert.doesNotMatch(api, /rows\.flatMap/);
+});

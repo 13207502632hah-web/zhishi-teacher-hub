@@ -87,9 +87,14 @@ test("resource page is isolated in a responsive CSS module", async () => {
   assert.doesNotMatch(page, /className="(resourceWelcome|workflowGuide|toolbar|resourceGrid|resourceCard|modalBackdrop)/);
 });
 
-test("resource API reports destructive misses instead of pretending success", async () => {
+test("resource detail API keeps public reads bounded and destructive misses explicit", async () => {
   const api = await read("app/api/resources/[id]/route.ts");
 
+  assert.match(api, /export async function GET/);
+  assert.match(api, /resources:private/);
+  assert.match(api, /eq\(resources\.visibility,\s*["`]public["`]\)/);
+  assert.match(api, /canManage/);
+  assert.match(api, /requirePermission\(["`]resources:write["`]\)/);
   assert.match(api, /returning/);
   assert.match(api, /status:\s*404/);
   assert.match(api, /资源不存在/);

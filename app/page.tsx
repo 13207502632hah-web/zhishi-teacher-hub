@@ -216,7 +216,7 @@ export default function PublicHome() {
         {preview && !previewError && <p className="publicHomeResourceMeta">当前公开 {preview.summary?.publicCount ?? preview.resources.length} 份 · 热门标签 {preview.summary?.popularTags?.slice(0, 3).join(" / ") || "暂无"}</p>}
       </div>
       <div className="publicHomeResourcePreview">
-        {previewError ? <p className="publicHomeResourceEmpty">资源暂时无法读取；稍后可在公开资源中心直接检索。</p> : preview?.resources?.length ? preview.resources.slice(0, 3).map((item) => <Link className="publicHomeResourceCard" href="/resources" key={item.id}><span>{String(item.type || "资源")}</span><b>{String(item.title || "未命名资源")}</b><small>{String(item.tags || "未设置标签")}</small></Link>) : <p className="publicHomeResourceEmpty">还没有公开资源；教师发布不含私人信息的资源后，访客会在这里看到最近内容。</p>}
+        {previewError ? <p className="publicHomeResourceEmpty">资源暂时无法读取；稍后可在公开资源中心直接检索。</p> : preview?.resources?.length ? preview.resources.slice(0, 3).map((item) => <Link className="publicHomeResourceCard" href={`/resources/${item.id}`} key={item.id}><span>{String(item.type || "资源")}</span><b>{String(item.title || "未命名资源")}</b><small>{String(item.tags || "未设置标签")}</small></Link>) : <p className="publicHomeResourceEmpty">还没有公开资源；教师发布不含私人信息的资源后，访客会在这里看到最近内容。</p>}
         <Link className="publicHomeResourceLink" href="/resources">进入公开资源中心 <span aria-hidden="true">↗</span></Link>
       </div>
     </section>

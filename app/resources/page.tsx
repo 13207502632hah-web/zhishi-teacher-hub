@@ -346,11 +346,12 @@ export default function ResourcesPage() {
           const externalUrl = safeExternalUrl(item.url);
           return <article className={styles.resourceCard} key={item.id}>
             <div className={styles.cardMeta}><span className={styles.badge}>{item.type || "资源"}</span>{item.sourceRef?.startsWith("reflection:") && <span className={styles.badgeMuted}>来自教学反思</span>}{canWrite && <span className={styles.visibilityBadge}>{item.visibility === "public" ? "公开" : "仅教师与助教"}</span>}</div>
-            <h3>{item.title}</h3>
+            <h3><Link href={`/resources/${item.id}`}>{item.title}</Link></h3>
             <p className={styles.cardContent}>{item.content || "暂无内容说明"}</p>
             <p className={styles.cardTags}>{item.tags || "未设置标签"}</p>
             {item.url && !externalUrl && <p className={styles.linkWarning} role="note">链接未显示：仅支持 http:// 或 https:// 安全协议。</p>}
             <div className={styles.cardActions}>
+              <Link className={styles.textButton} href={`/resources/${item.id}`}>查看详情</Link>
               {externalUrl && <a className={styles.textButton} href={externalUrl} target="_blank" rel="noopener noreferrer">打开安全链接</a>}
               {canWrite && <button type="button" className={styles.textButton} disabled={printingId !== null} onClick={() => void printResource(item)}>{printingId === item.id ? "记录审计…" : "打印"}</button>}
               {canWrite && <button type="button" className={styles.dangerButton} disabled={deletingId !== null} onClick={() => void deleteResource(item)}>{deletingId === item.id ? "删除中…" : "删除"}</button>}
