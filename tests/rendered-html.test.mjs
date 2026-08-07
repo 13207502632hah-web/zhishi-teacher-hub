@@ -141,6 +141,27 @@ test("question-bank-first workflow exposes queue, saved views, indexed search an
   assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(navigation, /label:\s*"题库"/); assert.match(navigation, /微信小程序（暂停）/); assert.match(dashboard, /今日教学工作台/); assert.match(dashboard, /题库与组卷/);
 });
 
+test("question facet counts drive combined-filter feedback", async () => {
+  const [facetsApi, page] = await Promise.all([read("app/api/questions/facets/route.ts"), read("app/questions/page.tsx")]);
+  assert.match(facetsApi, /COUNT\(\*\) AS count/);
+  assert.match(facetsApi, /GROUP BY \$\{column\}/);
+  assert.match(facetsApi, /ORDER BY count DESC/);
+  for (const field of ["topic", "question_type", "difficulty", "region", "exam_type", "year"]) assert.match(facetsApi, new RegExp(field));
+  assert.match(page, /当前筛选命中 \{total\} 题/);
+  assert.match(page, /item\.count/);
+  assert.match(page, /facets\.grade\?\.length/);
+});
+
+test("knowledge filter supports multiple AND tokens without LIKE wildcards", async () => {
+  const [questionsApi, page] = await Promise.all([read("app/api/questions/route.ts"), read("app/questions/page.tsx")]);
+  assert.match(questionsApi, /knowledge\.split\(\/\[、\\s\]\+\/\)/);
+  assert.match(questionsApi, /and\(\.\.\.knowledgeTokens\.map/);
+  assert.match(questionsApi, /instr\(\$\{questions\.knowledgePoints\}, \$\{token\}\) > 0/);
+  assert.match(questionsApi, /instr\(\$\{questions\.secondaryKnowledge\}, \$\{token\}\) > 0/);
+  assert.doesNotMatch(questionsApi, /if \(knowledge\) conditions\.push\(or\(like\(questions\.knowledgePoints/);
+  assert.match(page, /placeholder="支持多个知识点，用空格或、分隔"/);
+});
+
 test("lesson closure persists attendance, performance, homework, feedback and review finance", async () => {
   const [activity, detail, dashboard, classDetail, students] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx")]);
   assert.match(activity,/studentRecord/); assert.match(activity,/saveDraft/); assert.match(activity,/validateLessonCompletion/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/); assert.match(activity,/lesson_finance/); assert.match(activity,/status!='review'|status !== "review"/);
@@ -180,12 +201,19 @@ test("comprehensive repairs connect lazy answers, imports, exams, promotion and 
 });
 
 test("stage two covers political question review, paper drafting and lesson links", async () => {
-  const [schema, page, parser, importApi, confirmApi, reviewService, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/questions/page.tsx"),read("app/lib/question-import.ts"),read("app/api/question-sets/import/route.ts"),read("app/api/question-sets/[id]/confirm/route.ts"),read("app/lib/services/question-review-service.ts"),read("app/papers/page.tsx"),read("app/api/papers/route.ts"),read("app/api/lessons/[id]/questions/route.ts")]);
+  const [schema, page, parser, importApi, sourceRoute, confirmApi, reviewService, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/questions/page.tsx"),read("app/lib/question-import.ts"),read("app/api/question-sets/import/route.ts"),read("app/api/question-sets/source/route.ts"),read("app/api/question-sets/[id]/confirm/route.ts"),read("app/lib/services/question-review-service.ts"),read("app/papers/page.tsx"),read("app/api/papers/route.ts"),read("app/api/lessons/[id]/questions/route.ts")]);
   for (const field of ["factBasis","textbookView","valueJudgment","answerLogic","standardExpression","coreCompetencies","isFavorite","isWrong","isFrequent"]) assert.match(schema,new RegExp(field));
   for (const label of ["正式题库","待校对","Word 导入","事实依据","教材观点","价值判断","答题逻辑","规范表述","识别报告","政治题目核对四点","必修3 政治与法治"]) assert.match(page,new RegExp(label));
   for (const marker of ["parsePoliticsDocx","summarizeImport","缺少答案","缺少知识点","缺少解析","题库的难度系数越高代表越容易"]) assert.match(parser,new RegExp(marker));
   assert.match(importApi,/status:\s*"review"/); assert.match(confirmApi,/reviewQuestions/); assert.match(reviewService,/status='active'/); assert.match(page,/将已校对且合格的题目入库/);
+  assert.match(importApi,/QUESTION_SET_IMPORT_LIMIT\s*=\s*300/); assert.match(importApi,/parsed\.length > QUESTION_SET_IMPORT_LIMIT/); assert.match(page,/超过单任务上限/); assert.match(page,/拆分成多个文件后分批导入/);
+  assert.match(importApi,/env\.FILES\.get\(sourceKey\)/); assert.match(importApi,/sourceFingerprint/); assert.match(page,/sourceFingerprint/);
+  assert.match(importApi,/typeCounts/); assert.match(importApi,/incompleteItems/); assert.match(importApi,/lowConfidenceItems/);
+  assert.match(page,/importReport\.typeCounts/); assert.match(page,/待补充清单/); assert.match(page,/低置信度清单/); assert.match(page,/importReport\.incompleteItems/); assert.match(page,/importReport\.lowConfidenceItems/); assert.match(page,/setImportStep\(3\);\s*setCurrent\(Number\(item\.index\)\)/);
+  assert.match(sourceRoute,/export async function GET/); assert.match(sourceRoute,/env\.FILES\.get\(key\)/); assert.match(sourceRoute,/Content-Disposition/); assert.match(sourceRoute,/private, no-store/);
+  assert.match(page,/文件已上传，可继续处理/); assert.match(page,/刷新后浏览器不保留本地文件，请重新选择同名文件/); assert.match(page,/item\.file \|\| item\.sourceKey/); assert.match(page,/api\/question-sets\/source\?key=/);
   for (const label of ["自动推荐题目","手动添加","保存试卷草稿","练习","周测","阶段测","讲义题组"]) assert.match(paperPage,new RegExp(label));
+  assert.match(paperPage,/page: String\(page\)/); assert.match(paperPage,/共 \{candidateTotal \|\| bank\.length\} 题 · 已显示 \{bank\.length\} 题/); assert.match(paperPage,/加载更多候选题/); assert.doesNotMatch(paperPage,/bank\.slice\(0, 100\)/);
   assert.match(paperApi,/paperQuestions/); assert.match(lessonQuestions,/lessonQuestions/);
 });
 

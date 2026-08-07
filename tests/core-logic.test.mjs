@@ -40,6 +40,11 @@ test("Word parser keeps question, answer, analysis and knowledge for political p
   const summary = summarizeImport(parsed);
   assert.deepEqual({ total: summary.total, answered: summary.answered, tagged: summary.tagged, explained: summary.explained }, { total: 2, answered: 2, tagged: 2, explained: 2 });
   assert.doesNotThrow(() => summarizeImport([{ questionType: "单选题", answer: "A", knowledgePoints: "法治", analysis: "解析" }]));
+  const incomplete = summarizeImport([{ questionType: "材料题", answer: "", knowledgePoints: "", analysis: "", parseConfidence: 0.4, sourceQuestionNumber: 9 }]);
+  assert.equal(incomplete.incomplete, 1);
+  assert.deepEqual(incomplete.incompleteItems, [{ index: 0, number: 9, missing: ["缺少答案", "缺少知识点", "缺少解析"] }]);
+  assert.deepEqual(incomplete.lowConfidenceItems, [{ index: 0, number: 9, confidence: 0.4 }]);
+  assert.deepEqual(incomplete.typeCounts, { 材料题: 1 });
 });
 
 test("Word parser separates political materials and keeps scoring evidence", async () => {
@@ -284,10 +289,23 @@ test("student wrong-question records and feedback delivery stay reviewable", asy
 });
 
 test("Word review tasks resume from D1 and demo data covers the teaching loop", async () => {
-  const [importRoute, setRoute, questionsPage, demo, masteryRoute] = await Promise.all(["app/api/question-sets/import/route.ts", "app/api/question-sets/[id]/route.ts", "app/questions/page.tsx", "app/api/settings/demo/route.ts", "app/api/students/[id]/mastery/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const [importRoute, setRoute, sourceRoute, questionsPage, demo, masteryRoute] = await Promise.all(["app/api/question-sets/import/route.ts", "app/api/question-sets/[id]/route.ts", "app/api/question-sets/source/route.ts", "app/questions/page.tsx", "app/api/settings/demo/route.ts", "app/api/students/[id]/mastery/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(importRoute, /insertedQuestions/);
+  assert.match(importRoute, /env\.FILES\.get\(sourceKey\)/);
+  assert.match(importRoute, /sourceFingerprint/);
+  assert.match(importRoute, /searchParams\.get\("sourceFingerprint"\)/);
+  assert.match(sourceRoute, /export async function GET\(request: Request\)/);
+  assert.match(sourceRoute, /env\.FILES\.get\(key\)/);
+  assert.match(sourceRoute, /Content-Disposition/);
   assert.match(setRoute, /questionSetId/);
   assert.match(questionsPage, /已恢复.*复核进度/);
+  assert.match(questionsPage, /setSourceFingerprint/);
+  assert.match(questionsPage, /sourceFingerprint:\s*source\.fingerprint/);
+  assert.match(questionsPage, /sourceKey:\s*sourceDocument,\s*sourceFingerprint/);
+  assert.match(questionsPage, /文件已上传，可继续处理/);
+  assert.match(questionsPage, /刷新后浏览器不保留本地文件，请重新选择同名文件/);
+  assert.match(questionsPage, /api\/question-sets\/source\?key=/);
+  assert.match(questionsPage, /item\.file \|\| item\.sourceKey/);
   assert.match(questionsPage, /beforeunload/);
   assert.match(questionsPage, /自动保存复核进度失败/);
   for (const status of ["completed", "scheduled", "rescheduled", "cancelled", "makeup"]) assert.match(demo, new RegExp(`\\"${status}\\"`));

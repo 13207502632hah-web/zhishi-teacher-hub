@@ -1,6 +1,15 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 
+export async function GET(request: Request) {
+  const access = await requirePermission("questions:read"); if (isDenied(access)) return access;
+  const key = new URL(request.url).searchParams.get("key");
+  if (!key) return Response.json({ error: "缺少原始文件 key" }, { status: 400 });
+  const object = await env.FILES.get(key);
+  if (!object) return Response.json({ error: "原始 Word 文件不存在或已过期，请重新上传" }, { status: 404 });
+  return new Response(object.body, { headers: { "Content-Type": object.httpMetadata?.contentType || "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Content-Disposition": `attachment; filename="source.docx"`, "Cache-Control": "private, no-store" } });
+}
+
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
   const form = await request.formData(), file = form.get("file");

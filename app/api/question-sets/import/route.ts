@@ -7,23 +7,41 @@ import { questionFingerprint } from "../../../lib/question-fingerprint";
 import { questionTextSimilarity } from "../../../lib/question-similarity";
 import { questionValues } from "../../questions/values";
 
+export const QUESTION_SET_IMPORT_LIMIT = 300;
+
+const missingImportFields = (question: Record<string, unknown>) => [!question.answer && "缺少答案", !question.knowledgePoints && "缺少知识点", !question.analysis && "缺少解析"].filter(Boolean) as string[];
+const reportQuestionNumber = (raw: Record<string, unknown> | undefined, index: number) => { const number = Number(raw?.sourceQuestionNumber); return Number.isFinite(number) && number > 0 ? number : index + 1; };
+
 export async function POST(request: Request) {
   const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
-  const body = await request.json() as { name?: string; sourceFile?: string; sourceDocument?: string; questions?: Array<Record<string, unknown>> }, input = (body.questions || []).filter((question) => String(question.stem || "").trim()).slice(0, 300);
+  const body = await request.json() as { name?: string; sourceFile?: string; sourceDocument?: string; sourceKey?: string; sourceFingerprint?: string; questions?: Array<Record<string, unknown>> }, parsed = (body.questions || []).filter((question) => String(question.stem || "").trim());
+  if (parsed.length > QUESTION_SET_IMPORT_LIMIT) {
+    return Response.json({ error: `单个导入任务最多 ${QUESTION_SET_IMPORT_LIMIT} 题；本次识别到 ${parsed.length} 题，请拆分文件或分批导入`, total: parsed.length, limit: QUESTION_SET_IMPORT_LIMIT }, { status: 422 });
+  }
+  const input = parsed;
   if (!input.length) return Response.json({ error: "没有可导入的题目；请确认 Word 中包含文字版题号与题干" }, { status: 400 });
-  const sourceFingerprint = questionFingerprint({ stem: body.sourceFile || body.name || "Word 导入", material: input.map((question) => questionFingerprint(question)).join("|") }), db = getDb();
+  const sourceKey = String(body.sourceKey || body.sourceDocument || "").trim();
+  if (sourceKey) {
+    const stored = await env.FILES.get(sourceKey);
+    if (!stored) return Response.json({ error: "原始 Word 文件不存在或已过期，请重新上传后导入" }, { status: 422 });
+  }
+  const fileFingerprint = String(body.sourceFingerprint || "").trim(), sourceFingerprint = fileFingerprint || questionFingerprint({ stem: body.sourceFile || body.name || "Word 导入", material: input.map((question) => questionFingerprint(question)).join("|") }), db = getDb();
   const [previous] = await db.select({ id: questionSets.id, name: questionSets.name, status: questionSets.status }).from(questionSets).where(eq(questionSets.sourceFingerprint, sourceFingerprint)).limit(1);
   if (previous) return Response.json({ error: "这份 Word 文件已经导入过，避免重复入库", existing: previous }, { status: 409 });
   const prepared = input.map((question) => ({ ...questionValues({ ...question, source: question.source || body.sourceFile || "Word 试卷导入", sourceFile: body.sourceFile || "", status: "review", recordedBy: access.name }), reviewed: Boolean(question.reviewed) }));
+  const rawByFingerprint = new Map(prepared.map((question, index) => [question.fingerprint, input[index]]));
   const fingerprints = [...new Set(prepared.map((question) => question.fingerprint))], existingRows = fingerprints.length ? await db.select({ fingerprint: questions.fingerprint }).from(questions).where(inArray(questions.fingerprint, fingerprints)) : [], existing = new Set(existingRows.map((question) => question.fingerprint));
   const seen = new Set<string>();
   const unique = prepared.filter((question) => { if (existing.has(question.fingerprint) || seen.has(question.fingerprint)) return false; seen.add(question.fingerprint); return true; });
   if (!unique.length) return Response.json({ error: "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length }, { status: 409 });
-  const duplicateRows = prepared.filter((question, index) => existing.has(question.fingerprint) || prepared.findIndex((candidate) => candidate.fingerprint === question.fingerprint) !== index).map((question) => ({ fingerprint: question.fingerprint, stem: question.stem.slice(0, 120) }));
+  const duplicateRows = prepared.flatMap((question, index) => existing.has(question.fingerprint) || prepared.findIndex((candidate) => candidate.fingerprint === question.fingerprint) !== index ? [{ sourceIndex: index, fingerprint: question.fingerprint, stem: question.stem.slice(0, 120), number: reportQuestionNumber(input[index], index) }] : []);
   const comparisonPool = await db.select({ id: questions.id, stem: questions.stem, fingerprint: questions.fingerprint }).from(questions).limit(2000);
   const similarRows = unique.flatMap((question, sourceIndex) => comparisonPool.map((candidate) => ({ sourceIndex, sourceStem: question.stem.slice(0, 180), candidateId: candidate.id, candidateStem: candidate.stem.slice(0, 180), similarity: questionTextSimilarity(question.stem, candidate.stem), exact: candidate.fingerprint === question.fingerprint })).filter((candidate) => !candidate.exact && candidate.similarity >= .82).sort((a, b) => b.similarity - a.similarity).slice(0, 3)).filter((item) => item.similarity >= .82);
   const duplicateReport = { exact: duplicateRows, similar: similarRows };
-  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: unique.filter((question) => !question.answer || !question.analysis || !question.knowledgePoints).length, lowConfidence: unique.filter((question) => Number(question.parseConfidence ?? 1) < .7).length };
+  const typeCounts = unique.reduce<Record<string, number>>((counts, question) => { const type = String(question.questionType || "未识别题型"); counts[type] = (counts[type] || 0) + 1; return counts; }, {});
+  const incompleteItems = unique.flatMap((question, index) => { const missing = missingImportFields(question); return missing.length ? [{ index, number: reportQuestionNumber(rawByFingerprint.get(question.fingerprint), index), missing }] : []; });
+  const lowConfidenceItems = unique.flatMap((question, index) => Number(question.parseConfidence ?? 1) < .7 ? [{ index, number: reportQuestionNumber(rawByFingerprint.get(question.fingerprint), index), confidence: Number(question.parseConfidence) }] : []);
+  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: incompleteItems.length, lowConfidence: lowConfidenceItems.length, typeCounts, incompleteItems, lowConfidenceItems };
   const first = unique[0], sourceYear = String(first.year || ""), academicYear = /^20\d{2}-20\d{2}$/.test(sourceYear) ? sourceYear : /^20\d{2}$/.test(sourceYear) ? `${Number(sourceYear) - 1}-${sourceYear}` : "", [paper] = await db.insert(papers).values({ title: String(body.name || "Word 试卷导入"), type: String(first.examType || "完整试卷"), stage: String(first.stage || ""), grade: String(first.grade || ""), textbookVersion: String(first.textbookVersion || ""), year: Number(first.year || 0) || null, academicYear, examCategory: String(first.examType || ""), region: String(first.region || ""), source: String(body.sourceDocument || body.sourceFile || ""), parseStatus: "review", status: "draft" }).returning();
   const [set] = await db.insert(questionSets).values({ paperId: paper.id, name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
   const insertedQuestions = [], storedAssetKeys: string[] = [];
@@ -42,6 +60,15 @@ export async function POST(request: Request) {
   }
   await audit(access, "import", "question_set", set.id, report);
   return Response.json({ questionSet: set, questions: insertedQuestions, questionCount: unique.length, report, duplicateReport }, { status: 201 });
+}
+
+export async function GET(request: Request) {
+  const access = await requirePermission("questions:read"); if (isDenied(access)) return access;
+  const fingerprint = new URL(request.url).searchParams.get("sourceFingerprint")?.trim();
+  if (!fingerprint) return Response.json({ error: "缺少 sourceFingerprint" }, { status: 400 });
+  const db = getDb();
+  const [existing] = await db.select({ id: questionSets.id, name: questionSets.name, status: questionSets.status, sourceFile: questionSets.sourceFile, sourceDocument: questionSets.sourceDocument }).from(questionSets).where(eq(questionSets.sourceFingerprint, fingerprint)).limit(1);
+  return Response.json({ existing: existing || null });
 }
 
 async function storeInlineAttachments(value: unknown, sourceFingerprint: string, questionIndex: number, storedKeys: string[]) {

@@ -141,3 +141,113 @@ test("schedule import uses shared primitives and readable mobile-first styles", 
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });
+
+test("schedule import exposes history batches and per-row confirmation results", async () => {
+  const [page, listRoute, detailRoute, confirmRoute] = await Promise.all([
+    read("app/schedule-imports/page.tsx"),
+    read("app/api/schedule-imports/route.ts"),
+    read("app/api/schedule-imports/[id]/route.ts"),
+    read("app/api/schedule-imports/[id]/confirm/route.ts"),
+  ]);
+
+  assert.match(page, /最近导入/);
+  assert.match(page, /refreshHistory/);
+  assert.match(page, /openHistory/);
+  assert.match(page, /\/api\/schedule-imports\/\$\{id\}/);
+  assert.match(page, /查看报告/);
+  assert.match(page, /查看课时/);
+  assert.match(listRoute, /parseStoredJson/);
+  assert.match(listRoute, /ORDER BY id DESC LIMIT 30/);
+  assert.match(detailRoute, /FROM schedule_imports WHERE id=\?/);
+  assert.match(detailRoute, /FROM schedule_import_rows WHERE import_id=\?/);
+  assert.match(confirmRoute, /rows: resultRows/);
+  assert.match(confirmRoute, /SELECT id,row_number AS rowNumber,action,issue,lesson_id AS lessonId/);
+});
+
+test("schedule import fuzzy-matches variant headers and reports unknown columns", async () => {
+  const { detectScheduleMappingDetail } = await loadTsModule("app/lib/schedule-import.ts");
+  const { mapping, unknownColumns } = detectScheduleMappingDetail([
+    "上课时间（周一）",
+    "结束 时间",
+    "日期（必填）",
+    "学生姓名",
+    "班级",
+    "课程名称",
+    "备注说明",
+    "序号",
+  ]);
+
+  assert.equal(mapping.date, "日期（必填）");
+  assert.equal(mapping.startTime, "上课时间（周一）");
+  assert.equal(mapping.endTime, "结束 时间");
+  assert.equal(mapping.studentNames, "学生姓名");
+  assert.equal(mapping.className, "班级");
+  assert.equal(mapping.courseName, "课程名称");
+  assert.equal(mapping.notes, "备注说明");
+  assert.deepEqual(
+    unknownColumns.map((column) => column.name),
+    ["序号"],
+  );
+  assert.deepEqual(unknownColumns[0].suggestions, []);
+
+  const typo = detectScheduleMappingDetail(["上课时问", "日期", "结束时间"]);
+  assert.equal(typo.mapping.startTime, "上课时问");
+  assert.equal(typo.unknownColumns.length, 0);
+});
+
+test("schedule import surfaces unknown columns from API to page", async () => {
+  const [route, page, css] = await Promise.all([
+    read("app/api/schedule-imports/route.ts"),
+    read("app/schedule-imports/page.tsx"),
+    read("app/schedule-imports.css"),
+  ]);
+
+  assert.match(route, /detectScheduleMappingDetail/);
+  assert.match(route, /unknownColumns: mappingDetail\.unknownColumns/);
+  assert.match(page, /未识别列/);
+  assert.match(page, /suggestions/);
+  assert.match(page, /该列不会参与导入/);
+  assert.match(css, /\.scheduleImportUnknownColumns/);
+});
+
+test("schedule retry derives partial, failed and confirmed status from final rows", async () => {
+  const { scheduleImportFinalStatus } = await loadTsModule("app/lib/schedule-import-status.ts");
+
+  assert.deepEqual(
+    scheduleImportFinalStatus([
+      { action: "created", lessonId: 11 },
+      { action: "blocked", lessonId: null },
+    ]),
+    { status: "partial", remaining: 1 },
+  );
+  assert.deepEqual(
+    scheduleImportFinalStatus([{ action: "blocked", lessonId: 3 }]),
+    { status: "failed", remaining: 1 },
+  );
+  assert.deepEqual(
+    scheduleImportFinalStatus([
+      { action: "created", lessonId: 11 },
+      { action: "skipped", lessonId: 12 },
+    ]),
+    { status: "confirmed", remaining: 0 },
+  );
+});
+
+test("schedule confirm and page expose retry semantics and parsing progress", async () => {
+  const [confirm, page, css] = await Promise.all([
+    read("app/api/schedule-imports/[id]/confirm/route.ts"),
+    read("app/schedule-imports/page.tsx"),
+    read("app/schedule-imports.css"),
+  ]);
+
+  assert.match(confirm, /scheduleImportFinalStatus/);
+  assert.match(confirm, /\["created", "updated", "skipped"\]/);
+  assert.match(confirm, /validateNormalizedSchedule/);
+  assert.match(confirm, /confirm_retry/);
+  assert.match(page, /重试剩余/);
+  assert.match(page, /remainingCount/);
+  assert.match(page, /uploadStage/);
+  assert.match(page, /正在读取 CSV 行数/);
+  assert.match(page, /正在逐行核对现有课时与冲突/);
+  assert.match(css, /\.scheduleImportProgressTrack/);
+});

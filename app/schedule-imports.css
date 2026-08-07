@@ -85,9 +85,191 @@
   width: 100%;
 }
 
+.scheduleImportUnknownColumns {
+  background: color-mix(in srgb, var(--zs-gold) 10%, var(--zs-surface));
+  border: 1px solid var(--zs-gold);
+  border-radius: var(--zs-radius-md);
+  margin-bottom: 1rem;
+  padding: 0.875rem 1rem;
+}
+
+.scheduleImportUnknownColumns > b {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.scheduleImportUnknownColumns ul {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.scheduleImportUnknownColumns li {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+}
+
+.scheduleImportUnknownColumns li span {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.scheduleImportUnknownColumns li small {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.scheduleImportProgress {
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  margin-bottom: 1rem;
+  padding: 0.875rem 1rem;
+}
+
+.scheduleImportProgressTrack {
+  background: var(--zs-paper);
+  border-radius: 999px;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+.scheduleImportProgressTrack span {
+  background: var(--zs-pine);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  transition: width 0.3s ease;
+  width: 28%;
+}
+
+.scheduleImportProgressTrack span[data-stage="reading"] {
+  width: 18%;
+}
+
+.scheduleImportProgressTrack span[data-stage="parsing"] {
+  width: 52%;
+}
+
+.scheduleImportProgressTrack span[data-stage="checking"] {
+  animation: scheduleImportScan 1.2s ease-in-out infinite;
+  width: 76%;
+}
+
+@keyframes scheduleImportScan {
+  0% {
+    margin-left: 0;
+  }
+  50% {
+    margin-left: 24%;
+  }
+  100% {
+    margin-left: 0;
+  }
+}
+
+.scheduleImportProgress p {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  margin: 0.5rem 0 0;
+  overflow-wrap: anywhere;
+}
+
 .scheduleImportUpload,
 .scheduleImportReview {
   margin-bottom: 1rem;
+}
+
+.scheduleImportHistory,
+.scheduleImportHistoryDetail {
+  margin-bottom: 1rem;
+}
+
+.scheduleImportHistoryEmpty {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0;
+  padding: 0.5rem 0;
+}
+
+.scheduleImportHistoryList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.scheduleImportHistoryItem {
+  align-items: flex-start;
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-left: 4px solid var(--zs-pine);
+  border-radius: var(--zs-radius-md);
+  display: grid;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+  padding: 0.875rem;
+}
+
+.scheduleImportHistoryMain {
+  min-width: 0;
+}
+
+.scheduleImportHistoryMain h3 {
+  font-size: 1rem;
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.scheduleImportHistoryMain p,
+.scheduleImportHistoryCounts {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.scheduleImportHistoryItem .secondaryButton {
+  min-height: 44px;
+  width: 100%;
+}
+
+.scheduleImportHistoryDetailMeta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.875rem;
+}
+
+.scheduleImportHistoryDetailMeta span {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.scheduleImportLinkedLesson {
+  background: color-mix(in srgb, var(--zs-pine) 8%, var(--zs-surface));
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+  padding: 0.625rem 0.75rem;
+}
+
+.scheduleImportLinkedLesson a {
+  color: inherit;
+  font-weight: 700;
 }
 
 .scheduleImportUploadBody {
@@ -315,6 +497,19 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
+  .scheduleImportHistoryItem {
+    align-items: center;
+    grid-template-columns: minmax(0, 1.5fr) auto minmax(0, 1fr) auto;
+  }
+
+  .scheduleImportHistoryCounts {
+    margin-top: 0;
+  }
+
+  .scheduleImportHistoryItem .secondaryButton {
+    width: auto;
+  }
+
   .scheduleImportMetrics .zs-metric:first-child {
     grid-column: auto;
   }
@@ -349,5 +544,9 @@
 @media (prefers-reduced-motion: reduce) {
   .scheduleImportFile {
     scroll-behavior: auto;
+  }
+
+  .scheduleImportProgressTrack span[data-stage="checking"] {
+    animation: none;
   }
 }

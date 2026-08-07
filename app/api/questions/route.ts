@@ -9,9 +9,15 @@ import { questionValues } from "./values";
 export async function GET(request: Request) {
   const access = await requirePermission("questions:read"); if (isDenied(access)) return access;
   const params = new URL(request.url).searchParams, q = params.get("q") || "", stage = params.get("stage") || "", grade = params.get("grade") || "", textbookVersion = params.get("textbookVersion") || "", volume = params.get("volume") || "", unit = params.get("unit") || "", topic = params.get("topic") || "", type = params.get("type") || "", difficulty = params.get("difficulty") || "", status = params.get("status") || "active", knowledge = params.get("knowledge") || "", source = params.get("source") || "", region = params.get("region") || "", examType = params.get("examType") || "", year = params.get("year") || "", flag = params.get("flag") || "", issue = params.get("issue") || "", ids = [...new Set((params.get("ids") || "").split(",").map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100), rawPage = Number(params.get("page") || 1), requestedPage = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1, pageSize = 50, sort = params.get("sort") || "updated_desc";
+  const candidateAll = params.get("candidate") === "1";
   const conditions = [];
   if (q) conditions.push(or(like(questions.stem, `%${q}%`), like(questions.material, `%${q}%`), like(questions.analysis, `%${q}%`), like(questions.knowledgePoints, `%${q}%`), like(questions.tags, `%${q}%`)));
-  if (ids.length) conditions.push(inArray(questions.id, ids)); if (stage) conditions.push(eq(questions.stage, stage)); if (grade) conditions.push(eq(questions.grade, grade)); if (textbookVersion) conditions.push(eq(questions.textbookVersion, textbookVersion)); if (volume) conditions.push(eq(questions.volume, volume)); if (unit) conditions.push(eq(questions.unit, unit)); if (topic) conditions.push(eq(questions.topic, topic)); if (type) conditions.push(eq(questions.questionType, type)); if (difficulty) conditions.push(eq(questions.difficulty, Number(difficulty))); if (status) conditions.push(eq(questions.status, status)); if (knowledge) conditions.push(or(like(questions.knowledgePoints, `%${knowledge}%`), like(questions.secondaryKnowledge, `%${knowledge}%`))); if (source) conditions.push(like(questions.source, `%${source}%`)); if (region) conditions.push(eq(questions.region, region)); if (examType) conditions.push(eq(questions.examType, examType)); if (year) conditions.push(eq(questions.year, Number(year)));
+  const knowledgeTokens = knowledge.split(/[、\s]+/).filter(Boolean);
+  if (ids.length) conditions.push(inArray(questions.id, ids)); if (stage) conditions.push(eq(questions.stage, stage)); if (grade) conditions.push(eq(questions.grade, grade)); if (textbookVersion) conditions.push(eq(questions.textbookVersion, textbookVersion)); if (volume) conditions.push(eq(questions.volume, volume)); if (unit) conditions.push(eq(questions.unit, unit)); if (topic) conditions.push(eq(questions.topic, topic)); if (type) conditions.push(eq(questions.questionType, type)); if (difficulty) conditions.push(eq(questions.difficulty, Number(difficulty))); if (status) conditions.push(eq(questions.status, status));
+  if (knowledgeTokens.length) conditions.push(and(...knowledgeTokens.map((token) => or(
+    sql`instr(${questions.knowledgePoints}, ${token}) > 0`,
+    sql`instr(${questions.secondaryKnowledge}, ${token}) > 0`
+  )))); if (source) conditions.push(like(questions.source, `%${source}%`)); if (region) conditions.push(eq(questions.region, region)); if (examType) conditions.push(eq(questions.examType, examType)); if (year) conditions.push(eq(questions.year, Number(year)));
   if (flag === "favorite") conditions.push(eq(questions.isFavorite, true)); if (flag === "wrong") conditions.push(eq(questions.isWrong, true)); if (flag === "frequent") conditions.push(eq(questions.isFrequent, true));
   if (issue === "missing_answer") conditions.push(eq(questions.answer, ""));
   if (issue === "missing_analysis") conditions.push(eq(questions.analysis, ""));
@@ -23,7 +29,7 @@ export async function GET(request: Request) {
   const order = sort === "updated_asc" ? asc(questions.updatedAt) : sort === "difficulty_desc" ? desc(questions.difficulty) : sort === "difficulty_asc" ? asc(questions.difficulty) : sort === "use_count_desc" ? desc(questions.useCount) : sort === "use_count_asc" ? asc(questions.useCount) : desc(questions.updatedAt);
   const [countRows, idRows, issues] = await Promise.all([
     getDb().select({ count: sql<number>`count(*)` }).from(questions).where(where),
-    getDb().select({ id: questions.id }).from(questions).where(where).limit(300),
+    (candidateAll ? getDb().select({ id: questions.id }).from(questions).where(where) : getDb().select({ id: questions.id }).from(questions).where(where).limit(300)),
     questionReviewSummary(env.DB),
   ]);
   const total = Number(countRows[0]?.count || 0);

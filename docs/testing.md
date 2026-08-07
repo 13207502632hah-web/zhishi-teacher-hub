@@ -39,6 +39,14 @@ transpile 后执行 `app/lib/*`。
 - 结算 preview → confirm 的 `operationId` 与 `previewToken` 安全边界。
 - AI 反馈草稿、题目审核、隐私校验、每日用量限制与审计动作。
 - 1000 题组合检索性能基准与月度结算导出。
+- 课表导入：历史任务与旧报告入口、表头变体识别、确认后逐行结果与课时链接、
+  大批量/失败任务重试与状态 UI。
+- 题库导入：单任务 300 题上限明确拒绝、sourceKey/指纹断点恢复、导入报告题型分布
+  与待补充/低置信度清单。
+- 组卷工作台：候选分页总数与加载更多去重、自动推荐平衡、`candidate=1` 全量候选
+  id 不截断不重复。
+- 题库筛选：facet 返回 `{ value, count }` 且组合筛选重新计数、知识点多关键词
+  AND 匹配、`%`/`_` 按字面匹配。
 
 运行要求：
 
@@ -62,12 +70,12 @@ e2e 依赖设置页的演示数据接口（`/api/settings/demo`）生成合成�
 
 报告写入 `outputs/api-inventory.json`；运行 `pnpm api:inventory -- --strict`
 时，只要存在未覆盖路由就以退出码 1 结束，适合作为 CI 覆盖门禁。当前基线：
-118 个 API 中 114 个有测试/脚本引用，4 个未覆盖（其中 2 个仅被页面调用）。
+119 个 API 全部有测试/脚本引用，0 未覆盖。
 
 ## 全面审计脚本
 
-`node scripts/surface-audit.mjs` 会对 29 个页面与 118 个 API 执行正常/异常
-探测（317 项），输出 `outputs/surface-audit.json`；`node
+`node scripts/surface-audit.mjs` 会对 29 个页面与 119 个 API 执行正常/异常
+探测（323 项），输出 `outputs/surface-audit.json`；`node
 scripts/reproduce-runtime-issues.mjs` 会实际创建演示数据、删除课时与试卷、
 清理演示数据并验证 mini 会话闭环，输出 `outputs/runtime-repro.json`。
 

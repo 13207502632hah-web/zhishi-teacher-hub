@@ -1,5 +1,10 @@
 export type ScheduleRow = Record<string, unknown>;
 export type ScheduleMapping = Record<string, string>;
+export type UnknownScheduleColumn = { name: string; suggestions: string[] };
+export type ScheduleMappingDetail = {
+  mapping: ScheduleMapping;
+  unknownColumns: UnknownScheduleColumn[];
+};
 
 const aliases: Record<string, string[]> = {
   date: ["日期", "上课日期", "具体日期", "date"], startTime: ["时间", "开始时间", "上课时间", "开始", "start"], endTime: ["结束时间", "下课时间", "结束", "end"],
@@ -7,14 +12,104 @@ const aliases: Record<string, string[]> = {
   location: ["地点", "上课地点", "校区"], institution: ["机构", "所属机构"], fee: ["课时费", "单价", "费用"], baseFee: ["底薪", "基础课时费"], perStudentFee: ["学生提成", "人头费", "每生提成"], settlementCycle: ["结算方式", "结算周期"], notes: ["备注", "说明"],
 };
 
-const clean = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, "");
-export function detectScheduleMapping(headers: string[]): ScheduleMapping {
-  const result: ScheduleMapping = {};
-  for (const [field, names] of Object.entries(aliases)) {
-    const found = headers.find((header) => names.some((name) => clean(header).toLowerCase() === clean(name).toLowerCase()));
-    if (found) result[field] = found;
+const normalizeHeader = (value: unknown) =>
+  String(value ?? "")
+    .toLowerCase()
+    .replace(/[（(].*?[）)]/g, "")
+    .replace(/[\s，。；、：:：,;!！?？·.．\-—–_~*#【】[\]<>《》"'“”‘’`]/g, "")
+    .replace(/必填|选填/g, "");
+
+const normalizedAliasMap = Object.fromEntries(
+  Object.entries(aliases).map(([field, names]) => [field, names.map(normalizeHeader)]),
+);
+
+function editDistance(left: string, right: string) {
+  if (left === right) return 0;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row++) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column++) {
+      current[column] = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
   }
-  return result;
+  return previous[right.length];
+}
+
+function headerScore(header: string, alias: string) {
+  if (!header || !alias) return 0;
+  if (header === alias) return 100 + alias.length;
+  if (header.includes(alias) && alias.length >= 2) return 80 + alias.length;
+  if (alias.includes(header) && header.length >= 2) return 60 + header.length;
+  const distance = editDistance(header, alias);
+  const threshold = Math.max(header.length, alias.length) >= 6 ? 2 : 1;
+  return distance > 0 && distance <= threshold ? 50 - distance : 0;
+}
+
+export function detectScheduleMapping(headers: string[]): ScheduleMapping {
+  return detectScheduleMappingDetail(headers).mapping;
+}
+
+export function detectScheduleMappingDetail(headers: string[]): ScheduleMappingDetail {
+  const normalizedHeaders = headers.map((header, index) => ({
+    index,
+    name: String(header ?? ""),
+    normalized: normalizeHeader(header),
+  }));
+  const used = new Set<number>();
+  const mapping: ScheduleMapping = {};
+
+  for (const [field, names] of Object.entries(normalizedAliasMap)) {
+    const match = normalizedHeaders.find((entry) => !used.has(entry.index) && names.includes(entry.normalized));
+    if (match) {
+      mapping[field] = match.name;
+      used.add(match.index);
+    }
+  }
+
+  for (const [field, names] of Object.entries(normalizedAliasMap)) {
+    if (mapping[field]) continue;
+    let best: { index: number; score: number } | null = null;
+    for (const entry of normalizedHeaders) {
+      if (used.has(entry.index)) continue;
+      const score = Math.max(...names.map((alias) => headerScore(entry.normalized, alias)));
+      if (score > 0 && (!best || score > best.score)) best = { index: entry.index, score };
+    }
+    if (best) {
+      mapping[field] = normalizedHeaders[best.index].name;
+      used.add(best.index);
+    }
+  }
+
+  const unknownColumns = normalizedHeaders
+    .filter((entry) => !used.has(entry.index) && entry.normalized)
+    .map((entry) => ({ name: entry.name, suggestions: suggestAliases(entry.normalized) }));
+  return { mapping, unknownColumns };
+}
+
+function suggestAliases(normalizedHeader: string) {
+  const scored: Array<{ name: string; score: number }> = [];
+  for (const names of Object.values(aliases)) {
+    for (const name of names) {
+      const score = headerScore(normalizedHeader, normalizeHeader(name));
+      if (score > 0) scored.push({ name, score });
+    }
+  }
+  const seen = new Set<string>();
+  return scored
+    .sort((left, right) => right.score - left.score)
+    .filter((candidate) => {
+      const key = normalizeHeader(candidate.name);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3)
+    .map((candidate) => candidate.name);
 }
 
 export function normalizeScheduleRow(row: ScheduleRow, mapping: ScheduleMapping, sourceName = "") {

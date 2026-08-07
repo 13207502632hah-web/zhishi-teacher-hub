@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import ExcelJS from "exceljs";
 import { audit, isDenied, requirePermission } from "../../lib/access";
-import { detectScheduleMapping, extractCalendarScheduleRows, normalizeScheduleRow, validateNormalizedSchedule } from "../../lib/schedule-import";
+import { detectScheduleMappingDetail, extractCalendarScheduleRows, normalizeScheduleRow, validateNormalizedSchedule } from "../../lib/schedule-import";
 import { inspectScheduleImportRow, loadPreviousScheduleIdentities } from "../../lib/schedule-import-preview";
 import { cellValueToText, readFirstWorksheetCompat } from "../../lib/xlsx-compat";
 
@@ -10,7 +10,20 @@ const sha = async (buffer: ArrayBuffer) => [...new Uint8Array(await crypto.subtl
 export async function GET() {
   const access = await requirePermission("lessons:read"); if (isDenied(access)) return access;
   const rows = await env.DB.prepare("SELECT * FROM schedule_imports ORDER BY id DESC LIMIT 30").all();
-  return Response.json({ imports: rows.results });
+  return Response.json({
+    imports: rows.results.map((row) => ({
+      ...row,
+      report: parseStoredJson(row.report, {}),
+    })),
+  });
+}
+
+function parseStoredJson(value: unknown, fallback: unknown) {
+  try {
+    return JSON.parse(String(value || ""));
+  } catch {
+    return fallback;
+  }
 }
 
 export async function POST(request: Request) {
@@ -29,8 +42,8 @@ export async function POST(request: Request) {
     catch { try { table = await readFirstWorksheetCompat(buffer); usedCompatibilityReader = true; } catch { return Response.json({ error: "无法读取这份 XLSX，请确认文件未加密且包含可编辑单元格；如仍失败，请在 WPS 中另存为标准 .xlsx" }, { status: 422 }); } }
   }
   const calendarRows = ext === "xlsx" ? extractCalendarScheduleRows(table, file.name) : [], format = calendarRows.length ? "calendar_matrix" : "tabular";
-  const headers = calendarRows.length ? ["上课日期", "上课时间", "结束时间", "学生姓名", "班级", "课程名称"] : (table.shift() || []).map(String), mapping = detectScheduleMapping(headers);
-  if (!mapping.date || !mapping.startTime) return Response.json({ error: "未识别到日期或上课时间列，也未识别到横向日历课表；请检查首行表头或日期、时间布局", headers, suggestedMapping: mapping }, { status: 422 });
+  const headers = calendarRows.length ? ["上课日期", "上课时间", "结束时间", "学生姓名", "班级", "课程名称"] : (table.shift() || []).map(String), mappingDetail = detectScheduleMappingDetail(headers), mapping = mappingDetail.mapping;
+  if (!mapping.date || !mapping.startTime) return Response.json({ error: "未识别到日期或上课时间列，也未识别到横向日历课表；请检查首行表头或日期、时间布局", headers, suggestedMapping: mapping, unknownColumns: mappingDetail.unknownColumns }, { status: 422 });
   const sourceRows = calendarRows.length ? calendarRows : table.filter((row) => row.some((cell) => String(cell ?? "").trim())).map((cells) => ({ raw: Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""])), sourceCell: "" }));
   const normalized = sourceRows.map((source, index) => { const value = normalizeScheduleRow(source.raw, mapping, file.name); return { rowNumber: index + 2, sourceCell: source.sourceCell, raw: source.raw, value, issues: validateNormalizedSchedule(value) }; });
   const previousByIdentity = await loadPreviousScheduleIdentities(env.DB);
@@ -56,7 +69,7 @@ export async function POST(request: Request) {
   const statements = rowsWithPreview.map((row) => env.DB.prepare("INSERT INTO schedule_import_rows(import_id,row_number,raw_data,normalized_data,action,issue) VALUES(?,?,?,?,?,?)").bind(inserted.id, row.rowNumber, JSON.stringify(row.raw), JSON.stringify(row.value), row.issues.length ? "blocked" : "pending", row.issues.join("；") || null));
   for (let i = 0; i < statements.length; i += 50) await env.DB.batch(statements.slice(i, i + 50));
   await audit(access, "preview", "schedule_import", inserted.id, { total: rowsWithPreview.length });
-  return Response.json({ id: inserted.id, format, headers, mapping, rows: rowsWithPreview, report }, { status: 201 });
+  return Response.json({ id: inserted.id, format, headers, mapping, rows: rowsWithPreview, report, unknownColumns: mappingDetail.unknownColumns }, { status: 201 });
 }
 
 function parseCsvLine(line: string) { const result: string[] = []; let value = "", quoted = false; for (let i = 0; i < line.length; i++) { const char = line[i]; if (char === '"' && line[i + 1] === '"') { value += '"'; i++; } else if (char === '"') quoted = !quoted; else if (char === "," && !quoted) { result.push(value); value = ""; } else value += char; } result.push(value); return result; }

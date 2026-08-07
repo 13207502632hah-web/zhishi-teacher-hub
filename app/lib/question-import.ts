@@ -175,18 +175,27 @@ export function enrichQuestionsFromHtml(html: string, input: ImportedQuestion[])
   });
 }
 
-export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis" | "importNotes"> & { parseConfidence?: number }>) {
+export type ImportSummaryItem = { index: number; number: number; missing?: string[]; confidence?: number };
+export type ImportSummary = { total: number; answered: number; tagged: number; explained: number; incomplete: number; lowConfidence: number; typeCounts: Record<string, number>; incompleteItems: ImportSummaryItem[]; lowConfidenceItems: ImportSummaryItem[] };
+
+export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis" | "importNotes"> & { parseConfidence?: number; sourceQuestionNumber?: number }>): ImportSummary {
+  const questionNumber = (question: { sourceQuestionNumber?: number }, index: number) => { const raw = Number(question.sourceQuestionNumber); return Number.isFinite(raw) && raw > 0 ? raw : index + 1; };
+  const missingOf = (question: Pick<ImportedQuestion, "answer" | "knowledgePoints" | "analysis">) => [!question.answer && "缺少答案", !question.knowledgePoints && "缺少知识点", !question.analysis && "缺少解析"].filter(Boolean) as string[];
   const typeCounts = questions.reduce<Record<string, number>>((counts, question) => {
     counts[question.questionType] = (counts[question.questionType] || 0) + 1;
     return counts;
   }, {});
+  const incompleteItems = questions.flatMap((question, index) => { const missing = missingOf(question); return missing.length ? [{ index, number: questionNumber(question, index), missing }] : []; });
+  const lowConfidenceItems = questions.flatMap((question, index) => Number(question.parseConfidence || 0) < .7 ? [{ index, number: questionNumber(question, index), confidence: Number(question.parseConfidence) }] : []);
   return {
     total: questions.length,
     answered: questions.filter((question) => Boolean(question.answer)).length,
     tagged: questions.filter((question) => Boolean(question.knowledgePoints)).length,
     explained: questions.filter((question) => Boolean(question.analysis)).length,
-    incomplete: questions.filter((question) => (question.importNotes?.length || 0) > 0).length,
-    lowConfidence: questions.filter((question) => Number(question.parseConfidence || 0) < .7).length,
+    incomplete: incompleteItems.length,
+    lowConfidence: lowConfidenceItems.length,
     typeCounts,
+    incompleteItems,
+    lowConfidenceItems,
   };
 }

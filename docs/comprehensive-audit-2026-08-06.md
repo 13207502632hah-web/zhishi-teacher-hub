@@ -1,7 +1,9 @@
-# 知师研室全面复核与修复计划（2026-08-06）
+﻿# 知师研室全面复核与修复计划（2026-08-06）
 
 > 复核人：Codex（GitHub connector + 本地静态盘点 + 完整验证）
 > 结论：功能主体完整、测试全绿；主要风险集中在 CI 未生效、页面服务端保护不统一、文档与实现不一致、e2e 覆盖不全。
+> 更新（2026-08-07）：第一轮 P1-01～P3-05 已完成；第二轮聚焦课表导入、题库导入、组卷、
+> 筛选四块体验细化，计划单见 `docs/second-round-plan-2026-08-07.md`，修复证据将追加到该文件。
 
 ## 1. 复核范围与方法
 
@@ -412,3 +414,221 @@
 - `pnpm mini:production-guard`：通过。
 - `node scripts/surface-audit.mjs`（Node 24）：29 页面 / 118 API / 317 探测 /
   0 异常，报告 `outputs/surface-audit.json`。
+
+### 第二轮 E1 验证（2026-08-07，R2-01 / R2-03）
+
+按 `docs/second-round-plan-2026-08-07.md` 完成课表导入历史任务与旧报告入口、
+确认后逐行结果与课时链接两项修复，验证证据如下：
+
+- 新增 `GET /api/schedule-imports/[id]` 详情接口；列表接口解析 `report` 为对象；
+  confirm 响应返回逐行最终 `action/issue/lessonId`；页面新增最近导入/历史报告
+  面板与课时链接，刷新后可回溯批次并核对逐行结果。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，260 项测试全部通过（0 fail / 0 skipped，新增 1 项）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 34 项检查，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 319 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E4-2 验证（2026-08-07，R2-14）
+
+- `GET /api/questions` 的知识点筛选从单关键词 LIKE 升级为多关键词 AND：按
+  `、/空格` 分词后，每个 token 在 `knowledge_points` 或 `secondary_knowledge`
+  上用 `instr(...) > 0` 字面子串匹配，`%`/`_` 不再作为通配符；题库页输入框
+  提示“支持多个知识点，用空格或、分隔”，并新增静态契约断言。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，272 项测试全部通过（0 fail / 0 skipped，新增 1 项）。
+- `pnpm teaching:e2e`：通过；11 个业务模块共 46 项检查，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E4-1 验证（2026-08-07，R2-13）
+
+- 题库 facet 从 distinct 值升级为 `{ value, count }`：`COUNT(*)` + `GROUP BY` +
+  `ORDER BY count DESC`，并按组合层级（教材/册别/单元/课题/题型/难度/地区/考试类型/年份）
+  重新计数；题库页下拉显示“值 · N 题”，年级 facet 空时回退到内置年级列表，
+  结果区新增“当前筛选命中 N 题”反馈。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，271 项测试全部通过（0 fail / 0 skipped，新增
+  “question facet counts drive combined-filter feedback”契约 1 项）。
+- `pnpm teaching:e2e`：通过；11 个业务模块共 46 项检查，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E3-3 验证（2026-08-07，R2-12）
+
+- 已保存试卷筛选持久化到 URL：初始化从
+  `paperSearch/paperStatus/academicYear/examCategory/stage/grade/province/city/district/school`
+  恢复并自动加载；`filterPapers` 用 `history.replaceState` 重写 `/papers?...`；
+  `clearPaperFilters` 一键清空列表筛选并重写 URL，页面新增“清空试卷筛选”按钮。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，270 项测试全部通过（0 fail / 0 skipped，新增
+  “saved paper filters persist to the URL and restore on refresh”契约 1 项）。
+- `pnpm teaching:e2e`：通过；11 个业务模块共 46 项检查，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E1-4 验证（2026-08-07，R2-04）
+
+- 新增 `partial/failed/confirmed` 任务状态与 `remaining` 计数；confirm 按行跳过
+  已写入结果、幂等补标 pending 行、逐行捕获写入异常；任务落库状态由
+  `scheduleImportFinalStatus` 计算，审计记录 `confirm` 或 `confirm_retry`。
+- 页面新增上传“读取、解析、核对”进度反馈与“重试剩余 N 行”入口，部分失败后
+  仍展示已完成/失败行；历史详情可一键重试并刷新。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，264 项测试全部通过（0 fail / 0 skipped，新增 2 项）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 36 项检查，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 319 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E1-2 验证（2026-08-07，R2-02）
+
+- `app/lib/schedule-import.ts` 表头识别改为归一化 + 精确/包含/编辑距离候选，
+  保留原始列名。
+- 上传接口成功与 422 响应均返回 `unknownColumns`（原始列名 + 建议别名）；
+  页面新增“未识别列”提示块，指出可改为的列名或“该列不会参与导入”。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，262 项测试全部通过（新增表头模糊识别与
+  API/页面契约 2 项）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 34 项检查。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 319 探测 /
+  0 异常。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E2-1 验证（2026-08-07，R2-05）
+
+- `app/api/question-sets/import/route.ts` 导出 `QUESTION_SET_IMPORT_LIMIT = 300`，
+  识别题数超限时返回 422（含本次识别数与上限），不再静默截断前 300 题；
+  `app/questions/page.tsx` 在单文件上传与批量队列两处均提示拆分/分批导入。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，264 项测试全部通过（0 fail / 0 skipped，新增静态契约断言）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 37 项检查，新增 301 题 422 断言，
+  报告 `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 319 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E2-2 验证（2026-08-07，R2-06）
+
+- `POST /api/question-sets/import` 校验并写入原始文件指纹：带 `sourceKey` 时校验
+  R2 文件存在，带 `sourceFingerprint` 时按指纹返回原任务 409（含原 setId），
+  未带指纹的直连调用回退内容指纹；新增
+  `GET /api/question-sets/import?sourceFingerprint=…` 按文件定位任务。
+- 页面单文件与批量队列均携带 `sourceKey + sourceFingerprint`，队列持久化保存指纹，
+  刷新后按指纹恢复已完成上传项并跳转原任务。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，264 项测试全部通过（0 fail / 0 skipped，新增契约断言）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 40 项检查，新增文件指纹恢复、同文件
+  409 指向原任务、不同文件相同题仍按内容提示重复三项，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 321 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖
+  （新增 GET 后 GET=88）。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E2-3 验证（2026-08-07，R2-07）
+
+- 新增 `GET /api/question-sets/source?key=…` 返回原始 Word 文件（权限
+  `questions:read`），缺失时 404 提示重新上传；页面刷新后按 `sourceKey` 恢复
+  已上传断点项，`resolveQueueFile` 可从 R2 重新下载 Blob 继续解析，队列状态区分
+  “可继续/开始/重试”，不再要求浏览器保留本地 File。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，264 项测试全部通过（0 fail / 0 skipped，新增契约断言）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 42 项检查，新增“原始文件断点下载”
+  与“原始文件缺失提示重新上传”两项，报告 `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖
+  （新增 GET 后 GET=89）。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E2-4 验证（2026-08-07，R2-08）
+
+- `summarizeImport` 与 import API 的报告新增 `typeCounts`、`incompleteItems`、
+  `lowConfidenceItems`；第 4 步展示题型分布与可点击定位的待补充/低置信度清单，
+  并汇总重复与相似题数量。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，264 项测试全部通过（0 fail / 0 skipped，新增清单断言）。
+- `pnpm teaching:e2e`：通过；10 个业务模块共 44 项检查，新增“导入报告题型分布”
+  与“导入报告待补充与低置信度清单”两项，报告 `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E3-1 验证（2026-08-07，R2-09）
+
+- 组卷候选题请求携带 `page` 并消费 `total/page/pageCount`：候选面板显示
+  “共 N 题 · 已显示 M 题”，“加载更多候选题”按页追加且按 id 去重，
+  已移除 `bank.slice(0, 100)` 的误导性截断。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，265 项测试全部通过（0 fail / 0 skipped，新增分页契约 1 项）。
+- `pnpm teaching:e2e`：通过；11 个业务模块共 46 项检查，新增“组卷候选分页总数一致”
+  与“组卷候选加载更多不重复”两项，报告 `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E3-2 验证（2026-08-07，R2-10 + R2-11）
+
+- 新增 `app/lib/paper-recommend.ts`：`recommendPaperQuestions` 先剔除无效/零分
+  候选，再按题型、难度、知识点覆盖做贪心平衡；目标总分达到即停止，不足时返回
+  `reachedTarget/countGap/scoreGap/reasons/distributions`。
+- `app/papers/page.tsx` 新增 `loadAllCandidates`：先用 `candidate=1` 拉取全量候选
+  id（`allIds`），再按 50 个一批补齐题目，自动推荐不再只依赖第一页 50 题；
+  候选区新增“清空筛选条件”，已选区新增“清空已选题”二次确认；结构概览改为可折叠
+  面板：总分/目标、题量/上限、题型分布、难度分布、知识点覆盖，并展示自动推荐理由
+  与题型/难度/知识点分布。
+- `pnpm typecheck`：通过（tsc --noEmit）。
+- `pnpm lint`：通过（eslint 全量）。
+- `pnpm test`：构建成功，269 项测试全部通过（0 fail / 0 skipped，新增推荐引擎
+  单测与页面契约 4 项）。
+- `pnpm teaching:e2e`：通过；11 个业务模块共 46 项检查，报告
+  `outputs/teaching-loop-e2e.json`。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常，报告 `outputs/surface-audit.json`。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+
+### 第二轮 E4-3 验证（2026-08-07，R2-15）
+
+- e2e 与门禁同步：`candidate=1` 全量候选 id 不再被 300 上限截断；新增 facet
+  计数、知识点多关键词 AND/字面通配符、320 题全量候选 e2e 断言。
+- `pnpm typecheck` / `pnpm lint` / `pnpm test`：通过；272 项测试
+  （0 fail / 0 skipped）。
+- `pnpm teaching:e2e`：通过；14 个业务模块共 53 项检查。
+- `node scripts/surface-audit.mjs`：通过；29 页面 / 119 API / 323 探测 /
+  0 异常。
+- `pnpm api:inventory -- --strict`：通过；119 API / 119 覆盖 / 0 未覆盖。
+- `pnpm mini:production-guard`：通过；login/sync/me 均 503，零写入。
+- `docs/testing.md` 已同步新增覆盖点与最新基线。
+

@@ -1006,11 +1006,31 @@ async function exerciseScheduleImportsBusiness(cookie) {
   created.scheduleImportIds.push(importId);
   assert.equal(imported.data.report.total, 1);
   checks.push("课表 CSV 导入");
+  const history = await request("/api/schedule-imports", { cookie });
+  assert.equal(history.response.status, 200, JSON.stringify(history.data));
+  assert.ok(
+    Array.isArray(history.data.imports) &&
+      history.data.imports.some((item) => Number(item.id) === importId),
+    JSON.stringify(history.data),
+  );
+  checks.push("课表导入历史列表");
   const confirmed = await request(`/api/schedule-imports/${importId}/confirm`, { cookie, method: "POST" });
   assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
   assert.equal(confirmed.data.report.created, 1);
   assert.equal(confirmed.data.report.studentsCreated, 1);
+  assert.ok(Array.isArray(confirmed.data.rows), JSON.stringify(confirmed.data));
+  const confirmedRow = confirmed.data.rows.find((row) => row.action === "created");
+  assert.ok(confirmedRow?.lessonId, JSON.stringify(confirmed.data));
   checks.push("课表确认落库");
+  const detail = await request(`/api/schedule-imports/${importId}`, { cookie });
+  assert.equal(detail.response.status, 200, JSON.stringify(detail.data));
+  assert.equal(Number(detail.data.import.id), importId);
+  assert.ok(detail.data.import.report?.created === 1, JSON.stringify(detail.data));
+  assert.ok(
+    detail.data.rows.some((row) => row.action === "created" && row.lessonId),
+    JSON.stringify(detail.data),
+  );
+  checks.push("课表历史报告逐行可查");
   const lessonRow = rows(`SELECT lesson_id AS lessonId FROM schedule_import_rows WHERE import_id=${importId} AND action='created' LIMIT 1`)[0];
   assert.ok(lessonRow?.lessonId);
   const lessonId = Number(lessonRow.lessonId);
@@ -1021,6 +1041,43 @@ async function exerciseScheduleImportsBusiness(cookie) {
   created.scheduleClassIds.push(Number(classRow.id));
   created.scheduleStudentIds.push(Number(studentRow.id));
   checks.push("课表学生与课时关联");
+
+  const retryCsv = "日期,上课时间,结束时间,学生姓名,课程名称,地点,底薪,每生提成\n2030-01-13,09:00,10:30,__e2e__课表学生,政治,__e2e__教室,100,20\n2030-01-13,09:30,11:00,__e2e__课表学生,政治,__e2e__教室,100,20\n";
+  const retryForm = new FormData();
+  retryForm.set("file", new File([retryCsv], "browser-synthetic-retry.csv", { type: "text/csv" }), "browser-synthetic-retry.csv");
+  const retryImport = await multipartRequest("/api/schedule-imports", { cookie, form: retryForm });
+  assert.equal(retryImport.response.status, 201, JSON.stringify(retryImport.data));
+  const retryImportId = Number(retryImport.data.id);
+  created.scheduleImportIds.push(retryImportId);
+  assert.equal(retryImport.data.report.total, 2);
+  assert.equal(retryImport.data.report.create, 2);
+
+  const partial = await request(`/api/schedule-imports/${retryImportId}/confirm`, { cookie, method: "POST" });
+  assert.equal(partial.response.status, 200, JSON.stringify(partial.data));
+  assert.equal(partial.data.status, "partial", JSON.stringify(partial.data));
+  assert.equal(partial.data.report.created, 1);
+  assert.equal(partial.data.report.blocked, 1);
+  assert.equal(partial.data.report.remaining, 1);
+  checks.push("课表部分完成状态");
+
+  const partialRows = rows(`SELECT id,lesson_id AS lessonId,action FROM schedule_import_rows WHERE import_id=${retryImportId} ORDER BY row_number`);
+  const createdRetryRow = partialRows.find((item) => item.action === "created");
+  const blockedRetryRow = partialRows.find((item) => item.action === "blocked");
+  assert.ok(createdRetryRow?.lessonId && blockedRetryRow?.lessonId, JSON.stringify(partialRows));
+  created.scheduleLessonIds.push(Number(createdRetryRow.lessonId));
+  sql(`UPDATE lessons SET status='cancelled' WHERE id=${Number(createdRetryRow.lessonId)}`);
+
+  const retried = await request(`/api/schedule-imports/${retryImportId}/confirm`, { cookie, method: "POST" });
+  assert.equal(retried.response.status, 200, JSON.stringify(retried.data));
+  assert.equal(retried.data.status, "confirmed", JSON.stringify(retried.data));
+  assert.equal(retried.data.report.created, 1);
+  assert.equal(retried.data.report.blocked, 0);
+  assert.equal(retried.data.report.remaining, 0);
+  const retriedRows = rows(`SELECT id,lesson_id AS lessonId,action FROM schedule_import_rows WHERE import_id=${retryImportId} ORDER BY row_number`);
+  const retriedCreated = retriedRows.find((item) => item.action === "created" && Number(item.id) !== Number(createdRetryRow.id));
+  assert.ok(retriedCreated?.lessonId, JSON.stringify(retriedRows));
+  created.scheduleLessonIds.push(Number(retriedCreated.lessonId));
+  checks.push("课表失败任务重试只补剩余行");
   return { checks, ok: true };
 }
 
@@ -1058,6 +1115,14 @@ async function exerciseQuestionSetsBusiness(cookie) {
   sourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0])], "e2e-questions.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-questions.docx");
   const source = await multipartRequest("/api/question-sets/source", { cookie, form: sourceForm });
   assert.equal(source.response.status, 200, JSON.stringify(source.data));
+  const sourceDownload = await fetch(`${baseUrl}/api/question-sets/source?key=${encodeURIComponent(source.data.key)}`, { headers: { cookie } });
+  assert.equal(sourceDownload.status, 200, `source download: ${sourceDownload.status}`);
+  assert.deepEqual([...new Uint8Array(await sourceDownload.arrayBuffer())], [0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
+  checks.push("原始文件断点下载");
+  const missingSource = await request(`/api/question-sets/source?key=${encodeURIComponent("question-sources/2026-08-07/__e2e__missing.docx")}`, { cookie });
+  assert.equal(missingSource.response.status, 404, JSON.stringify(missingSource.data));
+  assert.match(String(missingSource.data.error || ""), /重新上传/);
+  checks.push("原始文件缺失提示重新上传");
   const questions = [{
     stem: `${marker}_人民民主的本质是什么`,
     options: ["人民当家作主", "依法治国", "以德治国", "自由平等"],
@@ -1072,12 +1137,66 @@ async function exerciseQuestionSetsBusiness(cookie) {
     reviewed: true,
     status: "review",
   }];
-  const imported = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, reviewed: true, questions } });
+  const imported = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, sourceKey: source.data.key, sourceFingerprint: source.data.fingerprint, reviewed: true, questions } });
   assert.equal(imported.response.status, 201, JSON.stringify(imported.data));
   const questionSetId = Number(imported.data.questionSet.id);
   created.questionSetIds.push(questionSetId);
   created.paperIds.push(Number(imported.data.questionSet.paperId));
   checks.push("Word 题库导入");
+  assert.ok(imported.data.report.typeCounts?.["单选题"] >= 1);
+  checks.push("导入报告题型分布");
+  const resumedByFile = await request(`/api/question-sets/import?sourceFingerprint=${encodeURIComponent(source.data.fingerprint)}`, { cookie });
+  assert.equal(resumedByFile.response.status, 200, JSON.stringify(resumedByFile.data));
+  assert.equal(Number(resumedByFile.data.existing?.id), questionSetId);
+  checks.push("按文件指纹恢复导入任务");
+  const sameFileAgain = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组重传`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, sourceKey: source.data.key, sourceFingerprint: source.data.fingerprint, reviewed: true, questions } });
+  assert.equal(sameFileAgain.response.status, 409, JSON.stringify(sameFileAgain.data));
+  assert.equal(Number(sameFileAgain.data.existing?.id), questionSetId);
+  checks.push("同文件重复导入按原任务拦截");
+  const otherSourceForm = new FormData();
+  otherSourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 1])], "e2e-questions-copy.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-questions-copy.docx");
+  const otherSource = await multipartRequest("/api/question-sets/source", { cookie, form: otherSourceForm });
+  assert.equal(otherSource.response.status, 200, JSON.stringify(otherSource.data));
+  const copyImport = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_同题不同文件`, sourceFile: "e2e-questions-copy.docx", sourceDocument: otherSource.data.key, sourceKey: otherSource.data.key, sourceFingerprint: otherSource.data.fingerprint, reviewed: true, questions } });
+  assert.equal(copyImport.response.status, 409, JSON.stringify(copyImport.data));
+  assert.ok(Number(copyImport.data.duplicates) >= 1);
+  assert.ok(!copyImport.data.existing?.id);
+  checks.push("不同文件相同题按内容提示重复");
+  const incompleteSourceForm = new FormData();
+  incompleteSourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 9])], "e2e-incomplete.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-incomplete.docx");
+  const incompleteSource = await multipartRequest("/api/question-sets/source", { cookie, form: incompleteSourceForm });
+  assert.equal(incompleteSource.response.status, 200, JSON.stringify(incompleteSource.data));
+  const incompleteImport = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_待补充报告`, sourceFile: "e2e-incomplete.docx", sourceDocument: incompleteSource.data.key, sourceKey: incompleteSource.data.key, sourceFingerprint: incompleteSource.data.fingerprint, reviewed: true, questions: [{ stem: `${marker}_完整补充题`, answer: "A", analysis: `${marker}_完整解析`, knowledgePoints: "人民民主", questionType: "单选题", stage: "高中", grade: "高一", reviewed: true, status: "review" }, { stem: `${marker}_缺字段题`, sourceQuestionNumber: 7, questionType: "材料题", stage: "高中", grade: "高一", parseConfidence: 0.4, reviewed: false, status: "review" }] } });
+  assert.equal(incompleteImport.response.status, 201, JSON.stringify(incompleteImport.data));
+  assert.ok(incompleteImport.data.report.typeCounts?.["单选题"] >= 1);
+  assert.ok(incompleteImport.data.report.typeCounts?.["材料题"] >= 1);
+  assert.ok(incompleteImport.data.report.incomplete >= 1);
+  assert.ok(incompleteImport.data.report.lowConfidence >= 1);
+  const incompleteItem = (incompleteImport.data.report.incompleteItems || []).find((item) => Number(item.number) === 7);
+  assert.ok(incompleteItem, JSON.stringify(incompleteImport.data.report));
+  assert.ok((incompleteItem.missing || []).includes("缺少答案"));
+  const lowConfidenceItem = (incompleteImport.data.report.lowConfidenceItems || []).find((item) => Number(item.number) === 7);
+  assert.ok(lowConfidenceItem, JSON.stringify(incompleteImport.data.report));
+  assert.ok(Number(lowConfidenceItem.confidence) < 0.7);
+  checks.push("导入报告待补充与低置信度清单");
+  created.questionSetIds.push(Number(incompleteImport.data.questionSet.id));
+  created.paperIds.push(Number(incompleteImport.data.questionSet.paperId));
+  const overflowQuestions = Array.from({ length: 301 }, (_, index) => ({
+    stem: `${marker}_超量边界${String(index + 1).padStart(3, "0")}`,
+    answer: index % 2 ? "A" : "B",
+    analysis: `${marker}_超量边界解析`,
+    knowledgePoints: "超量边界",
+    questionType: "单选题",
+    stage: "高中",
+    grade: "高一",
+    reviewed: true,
+    status: "review",
+  }));
+  const rejected = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_超量文件`, sourceFile: "e2e-overflow.docx", questions: overflowQuestions } });
+  assert.equal(rejected.response.status, 422, JSON.stringify(rejected.data));
+  assert.match(String(rejected.data.error || ""), /300/);
+  assert.match(String(rejected.data.error || ""), /301/);
+  checks.push("题库导入超量明确拒绝");
   const detail = await request(`/api/question-sets/${questionSetId}`, { cookie });
   assert.equal(detail.response.status, 200, JSON.stringify(detail.data));
   assert.ok(detail.data.questions.length >= 1);
@@ -1131,6 +1250,101 @@ async function exerciseMiniBusiness(cookie) {
   return { checks, ok: true };
 }
 
+async function exercisePaperWorkbenchPagination(cookie) {
+  const first = await request("/api/questions?status=active&page=1", { cookie });
+  assert.equal(first.response.status, 200, JSON.stringify(first.data));
+  assert.ok(Array.isArray(first.data.questions));
+  assert.ok(Number(first.data.total) > 0);
+  assert.ok(Number(first.data.page) === 1);
+  assert.ok(Number(first.data.pageCount) >= 1);
+  const second = await request("/api/questions?status=active&page=2", { cookie });
+  assert.equal(second.response.status, 200, JSON.stringify(second.data));
+  const firstIds = new Set(first.data.questions.map((item) => Number(item.id)));
+  assert.equal(Number(second.data.pageCount), Number(first.data.pageCount));
+  if (Number(first.data.pageCount) > 1) {
+    assert.ok(second.data.questions.every((item) => !firstIds.has(Number(item.id))), "第二页与第一页存在重复题目");
+    assert.equal(Number(second.data.page), 2);
+    assert.ok(second.data.questions.length >= 1);
+    assert.ok(Number(first.data.total) > Number(first.data.questions.length));
+  } else {
+    assert.equal(Number(second.data.page), 1);
+  }
+  return { checks: ["组卷候选分页总数一致", "组卷候选加载更多不重复"], ok: true };
+}
+
+async function exerciseQuestionFacetCounts(cookie) {
+  const checks = [];
+  const facetKnowledge = `${marker}_facet_法治`;
+  sql(`INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status)
+    VALUES(${quote(`${marker}_facet计数题`)},'单选题','高中','高一',${quote(facetKnowledge)},'A','facet','active');`);
+  const facets = await request("/api/questions/facets?status=active", { cookie });
+  assert.equal(facets.response.status, 200, JSON.stringify(facets.data));
+  const knowledgeFacets = facets.data?.facets?.knowledge_points || [];
+  const match = knowledgeFacets.find((item) => String(item.value) === facetKnowledge);
+  assert.ok(match, JSON.stringify(knowledgeFacets));
+  const storedCount = Number(rows(`SELECT COUNT(*) AS total FROM questions WHERE status='active' AND knowledge_points=${quote(facetKnowledge)}`)[0].total);
+  assert.ok(Number(match.count) >= 1, JSON.stringify(match));
+  assert.equal(Number(match.count), storedCount);
+  checks.push("facet 返回 value/count 结构", "facet 计数与题量一致");
+  return { checks, ok: true };
+}
+
+async function exerciseQuestionKnowledgeMultiKeyword(cookie) {
+  const checks = [];
+  const kwBase = marker.replaceAll("_", "");
+  const kwA = `${kwBase}kwA`, kwB = `${kwBase}kwB`;
+  sql(`INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,secondary_knowledge,answer,analysis,status) VALUES
+    (${quote(`${marker}_双词主知识点`)},'单选题','高中','高一',${quote(`${kwA} ${kwB}`)},NULL,'A','x','active'),
+    (${quote(`${marker}_单词主知识点`)},'单选题','高中','高一',${quote(kwA)},NULL,'A','x','active'),
+    (${quote(`${marker}_跨列命中`)},'单选题','高中','高一',${quote(kwA)},${quote(kwB)},'A','x','active'),
+    (${quote(`${marker}_百分号字面量`)},'单选题','高中','高一',${quote(`${kwA}%${kwB}`)},NULL,'A','x','active'),
+    (${quote(`${marker}_下划线字面量`)},'单选题','高中','高一',${quote(`${kwA}_${kwB}`)},NULL,'A','x','active');`);
+  const andSpace = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(`${kwA} ${kwB}`)}`, { cookie });
+  assert.equal(andSpace.response.status, 200, JSON.stringify(andSpace.data));
+  const spaceStems = andSpace.data.questions.map((item) => String(item.stem));
+  assert.ok(spaceStems.includes(`${marker}_双词主知识点`), JSON.stringify(spaceStems));
+  assert.ok(spaceStems.includes(`${marker}_跨列命中`), JSON.stringify(spaceStems));
+  assert.ok(!spaceStems.includes(`${marker}_单词主知识点`), JSON.stringify(spaceStems));
+  const andDun = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(`${kwA}、${kwB}`)}`, { cookie });
+  assert.equal(andDun.response.status, 200, JSON.stringify(andDun.data));
+  assert.equal(andDun.data.total, andSpace.data.total, "空格与、分隔应等价");
+  checks.push("知识点多关键词 AND 命中", "空格与、分隔等价");
+  const percent = await request(`/api/questions?status=active&knowledge=${encodeURIComponent("%")}`, { cookie });
+  assert.equal(percent.response.status, 200, JSON.stringify(percent.data));
+  const percentStems = percent.data.questions.map((item) => String(item.stem));
+  assert.ok(percentStems.includes(`${marker}_百分号字面量`), JSON.stringify(percentStems));
+  assert.ok(!percentStems.includes(`${marker}_下划线字面量`), JSON.stringify(percentStems));
+  assert.ok(percent.data.questions.every((item) => String(item.knowledgePoints || "").includes("%") || String(item.secondaryKnowledge || "").includes("%")), JSON.stringify(percent.data.questions));
+  const underscore = await request(`/api/questions?status=active&knowledge=${encodeURIComponent("_")}`, { cookie });
+  assert.equal(underscore.response.status, 200, JSON.stringify(underscore.data));
+  const underscoreStems = underscore.data.questions.map((item) => String(item.stem));
+  assert.ok(underscoreStems.includes(`${marker}_下划线字面量`), JSON.stringify(underscoreStems));
+  assert.ok(!underscoreStems.includes(`${marker}_百分号字面量`), JSON.stringify(underscoreStems));
+  assert.ok(underscore.data.questions.every((item) => String(item.knowledgePoints || "").includes("_") || String(item.secondaryKnowledge || "").includes("_")), JSON.stringify(underscore.data.questions));
+  checks.push("百分号与下划线按字面匹配");
+  return { checks, ok: true };
+}
+
+async function exercisePaperRecommendationAllCandidates(cookie) {
+  const checks = [];
+  const candidateKnowledge = `${marker}_all_candidates`;
+  const rowsSql = Array.from({ length: 320 }, (_, index) =>
+    `(${quote(`${marker}_候选全集${String(index + 1).padStart(3, "0")}`)},'单选题','高中','高一',${quote(candidateKnowledge)},'A','候选全集','active')`
+  ).join(",");
+  sql(`INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status) VALUES ${rowsSql};`);
+  const result = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(candidateKnowledge)}&candidate=1`, { cookie });
+  assert.equal(result.response.status, 200, JSON.stringify(result.data));
+  const allIds = Array.isArray(result.data.allIds) ? result.data.allIds.map(Number) : [];
+  const total = Number(result.data.total);
+  const storedCount = Number(rows(`SELECT COUNT(*) AS total FROM questions WHERE status='active' AND knowledge_points=${quote(candidateKnowledge)}`)[0].total);
+  assert.ok(total >= 320, `候选 total=${total}`);
+  assert.equal(storedCount, total);
+  assert.equal(allIds.length, total, `allIds=${allIds.length} total=${total}`);
+  assert.equal(new Set(allIds).size, allIds.length, "candidate=1 的 allIds 不应重复");
+  checks.push("candidate=1 全量候选 id 与总数一致", "candidate=1 全量候选 id 无重复");
+  return { checks, ok: true };
+}
+
 async function exerciseBusinessCoverage(cookie) {
   const modules = [
     ["recognition", exerciseRecognitionBusiness],
@@ -1143,6 +1357,10 @@ async function exerciseBusinessCoverage(cookie) {
     ["financeContext", exerciseFinanceContext],
     ["financeExceptions", exerciseFinanceExceptions],
     ["mini", exerciseMiniBusiness],
+    ["paperWorkbenchPagination", exercisePaperWorkbenchPagination],
+    ["questionFacetCounts", exerciseQuestionFacetCounts],
+    ["questionKnowledgeMultiKeyword", exerciseQuestionKnowledgeMultiKeyword],
+    ["paperRecommendationAllCandidates", exercisePaperRecommendationAllCandidates],
   ];
   const results = {};
   for (const [name, run] of modules) results[name] = await run(cookie);
