@@ -40,3 +40,15 @@ test("dashboard styles keep body copy readable and enhance at a standard desktop
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });
+
+test("dashboard lesson entries prefer student names over topic placeholders", async () => {
+  const [page, api] = await Promise.all([
+    read("app/page.tsx"),
+    read("app/api/dashboard/route.ts"),
+  ]);
+
+  assert.match(page, /lesson\.displaySubject \|\| lesson\.topic \|\| lesson\.courseName/);
+  assert.match(page, /nextLesson\.displayTitle/);
+  assert.match(api, /lesson\.displaySubject \|\| lesson\.topic \|\| lesson\.courseName/);
+  assert.match(api, /nextLesson\.displaySubject \|\| nextLesson\.topic \|\| nextLesson\.courseName/);
+});
