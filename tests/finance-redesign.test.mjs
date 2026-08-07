@@ -38,13 +38,22 @@ test("finance page presents a reviewable settlement workflow without inferring a
 
 test("finance confirmation proves the server-side preview boundary and atomic write", async () => {
   const route = await read("app/api/finance/route.ts");
+  const confirm = await read("app/lib/finance-confirm.ts");
+  const preview = await read("app/lib/finance-preview.ts");
 
-  for (const marker of ["previewToken", "expiresAt", "TEACHER_ADMIN_SESSION_SECRET", "operationId", "env.DB.batch", "calculation_snapshot"]) assert.match(route, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")));
+  for (const marker of ["previewToken", "expiresAt", "operationId", "calculation_snapshot"]) assert.match(route, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")));
+  assert.match(preview, /TEACHER_ADMIN_SESSION_SECRET/);
   assert.match(route, /previewToken\.operationId !== operationId/);
-  assert.match(route, /confirmed_at=\?/);
-  assert.match(route, /confirmed_at IS NULL/);
-  assert.match(route, /status='review'/);
-  assert.match(route, /status !== "review"|status !== 'review'/);
+  assert.match(route, /confirmFinanceSettlement/);
+  assert.match(confirm, /env\.DB\.batch/);
+  assert.match(confirm, /confirmed_at=\?/);
+  assert.match(confirm, /confirmed_at IS NULL/);
+  assert.match(confirm, /status='review'/);
+  assert.match(confirm, /status !== "review"|status !== 'review'/);
+  assert.match(confirm, /beginOperation/);
+  assert.match(confirm, /completeOperation/);
+  assert.match(confirm, /operation_replay_conflict/);
+  assert.match(preview, /payload\.exp <= Date\.now\(\)/);
   assert.match(route, /request\.json\(\)\.catch/);
   assert.match(route, /parseRequiredNumber\(body\.receivedAmount/);
   assert.doesNotMatch(route, /Number\(body\.receivedAmount \|\| 0\)/);

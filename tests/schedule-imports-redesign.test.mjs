@@ -1,19 +1,32 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const require = createRequire(import.meta.url);
 const ts = require("../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js");
-const loadTsModule = async (path) => {
-  const source = await read(path);
-  const { outputText } = ts.transpileModule(source, {
+const tsModuleCache = new Map();
+const requireTs = (absolutePath) => {
+  if (tsModuleCache.has(absolutePath)) return tsModuleCache.get(absolutePath).exports;
+  const source = readFileSync(absolutePath, "utf8");
+  const { outputText: code } = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const evaluatedModule = { exports: {} };
-  new Function("module", "exports", outputText)(evaluatedModule, evaluatedModule.exports);
+  tsModuleCache.set(absolutePath, evaluatedModule);
+  const localRequire = (specifier) => {
+    if (!specifier.startsWith(".")) return require(specifier);
+    const resolved = fileURLToPath(new URL(specifier, pathToFileURL(absolutePath)));
+    return requireTs(/\.[cm]?[jt]s$/.test(resolved) ? resolved : `${resolved}.ts`);
+  };
+  new Function("module", "exports", "require", code)(evaluatedModule, evaluatedModule.exports, localRequire);
   return evaluatedModule.exports;
+};
+const loadTsModule = async (path) => {
+  return requireTs(fileURLToPath(new URL(`../${path}`, import.meta.url)));
 };
 
 test("schedule import uses the resilient client and action-specific busy states", async () => {
@@ -83,7 +96,9 @@ test("schedule preview blocks new overlaps and names every record it would creat
       return {
         bind() { return this; },
         async all() {
-          if (sql.includes("FROM students")) return { results: [] };
+          if (sql.includes("FROM students")) {
+            return { results: [{ id: 8 }] };
+          }
           return { results: [] };
         },
         async first() {
@@ -107,14 +122,20 @@ test("schedule preview blocks new overlaps and names every record it would creat
   assert.equal(conflict.action, "blocked");
   assert.equal(conflict.existingLessonId, 27);
   assert.match(conflict.issues[0], /高二政治/);
-  assert.equal(queries.some((sql) => sql.includes("FROM students")), false);
+  assert.ok(
+    queries.some((sql) => sql.includes("JOIN enrollments e")),
+    "one-to-one conflicts must be scoped through enrollments",
+  );
 
   queries.length = 0;
   db.prepare = (sql) => {
     queries.push(sql);
     return {
       bind() { return this; },
-      async all() { return { results: [] }; },
+      async all() {
+        if (sql.includes("FROM students")) return { results: [] };
+        return { results: [] };
+      },
       async first() { return null; },
     };
   };

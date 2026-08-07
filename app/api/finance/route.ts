@@ -1,24 +1,11 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requireLessonAccess, requirePermission } from "../../lib/access";
+import { confirmFinanceSettlement } from "../../lib/finance-confirm";
 import { calculateLessonFinance, settlementStatus } from "../../lib/finance";
 import { resolvePricingContext } from "../../lib/finance-rules";
-
-const PREVIEW_TTL_MS = 5 * 60 * 1000;
-const encoder = new TextEncoder();
+import { createPreviewToken, previewFingerprint, readPreviewToken } from "../../lib/finance-preview";
 
 type Row = Record<string, any>;
-type PreviewPayload = {
-  v: 1;
-  exp: number;
-  actorId: number;
-  lessonId: number;
-  payerType: "institution" | "parent";
-  payerId: number | null;
-  adjustment: number;
-  adjustmentReason: string;
-  fingerprint: string;
-  operationId: string;
-};
 
 const numberOrNull = (value: unknown) => {
   if (value === null || value === undefined || (typeof value === "string" && !value.trim())) return null;
@@ -37,70 +24,6 @@ const parseOptionalId = (value: unknown) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? { value: parsed, error: "" } : { value: null as number | null, error: "付款方编号无效" };
 };
-
-const toBase64Url = (value: Uint8Array) => {
-  let binary = "";
-  for (const byte of value) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-};
-
-const fromBase64Url = (value: string) => {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
-  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
-};
-
-const constantTimeEqual = (left: string, right: string) => {
-  const a = encoder.encode(left), b = encoder.encode(right);
-  if (a.length !== b.length) return false;
-  let difference = 0;
-  for (let index = 0; index < a.length; index += 1) difference |= a[index] ^ b[index];
-  return difference === 0;
-};
-
-async function signPreview(value: string) {
-  const secret = env.TEACHER_ADMIN_SESSION_SECRET;
-  if (!secret) return null;
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return toBase64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(value))));
-}
-
-async function previewFingerprint(input: { lessonId: number; lessonDate: string; payerType: string; payerId: number | null; ruleId?: number | null; calculation: Record<string, any> }) {
-  const canonical = JSON.stringify({
-    lessonId: input.lessonId,
-    lessonDate: input.lessonDate,
-    payerType: input.payerType,
-    payerId: input.payerId,
-    ruleId: input.ruleId || null,
-    baseFee: input.calculation.baseFee,
-    adjustment: input.calculation.adjustment,
-    expectedAmount: input.calculation.expectedAmount,
-    items: (input.calculation.items || []).map((item: Row) => ({ studentId: item.studentId, status: item.status, factor: item.factor, unitFee: item.unitFee, amount: item.amount, reason: item.reason || null })),
-  });
-  return toBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(canonical))));
-}
-
-async function createPreviewToken(payload: Omit<PreviewPayload, "v" | "exp">) {
-  const exp = Date.now() + PREVIEW_TTL_MS;
-  const encoded = toBase64Url(encoder.encode(JSON.stringify({ v: 1, exp, ...payload })));
-  const signature = await signPreview(encoded);
-  if (!signature) return null;
-  return { token: `${encoded}.${signature}`, expiresAt: new Date(exp).toISOString() };
-}
-
-async function readPreviewToken(token: unknown): Promise<PreviewPayload | null> {
-  if (typeof token !== "string") return null;
-  const [encoded, signature, extra] = token.split(".");
-  if (!encoded || !signature || extra) return null;
-  const expected = await signPreview(encoded);
-  if (!expected || !constantTimeEqual(signature, expected)) return null;
-  try {
-    const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(encoded))) as PreviewPayload;
-    if (payload.v !== 1 || !Number.isFinite(payload.exp) || payload.exp <= Date.now() || !Number.isInteger(payload.actorId) || !Number.isInteger(payload.lessonId) || !Number.isFinite(payload.adjustment) || typeof payload.fingerprint !== "string" || typeof payload.operationId !== "string") return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
 
 const invalidJson = () => Response.json({ error: "请求内容不是有效 JSON" }, { status: 400 });
 
@@ -163,24 +86,18 @@ export async function POST(request: Request) {
   if (!previewToken || previewToken.actorId !== access.id || previewToken.lessonId !== lessonId || previewToken.payerType !== payerType || previewToken.payerId !== payerId || previewToken.adjustment !== adjustment || previewToken.adjustmentReason !== adjustmentReason || previewToken.fingerprint !== fingerprint || previewToken.operationId !== operationId) return Response.json({ error: "预览已失效或内容已变化，请重新生成预览" }, { status: 409, headers: { "Cache-Control": "no-store" } });
   if (!context.canConfirm) return Response.json({ error: "计费规则或出勤记录不完整，不能确认入账", exceptions: context.exceptions }, { status: 422 });
 
-  const existing = await env.DB.prepare("SELECT id,status,confirmed_at AS confirmedAt FROM lesson_finance WHERE lesson_id=?").bind(lessonId).first<{ id: number; status: string; confirmedAt: string | null }>();
-  if (existing?.status && (existing.status !== "review" || existing.confirmedAt)) return Response.json({ error: "本节课已有确认账目，不能重复确认或覆盖", code: "already_confirmed" }, { status: 409 });
-
-  const confirmedAt = new Date().toISOString(), confirmedSnapshot = { ...snapshot, confirmedAt, confirmedBy: access.id }, snapshotText = JSON.stringify(confirmedSnapshot), selector = "SELECT id FROM lesson_finance WHERE lesson_id=? AND status='pending' AND confirmed_by=? AND calculation_snapshot=? AND confirmed_at=?";
-  const statements: D1PreparedStatement[] = [];
-  if (existing?.id) statements.push(env.DB.prepare("UPDATE lesson_finance SET payer_type=?,payer_id=?,base_fee=?,adjustment=?,expected_amount=?,status='pending',confirmed_at=?,confirmed_by=?,pricing_rule_id=?,calculation_snapshot=?,note=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='review' AND confirmed_at IS NULL").bind(payerType, payerId, calculation.baseFee, calculation.adjustment, calculation.expectedAmount, confirmedAt, access.id, context.rule?.id || null, snapshotText, adjustmentReason || null, existing.id));
-  else statements.push(env.DB.prepare("INSERT OR IGNORE INTO lesson_finance(lesson_id,payer_type,payer_id,base_fee,adjustment,expected_amount,status,confirmed_at,confirmed_by,pricing_rule_id,calculation_snapshot,note) VALUES(?,?,?,?,?,?,'pending',?,?,?,?,?)").bind(lessonId, payerType, payerId, calculation.baseFee, calculation.adjustment, calculation.expectedAmount, confirmedAt, access.id, context.rule?.id || null, snapshotText, adjustmentReason || null));
-  statements.push(env.DB.prepare(`DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (${selector})`).bind(lessonId, access.id, snapshotText, confirmedAt));
-  for (const item of calculation.items) statements.push(env.DB.prepare(`INSERT INTO lesson_billing_items(lesson_finance_id,student_id,attendance_status,billing_factor,unit_fee,amount,reason) SELECT id,?,?,?,?,?,? FROM lesson_finance WHERE lesson_id=? AND status='pending' AND confirmed_by=? AND calculation_snapshot=? AND confirmed_at=?`).bind(item.studentId, item.status || "present", item.factor, item.unitFee, item.amount, item.reason || null, lessonId, access.id, snapshotText, confirmedAt));
-  statements.push(env.DB.prepare(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,detail) SELECT ?,?,?,CAST(id AS TEXT),? FROM lesson_finance WHERE lesson_id=? AND status='pending' AND confirmed_by=? AND calculation_snapshot=? AND confirmed_at=?`).bind(access.id, "confirm", "lesson_finance", JSON.stringify({ lessonId, expectedAmount: calculation.expectedAmount, pricingRuleId: context.rule?.id || null, operationId }), lessonId, access.id, snapshotText, confirmedAt));
-
-  try {
-    const results = await env.DB.batch(statements);
-    if (Number(results[0]?.meta?.changes || 0) < 1) return Response.json({ error: "确认请求重复或账目状态已变化，未写入新的账目", code: "confirm_conflict" }, { status: 409 });
-    const saved = await env.DB.prepare("SELECT id FROM lesson_finance WHERE lesson_id=? AND status='pending' AND confirmed_by=? AND calculation_snapshot=?").bind(lessonId, access.id, snapshotText).first<{ id: number }>();
-    if (!saved?.id) return Response.json({ error: "无法读取已保存的结算，未确认完成" }, { status: 500 });
-    return Response.json({ ok: true, id: saved.id, calculation, formula, snapshot: confirmedSnapshot });
-  } catch {
-    return Response.json({ error: "确认入账未完成，系统已回滚本次账目写入，请保留预览后重试" }, { status: 409, headers: { "Cache-Control": "no-store" } });
-  }
+  return confirmFinanceSettlement({
+    actor: { type: "user", id: access.id },
+    lessonId,
+    payerType,
+    payerId,
+    adjustment,
+    adjustmentReason,
+    calculation,
+    ruleId: context.rule?.id || null,
+    fingerprint,
+    operationId,
+    formula,
+    snapshot,
+  });
 }

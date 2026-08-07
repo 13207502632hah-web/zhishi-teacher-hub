@@ -213,7 +213,7 @@ test("stage two covers political question review, paper drafting and lesson link
   assert.match(sourceRoute,/export async function GET/); assert.match(sourceRoute,/env\.FILES\.get\(key\)/); assert.match(sourceRoute,/Content-Disposition/); assert.match(sourceRoute,/private, no-store/);
   assert.match(page,/文件已上传，可继续处理/); assert.match(page,/刷新后浏览器不保留本地文件，请重新选择同名文件/); assert.match(page,/item\.file \|\| item\.sourceKey/); assert.match(page,/api\/question-sets\/source\?key=/);
   for (const label of ["自动推荐题目","手动添加","保存试卷草稿","练习","周测","阶段测","讲义题组"]) assert.match(paperPage,new RegExp(label));
-  assert.match(paperPage,/page: String\(page\)/); assert.match(paperPage,/共 \{candidateTotal \|\| bank\.length\} 题 · 已显示 \{bank\.length\} 题/); assert.match(paperPage,/加载更多候选题/); assert.doesNotMatch(paperPage,/bank\.slice\(0, 100\)/);
+  assert.match(paperPage,/page: String\(page\)/); assert.match(paperPage,/共 \{candidateTotal \|\| bank\.length\} 题/); assert.match(paperPage,/已显示 \{bank\.length\} 题/); assert.match(paperPage,/candidateLimited/); assert.match(paperPage,/加载更多候选题/); assert.doesNotMatch(paperPage,/bank\.slice\(0, 100\)/);
   assert.match(paperApi,/paperQuestions/); assert.match(lessonQuestions,/lessonQuestions/);
 });
 

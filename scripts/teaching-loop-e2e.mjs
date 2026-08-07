@@ -198,6 +198,7 @@ function cleanupBusinessCoverage() {
   const miniAccountIds = listSql(created.miniAccountIds);
   const markerStudents = `SELECT id FROM students WHERE name LIKE ${quote(`${marker}%`)}`;
   const scheduleStudents = `SELECT id FROM students WHERE name=${quote("__e2e__课表学生")}`;
+  const scheduleLessons = `SELECT id FROM lessons WHERE id IN (${scheduleLessonIds}) OR (date IN ('2030-01-12','2030-01-13') AND location=${quote("__e2e__教室")})`;
   sql(`PRAGMA foreign_keys=ON;
     DELETE FROM recognition_items WHERE job_id IN (SELECT id FROM recognition_jobs WHERE source_asset_id IN (${assetIds}) OR assessment_id IN (${assessmentIds}));
     DELETE FROM recognition_jobs WHERE source_asset_id IN (${assetIds}) OR assessment_id IN (${assessmentIds});
@@ -211,20 +212,31 @@ function cleanupBusinessCoverage() {
     DELETE FROM resources WHERE title LIKE ${quote(`${marker}%`)} OR source_ref LIKE ${quote(`reflection:${marker}%`)};
     DELETE FROM reflections WHERE tags LIKE ${quote(`${marker}%`)} OR expected_vs_actual LIKE ${quote(`${marker}%`)};
     DELETE FROM saved_question_views WHERE name LIKE ${quote(`${marker}%`)};
-    DELETE FROM schedule_import_rows WHERE lesson_id IN (${scheduleLessonIds}) OR import_id IN (${scheduleImportIds});
-    DELETE FROM schedule_imports WHERE id IN (${scheduleImportIds});
-    DELETE FROM schedule_import_rows WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")}) OR import_id IN (SELECT id FROM schedule_imports WHERE source_name='browser-synthetic.csv');
-    DELETE FROM schedule_imports WHERE source_name='browser-synthetic.csv';
-    DELETE FROM settlement_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (${scheduleLessonIds}));
-    DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (${scheduleLessonIds}));
-    DELETE FROM lesson_finance WHERE lesson_id IN (${scheduleLessonIds});
-    DELETE FROM attendance WHERE lesson_id IN (${scheduleLessonIds});
-    DELETE FROM lessons WHERE id IN (${scheduleLessonIds});
-    DELETE FROM settlement_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")}));
-    DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")}));
-    DELETE FROM lesson_finance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")});
-    DELETE FROM attendance WHERE lesson_id IN (SELECT id FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")});
-    DELETE FROM lessons WHERE date='2030-01-12' AND location=${quote("__e2e__教室")};
+    DELETE FROM schedule_import_rows WHERE lesson_id IN (${scheduleLessons}) OR import_id IN (${scheduleImportIds}) OR import_id IN (SELECT id FROM schedule_imports WHERE source_name='browser-synthetic.csv');
+    DELETE FROM schedule_imports WHERE id IN (${scheduleImportIds}) OR source_name='browser-synthetic.csv';
+    DELETE FROM feedback_evidence WHERE feedback_id IN (SELECT id FROM feedback WHERE lesson_id IN (${scheduleLessons}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents}) OR class_id IN (${scheduleClassIds}));
+    DELETE FROM ai_feedback_drafts WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM lesson_completion_runs WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM lesson_workflow_state WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM lesson_questions WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM wrong_questions WHERE lesson_id IN (${scheduleLessons}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents});
+    DELETE FROM student_lesson_records WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM feedback_imports WHERE matched_lesson_id IN (${scheduleLessons}) OR confirmed_lesson_id IN (${scheduleLessons});
+    DELETE FROM feedback WHERE lesson_id IN (${scheduleLessons}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents}) OR class_id IN (${scheduleClassIds});
+    DELETE FROM reflections WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM assignment_assets WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id IN (${scheduleLessons}) OR class_id IN (${scheduleClassIds}));
+    DELETE FROM assignment_targets WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id IN (${scheduleLessons}) OR class_id IN (${scheduleClassIds}));
+    DELETE FROM assignment_settings WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id IN (${scheduleLessons}) OR class_id IN (${scheduleClassIds}));
+    DELETE FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE lesson_id IN (${scheduleLessons}) OR class_id IN (${scheduleClassIds}));
+    DELETE FROM assignments WHERE lesson_id IN (${scheduleLessons}) OR class_id IN (${scheduleClassIds});
+    DELETE FROM package_ledger WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM settlement_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (${scheduleLessons}));
+    DELETE FROM lesson_billing_items WHERE lesson_finance_id IN (SELECT id FROM lesson_finance WHERE lesson_id IN (${scheduleLessons}));
+    DELETE FROM lesson_finance WHERE lesson_id IN (${scheduleLessons});
+    DELETE FROM attendance WHERE lesson_id IN (${scheduleLessons}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents});
+    DELETE FROM pricing_rules WHERE student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents});
+    DELETE FROM sync_events WHERE student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents});
+    DELETE FROM lessons WHERE id IN (${scheduleLessons});
     DELETE FROM enrollments WHERE class_id IN (${scheduleClassIds}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents});
     DELETE FROM students WHERE id IN (${scheduleStudentIds}) OR id IN (${scheduleStudents});
     DELETE FROM classes WHERE id IN (${scheduleClassIds});
@@ -1328,7 +1340,7 @@ async function exerciseQuestionKnowledgeMultiKeyword(cookie) {
 async function exercisePaperRecommendationAllCandidates(cookie) {
   const checks = [];
   const candidateKnowledge = `${marker}_all_candidates`;
-  const rowsSql = Array.from({ length: 320 }, (_, index) =>
+  const rowsSql = Array.from({ length: 1220 }, (_, index) =>
     `(${quote(`${marker}_候选全集${String(index + 1).padStart(3, "0")}`)},'单选题','高中','高一',${quote(candidateKnowledge)},'A','候选全集','active')`
   ).join(",");
   sql(`INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status) VALUES ${rowsSql};`);
@@ -1337,11 +1349,14 @@ async function exercisePaperRecommendationAllCandidates(cookie) {
   const allIds = Array.isArray(result.data.allIds) ? result.data.allIds.map(Number) : [];
   const total = Number(result.data.total);
   const storedCount = Number(rows(`SELECT COUNT(*) AS total FROM questions WHERE status='active' AND knowledge_points=${quote(candidateKnowledge)}`)[0].total);
-  assert.ok(total >= 320, `候选 total=${total}`);
+  assert.ok(total >= 1220, `候选 total=${total}`);
   assert.equal(storedCount, total);
-  assert.equal(allIds.length, total, `allIds=${allIds.length} total=${total}`);
+  assert.equal(Number(result.data.candidateTotal), total);
+  assert.equal(Boolean(result.data.candidateLimited), true, "超过有界候选池时必须明确 limited");
+  assert.ok(allIds.length <= 1200, `allIds=${allIds.length} total=${total}`);
+  assert.ok(allIds.length < total, `candidate=1 不应返回整套 ID：allIds=${allIds.length} total=${total}`);
   assert.equal(new Set(allIds).size, allIds.length, "candidate=1 的 allIds 不应重复");
-  checks.push("candidate=1 全量候选 id 与总数一致", "candidate=1 全量候选 id 无重复");
+  checks.push("candidate=1 候选 ID 池有界", "candidate=1 总数独立返回且无重复");
   return { checks, ok: true };
 }
 

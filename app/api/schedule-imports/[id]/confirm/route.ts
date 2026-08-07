@@ -1,6 +1,13 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied, requirePermission } from "../../../../lib/access";
 import {
+  claimScheduleImportRow,
+  loadLessonState,
+  markScheduleImportRow,
+  reconcileLessonFinance,
+} from "../../../../lib/schedule-import-confirm";
+import { findClassId, findStudentRecords, lessonUnlockable } from "../../../../lib/schedule-import-identity";
+import {
   inspectScheduleImportRow,
   loadPreviousScheduleIdentities,
   type NormalizedScheduleRow,
@@ -52,6 +59,13 @@ export async function POST(
     .bind(importId)
     .all()).results as Array<Record<string, unknown>>;
   const previousByIdentity = await loadPreviousScheduleIdentities(env.DB, importId);
+  const currentImportLessons = (await env.DB
+    .prepare("SELECT lesson_id AS lessonId FROM schedule_import_rows WHERE import_id=? AND lesson_id IS NOT NULL AND (action IN ('created','updated') OR processing_state='needs_reconcile')")
+    .bind(importId)
+    .all()).results as Array<{ lessonId: number }>;
+  const currentImportLessonIds = new Set(
+    currentImportLessons.map((row) => Number(row.lessonId)),
+  );
   const report = {
     created: 0,
     updated: 0,
@@ -62,74 +76,106 @@ export async function POST(
   };
 
   for (const row of rows) {
-    if (["created", "updated", "skipped"].includes(String(row.action))) {
+    const rowId = Number(row.id);
+    const action = String(row.action || "");
+    const state = String(row.processing_state || "");
+    if (["created", "updated", "skipped"].includes(action) && state === "done") {
       continue;
     }
-    if (row.lesson_id && String(row.action) === "pending") {
-      await env.DB
-        .prepare("UPDATE schedule_import_rows SET action='created',issue=NULL WHERE id=?")
-        .bind(row.id)
-        .run();
-      continue;
-    }
-    try {
-      let value: NormalizedScheduleRow;
-      try {
-        value = JSON.parse(String(row.normalized_data || "{}")) as NormalizedScheduleRow;
-      } catch {
-        await blockRow(Number(row.id), "课表行数据损坏，请重新上传");
-        report.blocked++;
-        continue;
-      }
 
+    let value: NormalizedScheduleRow;
+    try {
+      value = JSON.parse(String(row.normalized_data || "{}")) as NormalizedScheduleRow;
+    } catch {
+      await blockRow(rowId, "课表行数据损坏，请重新上传", null, "failed");
+      report.blocked++;
+      continue;
+    }
+
+    if (row.lesson_id && action === "skipped") {
+      await markScheduleImportRow(env.DB, rowId, {
+        action: "skipped",
+        state: "done",
+        lessonId: Number(row.lesson_id),
+      });
+      report.skipped++;
+      continue;
+    }
+    if (row.lesson_id && ["created", "updated"].includes(action) && state !== "done") {
+      const finalized = await finalizeInterruptedRow(rowId, Number(row.lesson_id), value, action as "created" | "updated");
+      if (finalized && action === "created") report.created++;
+      else if (finalized) report.updated++;
+      else report.blocked++;
+      continue;
+    }
+    if (row.lesson_id && action === "blocked" && state === "needs_reconcile") {
+      const finalized = await finalizeInterruptedRow(rowId, Number(row.lesson_id), value, "created");
+      if (finalized) report.created++;
+      else report.blocked++;
+      continue;
+    }
+
+    const claimed = await claimScheduleImportRow(env.DB, rowId);
+    if (!claimed) {
+      await blockRow(rowId, "该行正在处理中，请稍后重试", null, "blocked");
+      report.blocked++;
+      continue;
+    }
+
+    try {
       const validationIssues = validateNormalizedSchedule(value);
       const preview = await inspectScheduleImportRow(
         env.DB,
         value,
         validationIssues,
         previousByIdentity,
+        {
+          ownerId: access.id,
+          sourceLineage: String(row.source_lineage || ""),
+          sourceRowId: String(row.source_row_id || ""),
+          currentImportLessonIds,
+        },
       );
 
       if (preview.action === "blocked") {
-        await blockRow(Number(row.id), preview.issues.join("；"), preview.existingLessonId);
+        await blockRow(rowId, preview.issues.join("；"), preview.existingLessonId, "blocked");
         report.blocked++;
         continue;
       }
 
       if (preview.action === "skip") {
-        await env.DB
-          .prepare("UPDATE schedule_import_rows SET action='skipped',issue=NULL,lesson_id=? WHERE id=?")
-          .bind(preview.existingLessonId, row.id)
-          .run();
+        await markScheduleImportRow(env.DB, rowId, {
+          action: "skipped",
+          state: "done",
+          lessonId: preview.existingLessonId,
+        });
         report.skipped++;
         continue;
       }
 
       if (preview.action === "update" && preview.existingLessonId) {
-        const old = await env.DB
-          .prepare("SELECT start_time AS startTime,end_time AS endTime,location FROM lessons WHERE id=?")
-          .bind(preview.existingLessonId)
-          .first<Record<string, unknown>>();
+        const old = await loadLessonState(env.DB, preview.existingLessonId);
         if (!old) {
-          await blockRow(Number(row.id), "原课时已不存在，请重新上传课表");
+          await blockRow(rowId, "原课时已不存在，请重新上传课表", preview.existingLessonId, "blocked");
           report.blocked++;
           continue;
         }
-        await env.DB
-          .prepare("UPDATE lessons SET start_time=?,end_time=?,location=?,status='rescheduled',cancellation_reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-          .bind(
-            value.startTime,
-            value.endTime,
-            value.location,
-            `课表重新导入调整；原时间 ${String(old.startTime || "未填")}–${String(old.endTime || "未填")}，原地点 ${String(old.location || "未填")}`,
+        if (!lessonUnlockable(old)) {
+          await blockRow(
+            rowId,
+            "原课时已完成或已结算，请在课时详情中人工确认调整",
             preview.existingLessonId,
-          )
-          .run();
-        await env.DB
-          .prepare("UPDATE schedule_import_rows SET action='updated',issue=NULL,lesson_id=? WHERE id=?")
-          .bind(preview.existingLessonId, row.id)
-          .run();
-        report.updated++;
+            "blocked",
+          );
+          report.blocked++;
+          continue;
+        }
+        const outcome = await applyLessonUpdate(rowId, value, old, preview.existingLessonId, access.id);
+        if (outcome === "done") {
+          report.updated++;
+        } else {
+          report.blocked++;
+        }
         continue;
       }
 
@@ -137,100 +183,89 @@ export async function POST(
         (value.studentNames?.length ? `${value.studentNames.join("、")}课程` : "");
       let classId: number | null = null;
       if (className) {
-        let found = await env.DB
-          .prepare("SELECT id FROM classes WHERE name=? AND status='active' LIMIT 1")
-          .bind(className)
-          .first<{ id: number }>();
+        let found = await findClassId(env.DB, className, access.id);
         if (!found) {
-          found = await env.DB
+          const created = await env.DB
             .prepare("INSERT INTO classes(owner_id,name,stage,grade,course_type,status) VALUES(?,?,?,?,?,?) RETURNING id")
             .bind(access.id, className, "高中", "待补全", "导入课表", "active")
             .first<{ id: number }>();
+          found = created?.id ?? null;
         }
-        classId = found?.id || null;
+        classId = found;
       }
 
-      for (const name of value.studentNames || []) {
-        let student = await env.DB
-          .prepare("SELECT id FROM students WHERE name=? AND status='active' LIMIT 1")
-          .bind(name)
-          .first<{ id: number }>();
-        if (!student) {
-          student = await env.DB
-            .prepare("INSERT INTO students(name,grade,status,notes) VALUES(?,?,?,?) RETURNING id")
-            .bind(name, "待补全", "active", "由课表导入自动创建，资料待补全")
-            .first<{ id: number }>();
-          if (student) report.studentsCreated++;
-        }
-        if (classId && student) {
-          await env.DB
-            .prepare("INSERT OR IGNORE INTO enrollments(class_id,student_id,status) VALUES(?,?,?)")
-            .bind(classId, student.id, "active")
-            .run();
-        }
-      }
-
-      const lesson = await env.DB
-        .prepare("INSERT INTO lessons(class_id,date,start_time,end_time,mode,location,course_name,stage,grade,fee,fee_status,status,cancellation_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id")
-        .bind(
-          classId,
-          value.date,
-          value.startTime,
-          value.endTime,
-          "offline",
-          value.location,
-          value.courseName,
-          "高中",
-          "待补全",
-          value.fee || null,
-          "untracked",
-          "draft",
-          value.notes,
-        )
-        .first<{ id: number }>();
-      if (!lesson) {
-        await blockRow(Number(row.id), "课时创建失败，请检查后重试");
-        report.blocked++;
-        continue;
-      }
-
-      report.created++;
-      await env.DB
-        .prepare("UPDATE schedule_import_rows SET action='created',issue=NULL,lesson_id=? WHERE id=?")
-        .bind(lesson.id, row.id)
-        .run();
-
-      if (value.institution || value.baseFee || value.perStudentFee || value.fee) {
-        let institutionId: number | null = null;
-        if (value.institution) {
-          let institution = await env.DB
-            .prepare("SELECT id FROM institutions WHERE name=? LIMIT 1")
-            .bind(value.institution)
-            .first<{ id: number }>();
-          if (!institution) {
-            institution = await env.DB
-              .prepare("INSERT INTO institutions(name,settlement_cycle) VALUES(?,?) RETURNING id")
-              .bind(value.institution, cycle(value.settlementCycle))
-              .first<{ id: number }>();
+      let lessonId: number | null = null;
+      try {
+        for (const name of value.studentNames || []) {
+          const studentIds = await findStudentRecords(env.DB, name);
+          if (studentIds.length > 1) {
+            throw new Error(`学生“${name}”存在同名档案，请人工选择`);
           }
-          institutionId = institution?.id || null;
+          let studentId = studentIds[0] ?? null;
+          if (!studentId) {
+            const student = await env.DB
+              .prepare("INSERT INTO students(name,grade,status,notes) VALUES(?,?,?,?) RETURNING id")
+              .bind(name, "待补全", "active", "由课表导入自动创建，资料待补全")
+              .first<{ id: number }>();
+            if (student) {
+              studentId = Number(student.id);
+              report.studentsCreated++;
+            }
+          }
+          if (classId && studentId) {
+            await env.DB
+              .prepare("INSERT OR IGNORE INTO enrollments(class_id,student_id,status) VALUES(?,?,?)")
+              .bind(classId, studentId, "active")
+              .run();
+          }
         }
-        const expectedAmount = value.fee ||
-          value.baseFee + value.perStudentFee * (value.studentNames?.length || 0);
-        await env.DB
-          .prepare("INSERT INTO lesson_finance(lesson_id,payer_type,payer_id,base_fee,expected_amount,status) VALUES(?,?,?,?,?,?)")
+
+        const lesson = await env.DB
+          .prepare("INSERT INTO lessons(class_id,date,start_time,end_time,mode,location,course_name,stage,grade,fee,fee_status,status,cancellation_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id")
           .bind(
-            lesson.id,
-            institutionId ? "institution" : "parent",
-            institutionId,
-            value.baseFee || 0,
-            expectedAmount,
-            "review",
+            classId,
+            value.date,
+            value.startTime,
+            value.endTime,
+            "offline",
+            value.location,
+            value.courseName,
+            "高中",
+            "待补全",
+            value.fee || null,
+            "untracked",
+            "draft",
+            value.notes,
           )
+          .first<{ id: number }>();
+        if (!lesson) throw new Error("课时创建失败，请检查后重试");
+        lessonId = Number(lesson.id);
+        currentImportLessonIds.add(lessonId);
+
+        await env.DB
+          .prepare("UPDATE schedule_import_rows SET action='created',issue=NULL,lesson_id=?,processing_state='processing' WHERE id=?")
+          .bind(lessonId, rowId)
           .run();
+        await reconcileLessonFinance(env.DB, lessonId, value);
+        await markScheduleImportRow(env.DB, rowId, {
+          action: "created",
+          state: "done",
+          lessonId,
+        });
+        report.created++;
+      } catch (error) {
+        const message = errorMessage(error);
+        await blockRow(
+          rowId,
+          message,
+          lessonId,
+          lessonId ? "needs_reconcile" : "failed",
+          message,
+        );
+        report.blocked++;
       }
     } catch {
-      await blockRow(Number(row.id), "写入中断，请重试剩余行");
+      await blockRow(rowId, "写入中断，请重试剩余行", null, "failed");
       report.blocked++;
     }
   }
@@ -242,8 +277,117 @@ export async function POST(
     .prepare("UPDATE schedule_imports SET status=?,report=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(finalStatus.status, JSON.stringify(report), importId)
     .run();
-  await audit(access, finalStatus.status === "confirmed" ? "confirm" : "confirm_retry", "schedule_import", importId, { ...report, status: finalStatus.status });
+  try {
+    await audit(access, finalStatus.status === "confirmed" ? "confirm" : "confirm_retry", "schedule_import", importId, { ...report, status: finalStatus.status });
+  } catch {
+    // 审计失败不应把已经完成的业务写入标记为失败。
+  }
   return Response.json({ ok: true, status: finalStatus.status, report, rows: resultRows });
+}
+
+async function finalizeInterruptedRow(
+  rowId: number,
+  lessonId: number,
+  value: NormalizedScheduleRow,
+  action: "created" | "updated",
+): Promise<boolean> {
+  try {
+    await reconcileLessonFinance(env.DB, lessonId, value);
+    await markScheduleImportRow(env.DB, rowId, { action, state: "done", lessonId });
+    return true;
+  } catch (error) {
+    await blockRow(
+      rowId,
+      errorMessage(error),
+      lessonId,
+      "needs_reconcile",
+      errorMessage(error),
+    );
+    return false;
+  }
+}
+
+async function applyLessonUpdate(
+  rowId: number,
+  value: NormalizedScheduleRow,
+  old: Record<string, unknown>,
+  lessonId: number,
+  ownerId: number,
+): Promise<"done" | "blocked"> {
+  let targetClassId = old.classId ? Number(old.classId) : null;
+  const className = value.className ||
+    (value.studentNames?.length ? `${value.studentNames.join("、")}课程` : "");
+  let mutated = false;
+  try {
+    if (className) {
+      let found = await findClassId(env.DB, className, ownerId);
+      if (!found) {
+        const created = await env.DB
+          .prepare("INSERT INTO classes(owner_id,name,stage,grade,course_type,status) VALUES(?,?,?,?,?,?) RETURNING id")
+          .bind(ownerId, className, "高中", "待补全", "导入课表", "active")
+          .first<{ id: number }>();
+        found = created?.id ?? null;
+      }
+      targetClassId = found;
+      for (const name of value.studentNames || []) {
+        const studentIds = await findStudentRecords(env.DB, name);
+        if (studentIds.length > 1) {
+          throw new Error(`学生“${name}”存在同名档案，请人工选择`);
+        }
+        let studentId = studentIds[0] ?? null;
+        if (!studentId) {
+          const student = await env.DB
+            .prepare("INSERT INTO students(name,grade,status,notes) VALUES(?,?,?,?) RETURNING id")
+            .bind(name, "待补全", "active", "由课表导入自动创建，资料待补全")
+            .first<{ id: number }>();
+          if (student) studentId = Number(student.id);
+        }
+        if (targetClassId && studentId) {
+          await env.DB
+            .prepare("INSERT OR IGNORE INTO enrollments(class_id,student_id,status) VALUES(?,?,?)")
+            .bind(targetClassId, studentId, "active")
+            .run();
+        }
+      }
+    }
+    await env.DB.batch([
+      env.DB
+        .prepare("UPDATE lessons SET class_id=?,date=?,start_time=?,end_time=?,mode=?,location=?,course_name=?,fee=?,fee_status='untracked',status='rescheduled',cancellation_reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(
+          targetClassId,
+          value.date,
+          value.startTime,
+          value.endTime,
+          "offline",
+          value.location,
+          value.courseName,
+          value.fee || null,
+          `课表重新导入调整；原时间 ${String(old.startTime || "未填")}–${String(old.endTime || "未填")}，原地点 ${String(old.location || "未填")}`,
+          lessonId,
+        ),
+      env.DB
+        .prepare("UPDATE schedule_import_rows SET action='updated',issue=NULL,lesson_id=?,processing_state='processing' WHERE id=?")
+        .bind(lessonId, rowId),
+    ]);
+    mutated = true;
+    await reconcileLessonFinance(env.DB, lessonId, value);
+    await markScheduleImportRow(env.DB, rowId, {
+      action: "updated",
+      state: "done",
+      lessonId,
+    });
+    return "done";
+  } catch (error) {
+    const message = errorMessage(error);
+    await blockRow(
+      rowId,
+      message,
+      mutated ? lessonId : null,
+      mutated ? "needs_reconcile" : "blocked",
+      message,
+    );
+    return "blocked";
+  }
 }
 
 async function readResultRows(importId: number) {
@@ -266,10 +410,12 @@ async function blockRow(
   rowId: number,
   issue: string,
   lessonId: number | null = null,
+  state: "blocked" | "failed" | "needs_reconcile" = "blocked",
+  lastError?: string,
 ) {
   await env.DB
-    .prepare("UPDATE schedule_import_rows SET action='blocked',issue=?,lesson_id=? WHERE id=?")
-    .bind(issue, lessonId, rowId)
+    .prepare("UPDATE schedule_import_rows SET action='blocked',issue=?,lesson_id=COALESCE(?,lesson_id),processing_state=?,last_error=? WHERE id=?")
+    .bind(issue, lessonId, state, lastError ?? issue, rowId)
     .run();
 }
 
@@ -281,5 +427,5 @@ const parseReport = (value: string | null) => {
   }
 };
 
-const cycle = (value: string) =>
-  value.includes("次") ? "per_lesson" : value.includes("周") ? "weekly" : "monthly";
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "写入中断，请重试剩余行";

@@ -10,6 +10,7 @@ export async function GET(request: Request) {
   const access = await requirePermission("questions:read"); if (isDenied(access)) return access;
   const params = new URL(request.url).searchParams, q = params.get("q") || "", stage = params.get("stage") || "", grade = params.get("grade") || "", textbookVersion = params.get("textbookVersion") || "", volume = params.get("volume") || "", unit = params.get("unit") || "", topic = params.get("topic") || "", type = params.get("type") || "", difficulty = params.get("difficulty") || "", status = params.get("status") || "active", knowledge = params.get("knowledge") || "", source = params.get("source") || "", region = params.get("region") || "", examType = params.get("examType") || "", year = params.get("year") || "", flag = params.get("flag") || "", issue = params.get("issue") || "", ids = [...new Set((params.get("ids") || "").split(",").map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100), rawPage = Number(params.get("page") || 1), requestedPage = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1, pageSize = 50, sort = params.get("sort") || "updated_desc";
   const candidateAll = params.get("candidate") === "1";
+  const candidateIdLimit = 1200;
   const conditions = [];
   if (q) conditions.push(or(like(questions.stem, `%${q}%`), like(questions.material, `%${q}%`), like(questions.analysis, `%${q}%`), like(questions.knowledgePoints, `%${q}%`), like(questions.tags, `%${q}%`)));
   const knowledgeTokens = knowledge.split(/[、\s]+/).filter(Boolean);
@@ -29,14 +30,29 @@ export async function GET(request: Request) {
   const order = sort === "updated_asc" ? asc(questions.updatedAt) : sort === "difficulty_desc" ? desc(questions.difficulty) : sort === "difficulty_asc" ? asc(questions.difficulty) : sort === "use_count_desc" ? desc(questions.useCount) : sort === "use_count_asc" ? asc(questions.useCount) : desc(questions.updatedAt);
   const [countRows, idRows, issues] = await Promise.all([
     getDb().select({ count: sql<number>`count(*)` }).from(questions).where(where),
-    (candidateAll ? getDb().select({ id: questions.id }).from(questions).where(where) : getDb().select({ id: questions.id }).from(questions).where(where).limit(300)),
+    (candidateAll
+      ? getDb().select({ id: questions.id }).from(questions).where(where).orderBy(asc(questions.id)).limit(candidateIdLimit)
+      : getDb().select({ id: questions.id }).from(questions).where(where).limit(300)),
     questionReviewSummary(env.DB),
   ]);
   const total = Number(countRows[0]?.count || 0);
   const pageCount = Math.max(1, Math.ceil(total / pageSize)), page = Math.min(requestedPage, pageCount);
   const rows = await getDb().select().from(questions).where(where).orderBy(order).limit(pageSize).offset((page - 1) * pageSize);
   const listRows = rows.map(({ answer, analysis, answerPoints, scoringPoints, standardExpression, ...row }) => ({ ...row, answerAvailable: Boolean(String(answer || "").trim()), analysisAvailable: Boolean(String(analysis || answerPoints || scoringPoints || standardExpression || "").trim()) }));
-  return Response.json({ questions: listRows, total, page, pageSize, pageCount, allIds: idRows.map((item) => item.id), filters: Object.fromEntries(params.entries()), issues });
+  return Response.json({
+    questions: listRows,
+    total,
+    page,
+    pageSize,
+    pageCount,
+    allIds: idRows.map((item) => item.id),
+    candidateTotal: total,
+    candidateLimited: candidateAll && total > candidateIdLimit,
+    candidatePage: candidateAll ? 1 : undefined,
+    candidatePageCount: candidateAll ? Math.ceil(Math.min(total, candidateIdLimit) / pageSize) : undefined,
+    filters: Object.fromEntries(params.entries()),
+    issues,
+  });
 }
 
 export async function POST(request: Request) {

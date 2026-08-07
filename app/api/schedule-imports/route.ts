@@ -80,7 +80,18 @@ export async function POST(request: Request) {
   };
   const inserted = await env.DB.prepare("INSERT INTO schedule_imports(source_name,fingerprint,mapping,report,status,created_by) VALUES(?,?,?,?,?,?) RETURNING id").bind(file.name, fingerprint, JSON.stringify(mapping), JSON.stringify({ storageKey, ...report }), "preview", access.id).first<{ id: number }>();
   if (!inserted) return Response.json({ error: "无法创建导入任务" }, { status: 500 });
-  const statements = rowsWithPreview.map((row) => env.DB.prepare("INSERT INTO schedule_import_rows(import_id,row_number,raw_data,normalized_data,action,issue) VALUES(?,?,?,?,?,?)").bind(inserted.id, row.rowNumber, JSON.stringify(row.raw), JSON.stringify(row.value), row.issues.length ? "blocked" : "pending", row.issues.join("；") || null));
+  const sourceLineage = `file:${file.name}`;
+  const statements = rowsWithPreview.map((row) => env.DB.prepare("INSERT INTO schedule_import_rows(import_id,row_number,raw_data,normalized_data,action,issue,source_lineage,source_row_id,source_cell) VALUES(?,?,?,?,?,?,?,?,?)").bind(
+    inserted.id,
+    row.rowNumber,
+    JSON.stringify(row.raw),
+    JSON.stringify(row.value),
+    row.issues.length ? "blocked" : "pending",
+    row.issues.join("；") || null,
+    sourceLineage,
+    row.sourceCell ? `calendar:${row.sourceCell}` : `tabular-${row.rowNumber}`,
+    row.sourceCell || null,
+  ));
   for (let i = 0; i < statements.length; i += 50) await env.DB.batch(statements.slice(i, i + 50));
   await audit(access, "preview", "schedule_import", inserted.id, { total: rowsWithPreview.length });
   return Response.json({ id: inserted.id, format, headers, mapping, rows: rowsWithPreview, report, unknownColumns: mappingDetail.unknownColumns }, { status: 201 });

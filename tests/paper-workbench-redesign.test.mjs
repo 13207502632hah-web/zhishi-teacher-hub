@@ -32,7 +32,9 @@ test("paper candidates paginate through the bank with totals and load more", asy
   assert.match(page, /page: String\(page\)/);
   assert.match(page, /candidateTotal/);
   assert.match(page, /candidatePageCount/);
-  assert.match(page, /共 \{candidateTotal \|\| bank\.length\} 题 · 已显示 \{bank\.length\} 题/);
+  assert.match(page, /共 \{candidateTotal \|\| bank\.length\} 题/);
+  assert.match(page, /已显示 \{bank\.length\} 题/);
+  assert.match(page, /candidateLimited/);
   assert.match(page, /加载更多候选题/);
   assert.match(page, /candidateLoadMore/);
   assert.match(page, /bank\.map\(\(item\) =>/);
