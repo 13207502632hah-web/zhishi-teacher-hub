@@ -48,3 +48,12 @@ test("lesson list styles are readable, touch-safe and mobile-first", async () =>
   assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
 });
+
+test("lesson list shows student names instead of topic placeholders", async () => {
+  const page = await read("app/lessons/page.tsx");
+
+  assert.match(page, /displaySubject/);
+  assert.match(page, /item\.displaySubject \|\| item\.courseName/);
+  assert.match(page, /item\.topic \? `　课题：\$\{item\.topic\}`/);
+  assert.doesNotMatch(page, /未填写课题/);
+});
