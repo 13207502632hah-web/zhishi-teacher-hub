@@ -519,7 +519,7 @@ export default function ScheduleImportsPage() {
             description={`${formatTime(historyDetail.import.createdAt)} · ${historyDetail.rows.length} 行`}
             actions={(
               <div className="scheduleImportHistoryActions">
-                {["partial", "failed"].includes(historyDetail.import.status) && (
+                {["partial", "failed", "confirming"].includes(historyDetail.import.status) && (
                   <button
                     className="secondaryButton"
                     disabled={historyBusyId !== null}

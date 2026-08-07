@@ -269,7 +269,8 @@ test("schedule confirmation atomically claims the import before processing rows"
   const confirm = await read("app/api/schedule-imports/[id]/confirm/route.ts");
 
   assert.match(confirm, /SET status='confirming'/);
-  assert.match(confirm, /WHERE id=\? AND status=\?/);
+  assert.match(confirm, /status IN \('preview','partial','failed'\)/);
+  assert.match(confirm, /status='confirming' AND datetime\(updated_at\)<datetime\('now','-3 minutes'\)/);
   assert.match(confirm, /claim\.meta\?\.changes \|\| 0/);
   assert.match(confirm, /status: 409/);
   assert.match(confirm, /retryLater: true/);
@@ -278,10 +279,20 @@ test("schedule confirmation atomically claims the import before processing rows"
     /scheduleImportFinalStatus\(resultRows\)/,
     "the final status must be recomputed after the claimed run finishes",
   );
+
+  assert.ok(
+    !confirm.match(/WHERE id=\? AND status=\?/),
+    "the claim must accept recoverable task states instead of only the exact prior status",
+  );
 });
 
 test("schedule import history renders the confirming state while a run is in flight", async () => {
   const page = await read("app/schedule-imports/page.tsx");
 
   assert.match(page, /confirming: \{ label: "正在导入", tone: "info" \}/);
+  assert.match(
+    page,
+    /\["partial", "failed", "confirming"\]\.includes\(historyDetail\.import\.status\)/,
+    "a stale confirming task must remain retryable after an interrupted run",
+  );
 });

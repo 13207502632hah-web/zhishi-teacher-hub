@@ -20,9 +20,9 @@ export async function POST(
 
   const importId = Number((await context.params).id);
   const task = await env.DB
-    .prepare("SELECT status,report FROM schedule_imports WHERE id=?")
+    .prepare("SELECT status,report,updated_at AS updatedAt FROM schedule_imports WHERE id=?")
     .bind(importId)
-    .first<{ status: string; report: string | null }>();
+    .first<{ status: string; report: string | null; updatedAt: string | null }>();
   if (!task) {
     return Response.json({ error: "导入任务不存在" }, { status: 404 });
   }
@@ -37,8 +37,8 @@ export async function POST(
     });
   }
   const claim = await env.DB
-    .prepare("UPDATE schedule_imports SET status='confirming',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?")
-    .bind(importId, task.status)
+    .prepare("UPDATE schedule_imports SET status='confirming',updated_at=CURRENT_TIMESTAMP WHERE id=? AND (status IN ('preview','partial','failed') OR (status='confirming' AND datetime(updated_at)<datetime('now','-3 minutes')))")
+    .bind(importId)
     .run();
   if (!Number(claim.meta?.changes || 0)) {
     return Response.json(
