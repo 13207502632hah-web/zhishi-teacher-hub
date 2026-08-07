@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isDenied, requirePermission } from "../../../lib/access";
+import { requireTeacherAdminApi } from "../../../lib/teacher-auth";
 
 const parseJson = (value: string | null, fallback: unknown) => {
   try {
@@ -13,6 +14,8 @@ export async function GET(
   _: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const teacherAdmin = await requireTeacherAdminApi();
+  if (teacherAdmin) return teacherAdmin;
   const access = await requirePermission("lessons:read");
   if (isDenied(access)) return access;
 

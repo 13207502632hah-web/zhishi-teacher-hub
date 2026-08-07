@@ -7,11 +7,14 @@ import {
 } from "../../../../lib/schedule-import-preview";
 import { scheduleImportFinalStatus } from "../../../../lib/schedule-import-status";
 import { validateNormalizedSchedule } from "../../../../lib/schedule-import";
+import { requireTeacherAdminApi } from "../../../../lib/teacher-auth";
 
 export async function POST(
   _: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const teacherAdmin = await requireTeacherAdminApi();
+  if (teacherAdmin) return teacherAdmin;
   const access = await requirePermission("lessons:write");
   if (isDenied(access)) return access;
 
@@ -32,6 +35,16 @@ export async function POST(
       report: parseReport(task.report),
       rows,
     });
+  }
+  const claim = await env.DB
+    .prepare("UPDATE schedule_imports SET status='confirming',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?")
+    .bind(importId, task.status)
+    .run();
+  if (!Number(claim.meta?.changes || 0)) {
+    return Response.json(
+      { error: "该导入正在处理中，请稍后刷新查看结果", retryLater: true },
+      { status: 409 },
+    );
   }
 
   const rows = (await env.DB

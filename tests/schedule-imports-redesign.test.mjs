@@ -251,3 +251,37 @@ test("schedule confirm and page expose retry semantics and parsing progress", as
   assert.match(page, /正在逐行核对现有课时与冲突/);
   assert.match(css, /\.scheduleImportProgressTrack/);
 });
+
+test("schedule import APIs require the teacher-admin session, matching the page layout", async () => {
+  const [listRoute, detailRoute, confirmRoute] = await Promise.all([
+    read("app/api/schedule-imports/route.ts"),
+    read("app/api/schedule-imports/[id]/route.ts"),
+    read("app/api/schedule-imports/[id]/confirm/route.ts"),
+  ]);
+
+  for (const route of [listRoute, detailRoute, confirmRoute]) {
+    assert.match(route, /requireTeacherAdminApi/);
+    assert.match(route, /if \(teacherAdmin\) return teacherAdmin/);
+  }
+});
+
+test("schedule confirmation atomically claims the import before processing rows", async () => {
+  const confirm = await read("app/api/schedule-imports/[id]/confirm/route.ts");
+
+  assert.match(confirm, /SET status='confirming'/);
+  assert.match(confirm, /WHERE id=\? AND status=\?/);
+  assert.match(confirm, /claim\.meta\?\.changes \|\| 0/);
+  assert.match(confirm, /status: 409/);
+  assert.match(confirm, /retryLater: true/);
+  assert.match(
+    confirm,
+    /scheduleImportFinalStatus\(resultRows\)/,
+    "the final status must be recomputed after the claimed run finishes",
+  );
+});
+
+test("schedule import history renders the confirming state while a run is in flight", async () => {
+  const page = await read("app/schedule-imports/page.tsx");
+
+  assert.match(page, /confirming: \{ label: "正在导入", tone: "info" \}/);
+});

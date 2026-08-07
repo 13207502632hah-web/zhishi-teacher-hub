@@ -3,11 +3,13 @@ import ExcelJS from "exceljs";
 import { audit, isDenied, requirePermission } from "../../lib/access";
 import { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } from "../../lib/schedule-import";
 import { inspectScheduleImportRow, loadPreviousScheduleIdentities } from "../../lib/schedule-import-preview";
+import { requireTeacherAdminApi } from "../../lib/teacher-auth";
 import { cellValueToText, readFirstWorksheetCompat } from "../../lib/xlsx-compat";
 
 const sha = async (buffer: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 export async function GET() {
+  const teacherAdmin = await requireTeacherAdminApi(); if (teacherAdmin) return teacherAdmin;
   const access = await requirePermission("lessons:read"); if (isDenied(access)) return access;
   const rows = await env.DB.prepare("SELECT * FROM schedule_imports ORDER BY id DESC LIMIT 30").all();
   return Response.json({
@@ -27,6 +29,7 @@ function parseStoredJson(value: unknown, fallback: unknown) {
 }
 
 export async function POST(request: Request) {
+  const teacherAdmin = await requireTeacherAdminApi(); if (teacherAdmin) return teacherAdmin;
   const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
   const form = await request.formData(), file = form.get("file");
   if (!(file instanceof File)) return Response.json({ error: "请选择课表文件" }, { status: 400 });

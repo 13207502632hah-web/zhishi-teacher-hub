@@ -48,6 +48,14 @@ export async function getTeacherAdminSession() {
   }
 }
 
+export async function requireTeacherAdminApi() {
+  if (await getTeacherAdminSession()) return null;
+  return Response.json(
+    { error: "请先使用教师管理员账号登录", signIn: "/teacher-login" },
+    { status: 401 },
+  );
+}
+
 export async function createTeacherAdminSessionCookie() {
   const secret = env.TEACHER_ADMIN_SESSION_SECRET;
   if (!secret) throw new Error("教师管理员会话密钥尚未配置");

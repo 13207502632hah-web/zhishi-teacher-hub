@@ -123,6 +123,7 @@ const historyStatusMeta: Record<
   { label: string; tone: "success" | "info" | "neutral" | "danger" | "warning" }
 > = {
   preview: { label: "待确认", tone: "info" },
+  confirming: { label: "正在导入", tone: "info" },
   confirmed: { label: "已完成", tone: "success" },
   partial: { label: "部分完成", tone: "warning" },
   failed: { label: "失败", tone: "danger" },
