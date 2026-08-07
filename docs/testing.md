@@ -24,10 +24,15 @@
   断言关键契约与防回归点，例如结算预览令牌、权限检查、导出格式、响应式样式。
 - `login-rate-limit.test.mjs`：断言登录限流只信任 `cf-connecting-ip`，
   不信任 `x-forwarded-for`。
+- `public-resource-discovery.test.mjs`：断言资源 API 的公开 `scope`/`limit`/
+  `summary` 契约、公开首页真实资源预览、资源中心摘要展示，以及门户文档与
+  服务端实现的一致性。
 
 新增源码级校验时沿用现有风格：先 `readFile` 目标文件，再用 `assert.match`
 与 `assert.doesNotMatch` 断言可观察契约。涉及纯函数逻辑的测试可直接
 transpile 后执行 `app/lib/*`。
+
+当前基线：`pnpm test` 277 项全部通过（0 fail / 0 skipped）。
 
 ## 教学闭环端到端
 

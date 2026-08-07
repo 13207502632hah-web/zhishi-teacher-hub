@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { resources } from "../../../db/schema";
 import { audit, can, getAccess, isDenied, requirePermission } from "../../lib/access";
@@ -12,11 +12,18 @@ function isSafeExternalUrl(value: string) {
 }
 
 export async function GET(request: Request) {
-  const q = new URL(request.url).searchParams.get("q") || "";
+  const searchParams = new URL(request.url).searchParams;
+  const q = searchParams.get("q") || "";
+  const scope = searchParams.get("scope") || "all";
+  const rawLimit = Number(searchParams.get("limit"));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 20) : null;
   const access = await getAccess(), search = q ? or(like(resources.title, `%${q}%`), like(resources.tags, `%${q}%`), like(resources.content, `%${q}%`)) : undefined;
-  const visibility = access?.role === "teacher" ? undefined : access && can(access, "resources:private") ? inArray(resources.visibility, ["public", "private"]) : eq(resources.visibility, "public");
-  const rows = await getDb().select().from(resources).where(visibility && search ? and(visibility, search) : visibility || search).orderBy(desc(resources.updatedAt));
-  return Response.json({ resources: rows, canWrite: Boolean(access && can(access, "resources:write")) });
+  const visibility = scope === "public" ? eq(resources.visibility, "public") : access?.role === "teacher" ? undefined : access && can(access, "resources:private") ? inArray(resources.visibility, ["public", "private"]) : eq(resources.visibility, "public");
+  const base = visibility && search ? and(visibility, search) : visibility || search;
+  const rows = limit ? await getDb().select().from(resources).where(base).orderBy(desc(resources.updatedAt)).limit(limit) : await getDb().select().from(resources).where(base).orderBy(desc(resources.updatedAt));
+  const [publicRow] = await getDb().select({ count: sql<number>`count(*)` }).from(resources).where(eq(resources.visibility, "public"));
+  const popularTags = Array.from(rows.filter((row) => row.visibility === "public").flatMap((row) => String(row.tags || "").split(/[,，、]/)).map((tag) => tag.trim()).filter(Boolean).reduce((counts, tag) => counts.set(tag, (counts.get(tag) || 0) + 1), new Map<string, number>()).entries()).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([tag]) => tag);
+  return Response.json({ resources: rows, canWrite: Boolean(access && can(access, "resources:write")), summary: { publicCount: Number(publicRow?.count || 0), popularTags } });
 }
 
 export async function POST(request: Request) {

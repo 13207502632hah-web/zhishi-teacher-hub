@@ -28,6 +28,7 @@ type Resource = {
 type ResourceList = {
   resources: Resource[];
   canWrite: boolean;
+  summary?: { publicCount?: number; popularTags?: string[] };
 };
 
 type ResourceForm = {
@@ -98,6 +99,7 @@ export default function ResourcesPage() {
   const [listStatus, setListStatus] = useState<ListStatus>("loading");
   const [listError, setListError] = useState("");
   const [canWrite, setCanWrite] = useState(false);
+  const [publicSummary, setPublicSummary] = useState<ResourceList["summary"] | null>(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ResourceForm>(makeBlankForm);
   const [formError, setFormError] = useState("");
@@ -130,6 +132,7 @@ export default function ResourcesPage() {
       if (!payload || !Array.isArray(payload.resources)) throw new HttpError(200, "资源中心返回了无法识别的数据");
       setRows(payload.resources);
       setCanWrite(Boolean(payload.canWrite));
+      setPublicSummary(payload.summary || null);
       setListStatus("ready");
     } catch (error) {
       if (isAborted(error, signal)) return;
@@ -317,6 +320,7 @@ export default function ResourcesPage() {
           <h2 id="resource-intro-title">让教学准备更有据可查。</h2>
           <p>这里独立收纳{BRAND_SUBJECT}教学资源、课堂活动和可复用方法。公开内容供访客检索；班级、学生、课时和反馈仍保存在私人教师工作台。</p>
           <div className={styles.heroTags}><span>初中 / 高中</span><span>题库导入</span><span>私密优先</span></div>
+          {publicSummary && <div className={styles.heroTags} aria-label="公开资源摘要"><span>当前公开 {publicSummary.publicCount ?? rows.length} 份</span>{publicSummary.popularTags?.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>}
         </div>
         <div className={styles.shortcutGrid} aria-label="教师工作台入口">
           <Link className={styles.shortcut} href="/workspace"><strong>教师工作台</strong><span>登录后使用 · 管理课时、学生、题库和反馈</span></Link>

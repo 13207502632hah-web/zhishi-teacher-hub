@@ -438,7 +438,7 @@
   color: var(--zs-pine-deep);
 }
 
-.publicHomeResource > div > span {
+.publicHomeResourceIntro > span {
   display: block;
   max-width: 42rem;
   margin-top: 1rem;
@@ -446,7 +446,58 @@
   font-size: 1rem;
 }
 
-.publicHomeResource > a {
+.publicHomeResourceMeta {
+  max-width: 42rem;
+  margin: 1.25rem 0 0;
+  color: var(--zs-pine);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.publicHomeResourcePreview {
+  display: grid;
+  gap: 0.75rem;
+  min-width: min(100%, 26rem);
+}
+
+.publicHomeResourceCard {
+  display: grid;
+  gap: 0.3rem;
+  min-height: 4.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--zs-line);
+  border-left: 0.25rem solid var(--zs-gold);
+  background: var(--zs-surface);
+  color: var(--zs-ink);
+  text-decoration: none;
+}
+
+.publicHomeResourceCard:hover {
+  border-color: var(--zs-pine);
+  border-left-color: var(--zs-pine);
+}
+
+.publicHomeResourceCard span,
+.publicHomeResourceCard small {
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+}
+
+.publicHomeResourceCard b {
+  overflow-wrap: anywhere;
+  color: var(--zs-pine-deep);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.publicHomeResourceEmpty {
+  margin: 0;
+  color: var(--zs-muted);
+  font-size: 0.875rem;
+  line-height: 1.75;
+}
+
+.publicHomeResourceLink {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
@@ -717,6 +768,10 @@
 
   .publicHomeResource {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .publicHomeResourcePreview {
+    min-width: 24rem;
   }
 
   .publicFooter {

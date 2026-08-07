@@ -147,7 +147,21 @@ const teachingLoop = [
   { number: "05", label: "结算", note: "课时依据清晰可查" },
 ];
 
+type PublicResourceItem = Record<string, unknown> & { id: number };
+type PublicResourcePreview = { resources: PublicResourceItem[]; summary?: { publicCount?: number; popularTags?: string[] } };
+
 export default function PublicHome() {
+  const [preview, setPreview] = useState<PublicResourcePreview | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void requestJson<PublicResourcePreview>("/api/resources?scope=public&limit=3", { signal: controller.signal })
+      .then((payload) => setPreview(payload && Array.isArray(payload.resources) ? payload : null))
+      .catch((error) => {
+        if (!controller.signal.aborted && !(error instanceof HttpError)) setPreviewError(true);
+      });
+    return () => controller.abort();
+  }, []);
   return <AppShell title={BRAND_NAME} publicLanding>
     <section className="publicHomeHero">
       <div className="publicHomeHero__copy">
@@ -194,9 +208,17 @@ export default function PublicHome() {
       </div>
     </section>
 
-    <section className="publicHomeResource">
-      <div><p>公开阅览室</p><h2>想先看看？从教学资源开始。</h2><span>公开资源无需登录；课时、学生、反馈和结算只在教师工作台中显示。</span></div>
-      <Link href="/resources">进入公开资源中心 <span aria-hidden="true">↗</span></Link>
+    <section className="publicHomeResource" aria-labelledby="public-resource-title">
+      <div className="publicHomeResourceIntro">
+        <p>公开阅览室</p>
+        <h2 id="public-resource-title">想先看看？从教学资源开始。</h2>
+        <span>公开资源无需登录；课时、学生、反馈和结算只在教师工作台中显示。这里只展示教师主动公开且不含私人信息的资源。</span>
+        {preview && !previewError && <p className="publicHomeResourceMeta">当前公开 {preview.summary?.publicCount ?? preview.resources.length} 份 · 热门标签 {preview.summary?.popularTags?.slice(0, 3).join(" / ") || "暂无"}</p>}
+      </div>
+      <div className="publicHomeResourcePreview">
+        {previewError ? <p className="publicHomeResourceEmpty">资源暂时无法读取；稍后可在公开资源中心直接检索。</p> : preview?.resources?.length ? preview.resources.slice(0, 3).map((item) => <Link className="publicHomeResourceCard" href="/resources" key={item.id}><span>{String(item.type || "资源")}</span><b>{String(item.title || "未命名资源")}</b><small>{String(item.tags || "未设置标签")}</small></Link>) : <p className="publicHomeResourceEmpty">还没有公开资源；教师发布不含私人信息的资源后，访客会在这里看到最近内容。</p>}
+        <Link className="publicHomeResourceLink" href="/resources">进入公开资源中心 <span aria-hidden="true">↗</span></Link>
+      </div>
     </section>
   </AppShell>;
 }
