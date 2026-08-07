@@ -176,9 +176,33 @@ export function enrichQuestionsFromHtml(html: string, input: ImportedQuestion[])
 }
 
 export type ImportSummaryItem = { index: number; number: number; missing?: string[]; confidence?: number };
-export type ImportSummary = { total: number; answered: number; tagged: number; explained: number; incomplete: number; lowConfidence: number; typeCounts: Record<string, number>; incompleteItems: ImportSummaryItem[]; lowConfidenceItems: ImportSummaryItem[] };
+export type NumberingIssue = { index: number; number: number; issue: "duplicate" | "gap" };
+export type ImportSummary = { total: number; answered: number; tagged: number; explained: number; incomplete: number; lowConfidence: number; typeCounts: Record<string, number>; incompleteItems: ImportSummaryItem[]; lowConfidenceItems: ImportSummaryItem[]; numberingIssues: NumberingIssue[] };
 
-export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis" | "importNotes"> & { parseConfidence?: number; sourceQuestionNumber?: number }>): ImportSummary {
+/** 只校验 Word 解析保留的显式题号；缺失题号按断号提示，重复题号单独列出。 */
+export function findNumberingIssues(questions: Array<{ sourceQuestionNumber?: number }>): NumberingIssue[] {
+  const explicit = questions.flatMap((question, index) => {
+    const raw = Number(question.sourceQuestionNumber);
+    return Number.isFinite(raw) && raw > 0 ? [{ index, number: raw }] : [];
+  });
+  if (!explicit.length) return [];
+  const issues: NumberingIssue[] = [];
+  const firstByNumber = new Map<number, number>();
+  for (const item of explicit) {
+    if (firstByNumber.has(item.number)) issues.push({ index: item.index, number: item.number, issue: "duplicate" });
+    else firstByNumber.set(item.number, item.index);
+  }
+  const numbers = [...firstByNumber.keys()].sort((a, b) => a - b);
+  for (let index = 1; index < numbers.length; index += 1) {
+    const previous = numbers[index - 1], current = numbers[index];
+    for (let missing = previous + 1; missing < current; missing += 1) {
+      issues.push({ index: firstByNumber.get(current) ?? 0, number: missing, issue: "gap" });
+    }
+  }
+  return issues;
+}
+
+export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questionType" | "answer" | "knowledgePoints" | "analysis"> & { parseConfidence?: number; sourceQuestionNumber?: number }>): ImportSummary {
   const questionNumber = (question: { sourceQuestionNumber?: number }, index: number) => { const raw = Number(question.sourceQuestionNumber); return Number.isFinite(raw) && raw > 0 ? raw : index + 1; };
   const missingOf = (question: Pick<ImportedQuestion, "answer" | "knowledgePoints" | "analysis">) => [!question.answer && "缺少答案", !question.knowledgePoints && "缺少知识点", !question.analysis && "缺少解析"].filter(Boolean) as string[];
   const typeCounts = questions.reduce<Record<string, number>>((counts, question) => {
@@ -197,5 +221,6 @@ export function summarizeImport(questions: Array<Pick<ImportedQuestion, "questio
     typeCounts,
     incompleteItems,
     lowConfidenceItems,
+    numberingIssues: findNumberingIssues(questions),
   };
 }

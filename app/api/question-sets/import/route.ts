@@ -4,12 +4,12 @@ import { getDb } from "../../../../db";
 import { papers, questions, questionSets } from "../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../lib/access";
 import { questionFingerprint } from "../../../lib/question-fingerprint";
+import { summarizeImport } from "../../../lib/question-import";
 import { questionTextSimilarity } from "../../../lib/question-similarity";
 import { questionValues } from "../../questions/values";
 
 export const QUESTION_SET_IMPORT_LIMIT = 300;
 
-const missingImportFields = (question: Record<string, unknown>) => [!question.answer && "缺少答案", !question.knowledgePoints && "缺少知识点", !question.analysis && "缺少解析"].filter(Boolean) as string[];
 const reportQuestionNumber = (raw: Record<string, unknown> | undefined, index: number) => { const number = Number(raw?.sourceQuestionNumber); return Number.isFinite(number) && number > 0 ? number : index + 1; };
 
 export async function POST(request: Request) {
@@ -38,10 +38,8 @@ export async function POST(request: Request) {
   const comparisonPool = await db.select({ id: questions.id, stem: questions.stem, fingerprint: questions.fingerprint }).from(questions).limit(2000);
   const similarRows = unique.flatMap((question, sourceIndex) => comparisonPool.map((candidate) => ({ sourceIndex, sourceStem: question.stem.slice(0, 180), candidateId: candidate.id, candidateStem: candidate.stem.slice(0, 180), similarity: questionTextSimilarity(question.stem, candidate.stem), exact: candidate.fingerprint === question.fingerprint })).filter((candidate) => !candidate.exact && candidate.similarity >= .82).sort((a, b) => b.similarity - a.similarity).slice(0, 3)).filter((item) => item.similarity >= .82);
   const duplicateReport = { exact: duplicateRows, similar: similarRows };
-  const typeCounts = unique.reduce<Record<string, number>>((counts, question) => { const type = String(question.questionType || "未识别题型"); counts[type] = (counts[type] || 0) + 1; return counts; }, {});
-  const incompleteItems = unique.flatMap((question, index) => { const missing = missingImportFields(question); return missing.length ? [{ index, number: reportQuestionNumber(rawByFingerprint.get(question.fingerprint), index), missing }] : []; });
-  const lowConfidenceItems = unique.flatMap((question, index) => Number(question.parseConfidence ?? 1) < .7 ? [{ index, number: reportQuestionNumber(rawByFingerprint.get(question.fingerprint), index), confidence: Number(question.parseConfidence) }] : []);
-  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: incompleteItems.length, lowConfidence: lowConfidenceItems.length, typeCounts, incompleteItems, lowConfidenceItems };
+  const summary = summarizeImport(unique.map((question) => ({ ...question, sourceQuestionNumber: Number(rawByFingerprint.get(question.fingerprint)?.sourceQuestionNumber) })));
+  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, reviewed: unique.filter((question) => question.reviewed).length, incomplete: summary.incomplete, lowConfidence: summary.lowConfidence, typeCounts: summary.typeCounts, incompleteItems: summary.incompleteItems, lowConfidenceItems: summary.lowConfidenceItems, numberingIssues: summary.numberingIssues };
   const first = unique[0], sourceYear = String(first.year || ""), academicYear = /^20\d{2}-20\d{2}$/.test(sourceYear) ? sourceYear : /^20\d{2}$/.test(sourceYear) ? `${Number(sourceYear) - 1}-${sourceYear}` : "", [paper] = await db.insert(papers).values({ title: String(body.name || "Word 试卷导入"), type: String(first.examType || "完整试卷"), stage: String(first.stage || ""), grade: String(first.grade || ""), textbookVersion: String(first.textbookVersion || ""), year: Number(first.year || 0) || null, academicYear, examCategory: String(first.examType || ""), region: String(first.region || ""), source: String(body.sourceDocument || body.sourceFile || ""), parseStatus: "review", status: "draft" }).returning();
   const [set] = await db.insert(questionSets).values({ paperId: paper.id, name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
   const insertedQuestions = [], storedAssetKeys: string[] = [];
