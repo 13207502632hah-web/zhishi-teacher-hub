@@ -473,6 +473,56 @@ test("schedule import expands a horizontal calendar matrix without inventing emp
   assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
 });
 
+test("schedule import prefers the calendar sheet with WPS short dates and inferred course names", async () => {
+  const { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
+  const detail = [
+    ["序号", "日期", "星期", "时间", "学生/班级", "地点"],
+    [1, "08月10日", "周一", "08:00-10:00", "道法初三S班（陈晓亮）", "晶彩大厦"],
+  ];
+  const calendar = [
+    ["2026年8月课表（图片课程=晶彩大厦；王林威新增=鼎盛大厦）", "2026年8月课表（图片课程=晶彩大厦；王林威新增=鼎盛大厦）"],
+    ["时间段", "08/10", "08/15", "08/17"],
+    [null, "周一", "周六", "周一"],
+    ["08:00-10:00", "道法初三S班（陈晓亮）", "", ""],
+    ["10:00-12:00", "", "张宸瑄", ""],
+    ["15:30-17:30", "", "王林威", "王林威"],
+  ];
+  const selected = selectScheduleTable([detail, calendar], "2026年8月课表_合并王林威 副本.xlsx");
+  assert.equal(selected.calendarRows.length, 4);
+  assert.deepEqual(selected.headers, ["上课日期", "上课时间", "结束时间", "学生姓名", "班级", "课程名称"]);
+  const normalized = selected.calendarRows.map((row) => normalizeScheduleRow(row.raw, selected.mappingDetail.mapping));
+  assert.deepEqual(normalized.map((row) => [row.date, row.startTime, row.endTime]), [
+    ["2026-08-10", "08:00", "10:00"],
+    ["2026-08-15", "10:00", "12:00"],
+    ["2026-08-15", "15:30", "17:30"],
+    ["2026-08-17", "15:30", "17:30"],
+  ]);
+  assert.equal(normalized[0].courseName, "道法");
+  assert.equal(normalized[0].className, "道法初三S班（陈晓亮）");
+  assert.deepEqual(normalized[1].studentNames, ["张宸瑄"]);
+  assert.deepEqual(normalized[2].studentNames, ["王林威"]);
+  assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
+});
+
+test("schedule import still selects a tabular detail sheet without a calendar matrix", async () => {
+  const { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
+  const detail = [
+    ["序号", "日期", "星期", "时间", "学生/班级", "地点"],
+    [1, "08月10日", "周一", "08:00-10:00", "道法初三S班（陈晓亮）", "晶彩大厦"],
+    [2, "08月15日", "周六", "15:30-17:30", "王林威", "鼎盛大厦"],
+  ];
+  const selected = selectScheduleTable([detail], "2026年8月课表.xlsx");
+  assert.equal(selected.calendarRows.length, 0);
+  assert.deepEqual(selected.headers, ["序号", "日期", "星期", "时间", "学生/班级", "地点"]);
+  assert.equal(selected.mappingDetail.mapping.date, "日期");
+  const rows = selected.table.filter((row) => row.some((cell) => String(cell ?? "").trim())).map((cells) => ({ raw: Object.fromEntries(selected.headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""])) }));
+  const normalized = rows.map((row) => normalizeScheduleRow(row.raw, selected.mappingDetail.mapping, "2026年8月课表.xlsx"));
+  assert.equal(normalized.length, 2);
+  assert.equal(normalized[0].courseName, "道法");
+  assert.deepEqual(normalized[1].studentNames, ["王林威"]);
+  assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
+});
+
 test("schedule import accepts WPS-style short dates, time ranges and combined class/student headers", async () => {
   const { detectScheduleMapping, normalizeScheduleRow, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
   const mapping = detectScheduleMapping(["序号", "日期", "星期", "时间", "学生/班级", "地点"]);

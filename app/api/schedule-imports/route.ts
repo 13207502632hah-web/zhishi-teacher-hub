@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import ExcelJS from "exceljs";
 import { audit, isDenied, requirePermission } from "../../lib/access";
-import { detectScheduleMappingDetail, extractCalendarScheduleRows, normalizeScheduleRow, validateNormalizedSchedule } from "../../lib/schedule-import";
+import { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } from "../../lib/schedule-import";
 import { inspectScheduleImportRow, loadPreviousScheduleIdentities } from "../../lib/schedule-import-preview";
 import { cellValueToText, readFirstWorksheetCompat } from "../../lib/xlsx-compat";
 
@@ -35,16 +35,27 @@ export async function POST(request: Request) {
   if (!file.size || file.size > 10 * 1024 * 1024) return Response.json({ error: "课表文件应小于 10MB 且不能为空" }, { status: 413 });
   const buffer = await file.arrayBuffer(), fingerprint = await sha(buffer), duplicate = await env.DB.prepare("SELECT id,status FROM schedule_imports WHERE fingerprint=? ORDER BY id DESC LIMIT 1").bind(fingerprint).first();
   if (duplicate && form.get("allowDuplicate") !== "1") return Response.json({ error: "这份课表已导入过，请确认是否需要重新比较", duplicate }, { status: 409 });
-  let table: unknown[][] = [], usedCompatibilityReader = false;
-  if (ext === "csv") table = String(new TextDecoder().decode(buffer)).split(/\r?\n/).filter(Boolean).map(parseCsvLine);
+  let tables: unknown[][][] = [], usedCompatibilityReader = false;
+  if (ext === "csv") tables = [String(new TextDecoder().decode(buffer)).split(/\r?\n/).filter(Boolean).map(parseCsvLine)];
   else {
-    try { const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never); const sheet = workbook.worksheets[0]; if (sheet) sheet.eachRow({ includeEmpty: true }, (row) => table.push((row.values as unknown[]).slice(1).map(cellValueToText))); }
-    catch { try { table = await readFirstWorksheetCompat(buffer); usedCompatibilityReader = true; } catch { return Response.json({ error: "无法读取这份 XLSX，请确认文件未加密且包含可编辑单元格；如仍失败，请在 WPS 中另存为标准 .xlsx" }, { status: 422 }); } }
+    try {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as never);
+      tables = workbook.worksheets.map((sheet) => {
+        const rows: unknown[][] = [];
+        sheet.eachRow({ includeEmpty: true }, (row) => rows.push((row.values as unknown[]).slice(1).map(cellValueToText)));
+        return rows;
+      });
+    } catch {
+      try { tables = [await readFirstWorksheetCompat(buffer)]; usedCompatibilityReader = true; }
+      catch { return Response.json({ error: "无法读取这份 XLSX，请确认文件未加密且包含可编辑单元格；如仍失败，请在 WPS 中另存为标准 .xlsx" }, { status: 422 }); }
+    }
   }
-  const calendarRows = ext === "xlsx" ? extractCalendarScheduleRows(table, file.name) : [], format = calendarRows.length ? "calendar_matrix" : "tabular";
-  const headers = calendarRows.length ? ["上课日期", "上课时间", "结束时间", "学生姓名", "班级", "课程名称"] : (table.shift() || []).map(String), mappingDetail = detectScheduleMappingDetail(headers), mapping = mappingDetail.mapping;
+  const selected = selectScheduleTable(tables, file.name);
+  const calendarRows = selected.calendarRows, format = calendarRows.length ? "calendar_matrix" : "tabular";
+  const headers = selected.headers, mappingDetail = selected.mappingDetail, mapping = mappingDetail.mapping;
   if (!mapping.date || !mapping.startTime) return Response.json({ error: "未识别到日期或上课时间列，也未识别到横向日历课表；请检查首行表头或日期、时间布局", headers, suggestedMapping: mapping, unknownColumns: mappingDetail.unknownColumns }, { status: 422 });
-  const sourceRows = calendarRows.length ? calendarRows : table.filter((row) => row.some((cell) => String(cell ?? "").trim())).map((cells) => ({ raw: Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""])), sourceCell: "" }));
+  const sourceRows = calendarRows.length ? calendarRows : selected.table.filter((row) => row.some((cell) => String(cell ?? "").trim())).map((cells) => ({ raw: Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""])), sourceCell: "" }));
   const normalized = sourceRows.map((source, index) => { const value = normalizeScheduleRow(source.raw, mapping, file.name); return { rowNumber: index + 2, sourceCell: source.sourceCell, raw: source.raw, value, issues: validateNormalizedSchedule(value) }; });
   const previousByIdentity = await loadPreviousScheduleIdentities(env.DB);
   const rowsWithPreview = await Promise.all(normalized.map(async (row) => ({

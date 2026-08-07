@@ -202,7 +202,7 @@ test("schedule import surfaces unknown columns from API to page", async () => {
     read("app/schedule-imports.css"),
   ]);
 
-  assert.match(route, /detectScheduleMappingDetail/);
+  assert.match(route, /selectScheduleTable/);
   assert.match(route, /unknownColumns: mappingDetail\.unknownColumns/);
   assert.match(page, /未识别列/);
   assert.match(page, /suggestions/);

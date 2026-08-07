@@ -126,7 +126,7 @@ export function normalizeScheduleRow(row: ScheduleRow, mapping: ScheduleMapping,
     else studentNames = studentClass.split(/[、,，;；/]/).map((item) => item.trim()).filter(Boolean);
   }
   return {
-    date, startTime, endTime, studentNames, className, courseName: String(get("courseName") || "政治").trim(), location: String(get("location") || "").trim(), institution: String(get("institution") || "").trim(),
+    date, startTime, endTime, studentNames, className, courseName: String(get("courseName") || inferCourseName([studentClass, className]) || "政治").trim(), location: String(get("location") || "").trim(), institution: String(get("institution") || "").trim(),
     fee: numberOrZero(get("fee")), baseFee: numberOrZero(get("baseFee")), perStudentFee: numberOrZero(get("perStudentFee")), settlementCycle: String(get("settlementCycle") || "").trim(), notes: String(get("notes") || "").trim(),
   };
 }
@@ -140,11 +140,23 @@ export function validateNormalizedSchedule(row: ReturnType<typeof normalizeSched
   return issues;
 }
 
-const calendarDate = (value: unknown) => String(value ?? "").trim().match(/^(?:(20\d{2})年)?(\d{1,2})月(\d{1,2})日$/);
+const calendarDate = (value: unknown) => String(value ?? "").trim().match(/^(?:(20\d{2})[年/])?(\d{1,2})[月/](\d{1,2})日?$/);
 const calendarTime = (value: unknown) => String(value ?? "").trim().match(/^(\d{1,2})(?::(\d{1,2}))?\s*[–—~至-]\s*(\d{1,2})(?::(\d{1,2}))?$/);
 const weekday = /^(?:周|星期)[一二三四五六日天]$/;
 const pad = (value: string | number) => String(value).padStart(2, "0");
 const columnName = (index: number) => { let value = index + 1, output = ""; while (value > 0) { value--; output = String.fromCharCode(65 + value % 26) + output; value = Math.floor(value / 26); } return output; };
+
+const coursePrefixes = ["道德与法治", "道法", "数学", "语文", "英语", "物理", "化学", "生物", "历史", "地理", "政治", "科学", "信息技术", "信息", "音乐", "体育", "美术"];
+
+function inferCourseName(labels: Iterable<unknown>) {
+  for (const label of labels) {
+    const text = String(label ?? "").trim();
+    if (!text) continue;
+    const prefix = coursePrefixes.find((candidate) => text.startsWith(candidate));
+    if (prefix) return prefix;
+  }
+  return "";
+}
 
 export type CalendarScheduleRow = { raw: ScheduleRow; sourceCell: string };
 
@@ -163,7 +175,16 @@ export function extractCalendarScheduleRows(table: unknown[][], sourceName = "")
     }
     if (!dates.size) continue;
     const subjectRow = table[rowIndex + 1] || [];
-    const courseName = subjectRow.map((value) => String(value ?? "").trim()).find((value) => value && !weekday.test(value)) || "政治";
+    const labels: string[] = [];
+    for (let labelRowIndex = rowIndex + 1; labelRowIndex < table.length; labelRowIndex++) {
+      const labelRow = table[labelRowIndex] || [];
+      if (labelRowIndex > rowIndex + 1 && labelRow.filter((value) => calendarDate(value)).length >= 2) break;
+      for (const value of labelRow) {
+        const text = String(value ?? "").trim();
+        if (text && !weekday.test(text) && !calendarDate(text) && !calendarTime(text)) labels.push(text);
+      }
+    }
+    const courseName = subjectRow.map((value) => String(value ?? "").trim()).find((value) => value && !weekday.test(value)) || inferCourseName(labels) || "政治";
     for (let timeRowIndex = rowIndex + 1; timeRowIndex < table.length; timeRowIndex++) {
       const timeRow = table[timeRowIndex] || [];
       if (timeRowIndex > rowIndex + 1 && timeRow.filter((value) => calendarDate(value)).length >= 2) break;
@@ -180,6 +201,33 @@ export function extractCalendarScheduleRows(table: unknown[][], sourceName = "")
     }
   }
   return output;
+}
+
+export type ScheduleTableSelection = {
+  table: unknown[][];
+  calendarRows: CalendarScheduleRow[];
+  headers: string[];
+  mappingDetail: ScheduleMappingDetail;
+};
+
+/** 从多个工作表中选出最像课表的一张：横向周历优先，其次首行可映射的明细表。 */
+export function selectScheduleTable(tables: unknown[][][], sourceName = ""): ScheduleTableSelection {
+  const calendarHeaders = ["上课日期", "上课时间", "结束时间", "学生姓名", "班级", "课程名称"];
+  for (const candidate of tables) {
+    if (!candidate.some((row) => row.some((cell) => String(cell ?? "").trim()))) continue;
+    const calendarRows = extractCalendarScheduleRows(candidate, sourceName);
+    if (calendarRows.length) return { table: candidate, calendarRows, headers: calendarHeaders, mappingDetail: detectScheduleMappingDetail(calendarHeaders) };
+  }
+  for (const candidate of tables) {
+    const table = candidate.slice();
+    const headers = (table.shift() || []).map(String);
+    const mappingDetail = detectScheduleMappingDetail(headers);
+    if (mappingDetail.mapping.date && mappingDetail.mapping.startTime) return { table, calendarRows: [], headers, mappingDetail };
+  }
+  const fallback = tables[0] || [];
+  const table = fallback.slice();
+  const headers = (table.shift() || []).map(String);
+  return { table, calendarRows: [], headers, mappingDetail: detectScheduleMappingDetail(headers) };
 }
 
 function normalizeDate(value: unknown, sourceName = "") {
