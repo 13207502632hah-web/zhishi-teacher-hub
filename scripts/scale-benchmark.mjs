@@ -34,13 +34,25 @@ const { questionTextSimilarity } = loadTsModule("app/lib/question-similarity.ts"
 const OLD_POOL_LIMIT = 2000;
 const IMPORT_REFS = 300;
 
+const EXACT_DUPLICATE = {
+  type: "exact duplicate",
+  ref: "基础题干 8 依法治国基本方略",
+  duplicate: "基础题干 8 依法治国基本方略",
+};
+
 const DUPLICATE_GROUND_TRUTH = [
+  EXACT_DUPLICATE,
   { type: "punctuation-only change", ref: "基础题干 0 材料分析", duplicate: "基础题干 0。材料分析！" },
   { type: "whitespace change", ref: "基础题干 1 坚持人民民主", duplicate: "基础题干 1 坚持  人民民主" },
   { type: "question-number change", ref: "基础题干 2 全过程人民民主三性统一", duplicate: "基础题干 2 全过程人民民主3性统一" },
   { type: "minor wording change", ref: "基础题干 3 人民代表大会制度是根本政治制度", duplicate: "基础题干 3 人民代表大会制度是我国根本政治制度" },
   { type: "moderate paraphrase", ref: "基础题干 4 人民通过选举组成国家权力机关", duplicate: "基础题干 4 人民通过选举组成国家权力机关行使权力" },
   { type: "deliberately hard duplicate", ref: "基础题干 5 全过程人民民主是最广泛最真实最管用的民主", duplicate: "基础题干 5 全过程人民民主是最广泛、最真实、最管用的社会主义民主" },
+  { type: "option formatting/order change", ref: "基础题干 9 以下做法正确的是：A. 依法纳税 B. 依法服兵役 C. 依法受教育", duplicate: "基础题干 9 以下做法正确的是：B. 依法服兵役 A. 依法纳税 C. 依法受教育" },
+  { type: "material/question relation (rephrased question)", ref: "材料：全过程人民民主把民主选举、民主协商、民主决策、民主管理、民主监督贯通起来，是全链条、全方位、全覆盖的民主。问题：为什么必须坚持全过程人民民主？", duplicate: "材料：全过程人民民主把民主选举、民主协商、民主决策、民主管理、民主监督贯通起来，是全链条、全方位、全覆盖的民主。问题：如何理解全过程人民民主的地位和作用？" },
+  { type: "candidate-pool boundary (inside budget)", ref: "边界内 题干 10 近似变体甲", duplicate: "边界内 题干 10 近似变体甲 的表述" },
+  { type: "candidate-pool boundary (outside budget)", ref: "边界外 题干 11 近似变体乙", duplicate: "边界外 题干 11 近似变体乙 的表述" },
+  { type: "database-tail duplicate", ref: "库尾 题干 12 尾部分布副本", duplicate: "库尾 题干 12 尾部分布副本 补充表述" },
 ];
 
 const DUPLICATE_NEGATIVES = [
@@ -154,19 +166,44 @@ function createDatabase(questionCount) {
 }
 
 /**
- * 每个数据集都要放下全部 9 个 planted 行；对于放不下原始跨区位置的
- * 小数据集，把越界位置按同一语义映射到库内唯一位置（1k 全库在预算内，
- * 5k 越界项映射到 1200 之后）。
+ * 每个数据集都要放下全部 planted 行。跨区位置覆盖题库中部与尾部；
+ * candidate-pool boundary 两行分别放在候选池最旧一行（0-based N-2000）和池外
+ * 紧邻一行（0-based N-2001），用于验证预算边界是否诚实生效。N<=2000 时全部
+ * 在预算内，越界位置统一映射到库内唯一位置。
  */
 function groundTruthPositions(questionCount) {
-  const raw = [1201, 2500, 5300, 10500, questionCount - 4, questionCount - 3, questionCount - 2, questionCount - 1, 1200];
-  const unique = [];
-  for (const value of raw) {
-    let position = Math.max(0, Math.min(questionCount - 1, value));
-    while (unique.includes(position)) position = Math.min(questionCount - 1, position - 1);
-    unique.push(position);
-  }
-  return unique;
+  const n = questionCount;
+  const boundaryInside = Math.max(0, n - OLD_POOL_LIMIT);
+  const boundaryOutside = Math.max(0, n - OLD_POOL_LIMIT - 1);
+  // 顺序与 DUPLICATE_GROUND_TRUTH + DUPLICATE_NEGATIVES 一一对应。
+  // 大题库下，除 boundary outside 与两个较旧固定位置外，其余 planted 行都放进
+  // 最新 2000 行的候选池内，保证每个规模的池内正确性证据充分；池外行用于证明
+  // coverage=false 时不会假装全库检测。
+  const raw = [
+    n - 2,                // exact duplicate（库尾、候选池内）
+    Math.floor(n * 0.12), // punctuation-only change（大题库下为池外旧行）
+    Math.floor(n * 0.35), // whitespace change（大题库下为池外旧行）
+    n - 1000,             // question-number change
+    n - 500,              // option formatting/order change
+    n - 250,              // minor wording change
+    n - 120,              // moderate paraphrase
+    n - 30,               // deliberately hard duplicate
+    n - 10,               // material/question relation
+    boundaryInside,     // candidate-pool boundary (inside budget)
+    boundaryOutside,    // candidate-pool boundary (outside budget)
+    n - 3,              // database-tail duplicate
+    n - 40,             // negative: same material + different question
+    n - 50,             // negative: different material + similar question
+  ];
+  const used = new Set();
+  return raw.map((value) => {
+    let position = Math.max(0, Math.min(n - 1, value));
+    while (used.has(position)) {
+      position = position > 0 ? position - 1 : n - 1;
+    }
+    used.add(position);
+    return position;
+  });
 }
 
 function createGroundTruthDatabase(questionCount) {
@@ -205,28 +242,21 @@ function createGroundTruthDatabase(questionCount) {
     position: positions[positives.length + index],
     id: null,
   }));
-  const exact = {
-    type: "exact duplicate",
-    refIndex: positives.length + negatives.length,
-    refStem: "基础题干 8 依法治国基本方略",
-    stem: "基础题干 8 依法治国基本方略",
-    fingerprint: "exact-fp-8",
-    position: positions[positives.length + negatives.length],
-    id: null,
-  };
+  const exact = positives[0];
   const plantedByPosition = new Map();
-  for (const item of [...positives, ...negatives, exact]) plantedByPosition.set(item.position, item);
+  for (const item of [...positives, ...negatives]) plantedByPosition.set(item.position, item);
   for (let index = 0; index < questionCount; index++) {
     const planted = plantedByPosition.get(index);
     if (planted) {
       insert.run(planted.stem, planted.fingerprint, "单选题", "高中", "高一", "active");
     } else {
-      insert.run(`不相关题干 ${index}`, `base-fp-${index}`, "材料题", "小学", "一年级", "active");
+      // 填充行与 planted 行共享宽条件，使候选池必须真实截断到预算上限，
+      // 从而验证池边界与 coverage 语义。
+      insert.run(`不相关题干 ${index}`, `base-fp-${index}`, "单选题", "高中", "高一", "active");
     }
   }
   const findId = (fingerprint) => Number(db.prepare("SELECT id FROM questions WHERE fingerprint=?").get(fingerprint)?.id || 0);
   for (const item of [...positives, ...negatives]) item.id = findId(item.fingerprint);
-  exact.id = findId(exact.fingerprint);
   return { db, positives, negatives, exact };
 }
 
@@ -256,7 +286,6 @@ function buildGroundTruthRefs() {
   const raw = [
     ...DUPLICATE_GROUND_TRUTH.map((item) => ({ stem: item.ref })),
     ...DUPLICATE_NEGATIVES.map((item) => ({ stem: item.ref })),
-    { stem: "基础题干 8 依法治国基本方略" },
   ];
   return candidatesHelper.buildSourceQuestionRefs(raw, (entry, index) => ({
     stem: String(entry.stem || ""),
@@ -336,7 +365,6 @@ async function benchmarkDuplicateMetrics(questionCount) {
 
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
   const truePositiveKeys = new Set(positives.map((pair) => `${pair.refIndex}:${pair.id}`));
-  truePositiveKeys.add(`${exact.refIndex}:${exact.id}`);
   const truePositives = rows.filter((row) => truePositiveKeys.has(`${row.sourceIndex}:${row.candidateId}`));
   const falsePositives = rows.length - truePositives.length;
   const top1ById = new Map();
@@ -349,6 +377,7 @@ async function benchmarkDuplicateMetrics(questionCount) {
   const pairs = positives.map((pair) => ({
     type: pair.type,
     position: pair.position + 1,
+    role: "positive",
     recalled: candidateIds.has(pair.id),
     top1: top1ById.get(pair.refIndex) === pair.id,
     top3: top3ById.get(pair.refIndex)?.has(pair.id) || false,
@@ -356,15 +385,30 @@ async function benchmarkDuplicateMetrics(questionCount) {
   }));
   const negativesReported = negatives.filter((pair) => rows.some((row) => row.sourceIndex === pair.refIndex && row.candidateId === pair.id)).length;
   const recalledCount = pairs.filter((pair) => pair.recalled).length;
-  const exactDetected = Number(db.prepare("SELECT COUNT(*) AS count FROM questions WHERE fingerprint=?").get(exact.fingerprint)?.count || 0) > 0;
+  const inPoolPositiveCount = positives.filter((pair) => candidateIds.has(pair.id)).length;
+  const exactDetected = candidateIds.has(exact.id);
+  const pairsWithDetails = [...pairs, ...negatives.map((pair) => ({
+    type: pair.type,
+    position: pair.position + 1,
+    role: "negative",
+    recalled: candidateIds.has(pair.id),
+    top1: top1ById.get(pair.refIndex) === pair.id,
+    top3: top3ById.get(pair.refIndex)?.has(pair.id) || false,
+    similarityRows: rows.filter((row) => row.sourceIndex === pair.refIndex).length,
+  }))];
 
   const result = {
     dataset: questionCount,
     sqlCount: adapter.sqlCount,
     durationMs: Number(duration.toFixed(2)),
+    comparisons: refs.length * candidates.length,
     coverage,
     positivePairs: positives.length,
     exactPairs: 1,
+    inPoolPositiveCount,
+    inPoolRecall: inPoolPositiveCount
+      ? Number((pairs.filter((pair) => pair.recalled).length / inPoolPositiveCount).toFixed(4))
+      : null,
     exactDetected,
     candidateRecall: Number((recalledCount / positives.length).toFixed(4)),
     top1Recall: Number((pairs.filter((pair) => pair.top1).length / positives.length).toFixed(4)),
@@ -375,7 +419,7 @@ async function benchmarkDuplicateMetrics(questionCount) {
     falsePositives,
     precision: rows.length ? Number((truePositives.length / rows.length).toFixed(4)) : null,
     negativesReported,
-    pairs,
+    pairs: pairsWithDetails,
   };
   db.close();
   return result;
@@ -443,6 +487,31 @@ for (const row of facets) {
 }
 console.log("=== 重复检测指标 ===");
 for (const row of duplicateMetrics) {
-  console.log(`${row.dataset} 题 recall=${row.candidateRecall} precision=${row.precision} top1=${row.top1Recall} top3=${row.top3Recall} exact=${row.exactDetected} fp=${row.falsePositives}/${row.reportedRows} coverage=${row.coverage.compared}/${row.coverage.total}`);
+  console.log(`${row.dataset} 题 recall=${row.candidateRecall} inPool=${row.inPoolPositiveCount}/${row.positivePairs} inPoolRecall=${row.inPoolRecall} precision=${row.precision} top1=${row.top1Recall} top3=${row.top3Recall} exact=${row.exactDetected} fp=${row.falsePositives}/${row.reportedRows} fn=${row.falseNegatives} coverage=${row.coverage.compared}/${row.coverage.total} comparisons=${row.comparisons} latency=${row.durationMs}ms`);
+}
+console.log("\n=== 重复检测完整指标表 ===");
+console.log("scale, ground_truth_count, candidate_hits, top1_hits, top3_hits, false_positive_count, false_negative_count, recall, precision, top1_recall, top3_recall, coverage, candidate_count, comparisons, latency_ms");
+for (const row of duplicateMetrics) {
+  const positiveRows = row.pairs.filter((pair) => pair.role === "positive");
+  const candidateHits = positiveRows.filter((pair) => pair.recalled).length;
+  const top1Hits = positiveRows.filter((pair) => pair.top1).length;
+  const top3Hits = positiveRows.filter((pair) => pair.top3).length;
+  console.log([
+    row.dataset,
+    row.positivePairs,
+    candidateHits,
+    top1Hits,
+    top3Hits,
+    row.falsePositives,
+    row.falseNegatives,
+    row.candidateRecall,
+    row.precision,
+    row.top1Recall,
+    row.top3Recall,
+    `${row.coverage.compared}/${row.coverage.total}`,
+    row.coverage.compared,
+    row.comparisons,
+    row.durationMs,
+  ].join(", "));
 }
 console.log("报告已写入 outputs/scale-benchmark.json");

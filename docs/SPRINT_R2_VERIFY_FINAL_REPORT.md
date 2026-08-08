@@ -1,12 +1,32 @@
 # Sprint R2 Verify Final Report（知师研室，2026-08-08）
 
-## 1. Baseline
+## 1. Version Lineage
 
 ```text
-BASE_SHA: 6d167de
-R1_HEAD:  4ac67f8
-R2_HEAD:  本轮 R2 提交（SHA 以最终汇报与部署记录为准）
-branch:   main
+PRE_R1_BASE_SHA:  6d167de94d1d3121c26780a20fa1c85b3b230e89
+R1_HEAD:          4ac67f828a040d3d94fa5d1d2a511027eee2f2d2
+R2_VERIFY_HEAD:   019d1bed525abb7e32a8a9cb7e6e9486466d537d
+R2_1_HEAD:        ebce07cbfc3068d61dbaf7aada0b042bc7649174
+CURRENT_HEAD:     ebce07cbfc3068d61dbaf7aada0b042bc7649174
+DEPLOYED_SHA:     ebce07cbfc3068d61dbaf7aada0b042bc7649174
+branch:           main
+```
+
+祖先链全部成立（`git merge-base --is-ancestor` 均 exit 0）：
+
+```text
+PRE_R1_BASE_SHA (6d167de)
+  -> R1_HEAD (4ac67f8)
+  -> R2_VERIFY_HEAD (019d1be)
+  -> R2_1_HEAD / CURRENT_HEAD / DEPLOYED_SHA (ebce07c)
+```
+
+`git log --oneline 6d167de..ebce07c`：
+
+```text
+4ac67f8 fix: harden schedule import, question scale, finance idempotency and source access (R1)
+019d1be fix: harden schedule import, question recall, finance idempotency and source access (R2 verify)
+ebce07c docs: record R2.1 production release gate (READY FOR STAGING)
 ```
 
 范围：不新增产品功能；只按 `docs/r1-followup-plan-2026-08-08.md` 闭环 R1 报告暴露的
@@ -16,9 +36,10 @@ branch:   main
 
 ```text
 VERIFIED:      R1-01 R1-02 R1-05 R1-06 R1-07 R1-08
-PARTIAL:       R1-03（存量 lineage） R1-04（有界候选 coverage）
+VERIFIED:      R1-04 correctness（候选池内 recall/top1/top3=1；coverage 语义诚实）
+PARTIAL:       R1-03（存量 lineage） R1-04 performance（latency 未稳定改善）
 NOT_VERIFIED:  线上 Cloudflare Worker CPU（本地 SQLite 可测，线上未测）
-BLOCKED:       生产环境带认证 smoke（Secret 已配置但明文不可读，未执行）
+BLOCKED:       生产环境带认证 smoke（无合法、可读的生产测试凭据）
 最终结论:       READY FOR STAGING
 ```
 
@@ -86,7 +107,7 @@ BLOCKED:       生产环境带认证 smoke（Secret 已配置但明文不可读�
 
 ### R1-04
 
-**最终状态：PARTIAL**
+**最终状态：** correctness VERIFIED，performance PARTIAL。
 
 **旧行为：** comparison pool 只取约 2000 条，`coverage` 使用全表 COUNT，可能让用户误以为“已完成全库近似重复检测”。
 
@@ -102,7 +123,108 @@ BLOCKED:       生产环境带认证 smoke（Secret 已配置但明文不可读�
 
 **测试：** 1k/5k/20k/50k recall、有界候选、coverage 语义。
 
-**验证：** 全部规模 recall=1、precision=0.875、top1/top3=1、exact=true、FP=1/8。**残余：** 题库超过候选预算后不是全库级检测，但 API 显式报告 coverage，不 silent false negative。
+**验证：** 见下方 G1 基准证据。**残余：** 题库超过候选预算后不是全库级检测，但 API 显式报告 coverage，不 silent false negative；performance 未获得稳定数量级改善。
+
+#### R1-04 Benchmark Methodology
+
+脚本：`scripts/scale-benchmark.mjs`，运行 `node scripts/scale-benchmark.mjs`（内存 SQLite，
+写入 `outputs/scale-benchmark.json`；`outputs/` 为 gitignored 产物）。
+
+每个规模植入 12 个 positive duplicate pair + 2 个 negative pair：
+exact、punctuation、whitespace、question-number、option formatting/order、minor wording、
+moderate paraphrase、deliberately hard duplicate、material/question relation、
+candidate-pool boundary（inside / outside）、database-tail；negative 为
+“同材料不同问法”与“不同材料近问法”。
+
+位置设计（0-based）：
+
+- boundary inside = `n - 2000`（`ORDER BY id DESC LIMIT 2000` 候选池最旧一行，1-based 第 `n-1999` 条）
+- boundary outside = `n - 2001`（候选池外紧邻一行，1-based 第 `n-2000` 条）
+- 其余 9 个 positive 与 2 个 negative 放在最新 2000 行内（库尾、`n-1000`、`n-500`、`n-250`、
+  `n-120`、`n-30`、`n-10`、`n-3`、`n-40`、`n-50`）
+- punctuation 与 whitespace 两个 positive 放在 `floor(0.12n)` / `floor(0.35n)` 的较旧位置，
+  仅 1k（coverage complete=true）时在池内，5k 及以上明确在池外
+- 所有位置经唯一化 helper 处理，不重复；1k 时 `n-2000`/`n-2001` 越界并钳制入库内唯一位置
+
+ground-truth bank 所有行共享 `单选题/高中/高一`，候选 WHERE 命中全部行，因此
+coverage denominator = 题库总量（1000/5000/20000/50000）。
+
+公式：
+
+- `ground_truth_count` = 12（positive pairs，含 exact）
+- `candidate_hits` = 进入候选池的 positive pair 数；`recall = candidate_hits / 12`
+- `top1_recall` / `top3_recall` = 相似度报告（按 similarity 排序取 top 3）中 true pair 命中
+  对应 ref 的 positive 占比
+- `false_negative_count` = 12 - candidate_hits
+- `false_positive_count` = 报告行中不属于 planted positive 的行数（固定 1：
+  “同材料不同问法” negative 相似度 0.833 >= 0.82）
+- `precision = true_positive_rows / reported_rows`
+- `coverage.compared` = 实际进入候选池的行数（min(命中行数, 2000)）
+- `coverage.total` = 同一候选 WHERE 的命中行数
+- `coverage.complete` = `compared >= total`；true 表示条件命中集合已全部入池，
+  false 表示预算有界截断
+- `candidate_count` = `coverage.compared`；`comparisons = refs.length * candidate_count`；
+  `latency_ms = durationMs`
+
+#### R1-04 Accuracy
+
+G1 fresh run（2026-08-08）：
+
+| scale | ground_truth_count | candidate_hits | top1_hits | top3_hits | false_positive_count | false_negative_count | recall | precision | top1_recall | top3_recall | coverage | candidate_count | comparisons | latency_ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1k | 12 | 12 | 12 | 12 | 1 | 0 | 1.0 | 0.9231 | 1.0 | 1.0 | 1000/1000 | 1000 | 14000 | 112.99 |
+| 5k | 12 | 9 | 9 | 9 | 1 | 3 | 0.75 | 0.9 | 0.75 | 0.75 | 2000/5000 | 2000 | 28000 | 279.89 |
+| 20k | 12 | 9 | 9 | 9 | 1 | 3 | 0.75 | 0.9 | 0.75 | 0.75 | 2000/20000 | 2000 | 28000 | 276.72 |
+| 50k | 12 | 9 | 9 | 9 | 1 | 3 | 0.75 | 0.9 | 0.75 | 0.75 | 2000/50000 | 2000 | 28000 | 274.92 |
+
+池内正确性：1k 全部 12 个 positive 在池内，recall/top1/top3 = 1.0；5k/20k/50k 各有
+9 个 positive 进入候选池，in-pool recall = 9/9 = 1.0，top1/top3 全部命中。整体 recall
+0.75 的 3 个 miss 全部在池外：boundary outside（紧邻池外）、punctuation 与 whitespace
+两个较旧位置。这些 miss 由 `coverage.complete=false`（2000/5000、2000/20000、2000/50000）
+显式暴露，不是 silent false negative。
+
+唯一 FP 是“同材料不同问法” negative（相似度 0.833 >= 0.82）；“不同材料近问法”
+negative（0.765 < 0.82）正确未报告。exact=true 全规模。
+
+#### R1-04 Performance
+
+相似度候选两阶段（mixed-attribute bank，300 导入 refs）：
+
+| scale | Before (candidates/comparisons) | Before ms | After (candidates/comparisons) | After ms | payload |
+|---|---:|---:|---|---:|---:|
+| 1k | 1000 / 300000 | 1304.88 | 534 / 160200 | 640.93 | 2081B |
+| 5k | 2000 / 600000 | 2956.29 | 2000 / 600000 | 2772.59 | 10001B |
+| 20k | 2000 / 600000 | 3084.49 | 2000 / 600000 | 2905.35 | 12001B |
+| 50k | 2000 / 600000 | 3171.25 | 2000 / 600000 | 2923.25 | 12001B |
+
+1k 约 -51%；5k/20k/50k 约 -3%~-6%，没有数量级改善且跨运行存在波动，因此
+`R1_04_PERFORMANCE = PARTIAL`，不写 “performance fully fixed”。
+
+Facets：1k=5.36ms、5k=25.64ms、20k=94.33ms、50k=243.20ms（各 12 SQL）。
+
+50k 完整行（重复检测）：
+
+```text
+50k total, ground_truth_count=12, candidate_hits=9, top1_hits=9, top3_hits=9,
+false_positive_count=1, false_negative_count=3, recall=0.75, precision=0.9,
+top1_recall=0.75, top3_recall=0.75, coverage=2000/50000 complete=false,
+candidate_count=2000, comparisons=28000, latency_ms=274.92
+```
+
+#### Coverage 语义（2667 / 10667 / 26667 是什么）
+
+相似度基准的 mixed bank（`createDatabase`）中题型/学段/年级混合，候选 WHERE
+（fingerprint / question_type / stage / grade / stem-token OR）只命中部分行：
+
+- 5k bank：命中 2667 行 -> `coverage=2000/2667`
+- 20k bank：命中 10667 行 -> `coverage=2000/10667`
+- 50k bank：命中 26667 行 -> `coverage=2000/26667`
+- 1k bank：命中 534 行 -> `coverage=534/534 complete=true`
+
+因此 2667/10667 是该 synthetic bank 中与导入 refs 至少共享一个宽条件的行集合，
+不是随机数；2000 是候选预算上限。重复检测 ground-truth bank 所有行共享
+`单选题/高中/高一`，同一 WHERE 命中全部行，所以 coverage=2000/5000、2000/20000、
+2000/50000，分母即题库总量。
 
 ### R1-05
 
@@ -217,14 +339,23 @@ BLOCKED:       生产环境带认证 smoke（Secret 已配置但明文不可读�
 | 20k questions | sql=1 candidates=2000 comparisons=600000 2227.17ms payload=8894B top=0 | sql=2 candidates=2000 comparisons=600000 2090.11ms payload=12001B top=1 coverage=2000/10667 complete=false |
 | 50k questions | sql=1 candidates=2000 comparisons=600000 2334.46ms payload=8894B top=0 | sql=2 candidates=2000 comparisons=600000 2145.42ms payload=12001B top=1 coverage=2000/26667 complete=false |
 
-| 重复检测指标 | 1k | 5k | 20k | 50k |
+注：上表为历史记录（R2 期间多次运行之一）；G1 定稿数据以 `R1-04 Performance` 为准。
+
+| 重复检测指标（G1 定稿） | 1k | 5k | 20k | 50k |
 |---|---:|---:|---:|---:|
-| recall | 1.0 | 1.0 | 1.0 | 1.0 |
-| precision | 0.875 | 0.875 | 0.875 | 0.875 |
-| top1 / top3 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| recall | 1.0 | 0.75 | 0.75 | 0.75 |
+| precision | 0.9231 | 0.9 | 0.9 | 0.9 |
+| top1 / top3 | 1.0 / 1.0 | 0.75 / 0.75 | 0.75 / 0.75 | 0.75 / 0.75 |
 | exact detected | true | true | true | true |
-| FP | 1/8 | 1/8 | 1/8 | 1/8 |
-| coverage | 9/9 | 9/9 | 9/9 | 9/9 |
+| FP / reported rows | 1/13 | 1/10 | 1/10 | 1/10 |
+| FN | 0 | 3 | 3 | 3 |
+| coverage | 1000/1000 | 2000/5000 | 2000/20000 | 2000/50000 |
+| candidate_count | 1000 | 2000 | 2000 | 2000 |
+| comparisons | 14000 | 28000 | 28000 | 28000 |
+| latency_ms | 112.99 | 279.89 | 276.72 | 274.92 |
+
+本表为 G1 定稿，替代此前 `recall=1.0 / precision=0.875 / FP=1/8 / coverage=9/9`
+的旧版表；旧表使用旧植入集，口径与 `R1-04 Accuracy` 不一致。
 
 | Facets | 1k | 5k | 20k | 50k |
 |---|---:|---:|---:|---:|
@@ -317,23 +448,26 @@ docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
 
 生产 URL：`https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site`
 
-发布提交：`019d1bed525abb7e32a8a9cb7e6e9486466d537d`
+发布提交：`ebce07cbfc3068d61dbaf7aada0b042bc7649174`
 
-Sites 版本：`appgprj_6a50708fea408191bf864f1778576733~appgver_37e10ead31cc81918544da919b719956`（版本 58）
+Sites 版本：`appgprj_6a50708fea408191bf864f1778576733~appgver_c4a0adbc3e6c8191a2ea8a97a3f022df`（版本 59）
 
-Sites 部署：`appgdep_6a76ac811a2c81918a097b99f2d259e5`（`succeeded`）
+Sites 部署：已成功上线（生产 URL 可访问；部署 ID 见 Sites 控制台）
 
 ### Git lineage
 
 `git merge-base --is-ancestor 4ac67f8 019d1be` exit 0，PASS。
 
-`git log --oneline 4ac67f8..019d1be`：
+`git merge-base --is-ancestor 019d1be ebce07c` exit 0，PASS。
+
+`git log --oneline 4ac67f8..ebce07c`：
 
 ```text
 019d1be fix: harden schedule import, question recall, finance idempotency and source access (R2 verify)
+ebce07c docs: record R2.1 production release gate (READY FOR STAGING)
 ```
 
-R2_VERIFY 全部修改确认建立在 R1 commit `4ac67f8` 之上。
+R2_VERIFY 与 R2.1 全部修改确认建立在 R1 commit `4ac67f8` 之上。
 
 ### 安全凭据调查（BLOCKED 根因）
 
@@ -414,8 +548,31 @@ P0 remaining: 无（代码/测试层面）；发布阻塞项：PRODUCTION_AUTH_S
 P1 remaining: 无
 
 FINAL RELEASE STATUS: READY FOR STAGING
+MANUAL_ACTION_REQUIRED: 请通过正常生产账号管理方式建立一个专用测试教师账号（__PROD_SMOKE_TEACHER__），并安全提供运行时凭据。
 ```
 
 判定依据：Git lineage、公开生产 smoke、本地 typecheck / lint / full tests / build
 全部 PASS；唯一 blocker 为线上带认证 smoke 无法安全取得凭据。按任务规定，不得把
 BLOCKED 伪装成 PASS，不得绕过鉴权，因此不声明 `PRODUCTION READY`。
+
+## G1 Final Output
+
+```text
+R1_04_CORRECTNESS: VERIFIED
+R1_04_PERFORMANCE: PARTIAL
+1K_RECALL: 1
+5K_RECALL: 0.75
+20K_RECALL: 0.75
+50K_RECALL: 0.75
+1K_TOP3_RECALL: 1
+5K_TOP3_RECALL: 0.75
+20K_TOP3_RECALL: 0.75
+50K_TOP3_RECALL: 0.75
+50K_LATENCY: 274.92
+PRODUCTION_LOGIN: BLOCKED
+PRODUCTION_AUTH_SMOKE: BLOCKED
+P0: none
+P1: none
+FINAL RELEASE STATUS: READY FOR STAGING
+MANUAL_ACTION_REQUIRED: 请通过正常生产账号管理方式建立一个专用测试教师账号（__PROD_SMOKE_TEACHER__），并安全提供运行时凭据。
+```
