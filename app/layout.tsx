@@ -6,6 +6,7 @@ import "./globals.css";
 import "./responsive-fixes.css";
 import "./question-bank.css";
 import "./ui-foundations.css";
+import "./class-picker.css";
 import "./workspace-navigation.css";
 import "./public-entry.css";
 import "./dashboard.css";

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { ClassPicker } from "../components/ClassPicker";
 import { EmptyState, MetricCard, Panel, StatusBadge } from "../components/ui/Primitives";
 import { HttpError, requestJson } from "../lib/http-client";
 
@@ -12,7 +13,7 @@ const assignmentTone = (status: string): "neutral" | "success" | "warning" => st
 
 export default function AssignmentsPage() {
   const [rows, setRows] = useState<Row[]>([]), [counts, setCounts] = useState<Record<string, number>>({});
-  const [classes, setClasses] = useState<Row[]>([]), [students, setStudents] = useState<Row[]>([]), [papers, setPapers] = useState<Row[]>([]), [lessons, setLessons] = useState<Row[]>([]);
+  const [students, setStudents] = useState<Row[]>([]), [papers, setPapers] = useState<Row[]>([]), [lessons, setLessons] = useState<Row[]>([]);
   const [status, setStatus] = useState("all"), [classId, setClassId] = useState(""), [searchInput, setSearchInput] = useState(""), [query, setQuery] = useState(""), [lessonFilter, setLessonFilter] = useState(""), [submissionStatus, setSubmissionStatus] = useState("");
   const [open, setOpen] = useState(false), [form, setForm] = useState<any>(emptyForm()), [files, setFiles] = useState<Row[]>([]), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [selected, setSelected] = useState<Row | null>(null), [submissions, setSubmissions] = useState<Row[]>([]), [review, setReview] = useState<any>({ submissionId: 0, outcome: "completed", score: "", reviewTags: [], teacherNote: "", revisionRequirements: "" }), [reviewDirty, setReviewDirty] = useState(false);
@@ -59,15 +60,14 @@ export default function AssignmentsPage() {
     const controller = new AbortController();
     setReferenceLoadError("");
     void Promise.all([
-      requestJson<{ classes?: Row[] }>("/api/classes", { signal: controller.signal }),
       requestJson<{ students?: Row[] }>("/api/students", { signal: controller.signal }),
       requestJson<{ papers?: Row[] }>("/api/papers", { signal: controller.signal }),
       requestJson<{ lessons?: Row[] }>("/api/lessons", { signal: controller.signal }),
-    ]).then(([c, s, p, l]) => {
-      if (!c || !s || !p || !l) throw new HttpError(200, "作业基础选项响应为空");
-      setClasses(c.classes || []); setStudents(s.students || []); setPapers(p.papers || []); setLessons(l.lessons || []);
+    ]).then(([s, p, l]) => {
+      if (!s || !p || !l) throw new HttpError(200, "作业基础选项响应为空");
+      setStudents(s.students || []); setPapers(p.papers || []); setLessons(l.lessons || []);
     }).catch((reason) => {
-      if (!controller.signal.aborted) setReferenceLoadError(reason instanceof HttpError ? reason.message : "暂时无法读取班级、学生、试卷或课时");
+      if (!controller.signal.aborted) setReferenceLoadError(reason instanceof HttpError ? reason.message : "暂时无法读取学生、试卷或课时");
     });
     return () => controller.abort();
   }, [reloadKey]);
@@ -203,7 +203,7 @@ export default function AssignmentsPage() {
       <form className="assignmentToolbar" aria-label="作业筛选" onSubmit={(event) => { event.preventDefault(); setQuery(searchInput.trim()); }}>
         <label className="assignmentSearchField">关键词<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="搜索标题或要求" aria-label="搜索作业" /></label>
         <button className="secondaryButton" type="submit">搜索</button>
-        <label>班级<select value={classId} onChange={(event) => setClassId(event.target.value)} aria-label="按班级筛选"><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <ClassPicker includeAll label="班级" value={classId} onChange={setClassId} />
         <label>作业状态<select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="按状态筛选"><option value="all">全部状态</option><option value="draft">草稿</option><option value="published">已发布</option><option value="closed">已关闭</option></select></label>
         <label>关联课时<select value={lessonFilter} onChange={(event) => setLessonFilter(event.target.value)} aria-label="按课时筛选"><option value="">全部课时</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.topic || item.courseName}</option>)}</select></label>
         <label>提交状态<select value={submissionStatus} onChange={(event) => setSubmissionStatus(event.target.value)} aria-label="按提交状态筛选"><option value="">全部提交状态</option><option value="pending">待完成、订正或批改</option><option value="submitted">待批改</option><option value="revision">待订正</option><option value="completed">已完成</option></select></label>
@@ -217,7 +217,7 @@ export default function AssignmentsPage() {
     </article>)}</div></Panel>
 
     {open && <div className="modalBackdrop assignmentModalBackdrop"><div ref={dialogRef} tabIndex={-1} className="lessonModal assignmentModal" role="dialog" aria-modal="true" aria-labelledby="assignment-title"><div className="modalTitle"><div><p>网站与小程序共用</p><h2 id="assignment-title">新建作业</h2></div><button aria-label="关闭" disabled={busy} onClick={dismissCreate}>×</button></div>
-      <div className="formGrid"><label className="wide">标题<input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="如：九年级法治专题整卷训练" /></label><label>班级<select value={form.classId} onChange={(event) => setForm({ ...form, classId: event.target.value, studentIds: [] })}><option value="">不按整班布置</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>截止时间<input type="datetime-local" value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></label><label>关联课时<select value={form.lessonId} onChange={(event) => setForm({ ...form, lessonId: event.target.value })}><option value="">暂不关联</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.topic || item.courseName}</option>)}</select></label><label>整张试卷<select value={form.paperId} onChange={(event) => setForm({ ...form, paperId: event.target.value })}><option value="">不关联试卷</option>{papers.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+      <div className="formGrid"><label className="wide">标题<input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="如：九年级法治专题整卷训练" /></label><ClassPicker value={form.classId} onChange={(value) => setForm({ ...form, classId: value, studentIds: [] })} placeholder="不按整班布置" /><label>截止时间<input type="datetime-local" value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></label><label>关联课时<select value={form.lessonId} onChange={(event) => setForm({ ...form, lessonId: event.target.value })}><option value="">暂不关联</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.topic || item.courseName}</option>)}</select></label><label>整张试卷<select value={form.paperId} onChange={(event) => setForm({ ...form, paperId: event.target.value })}><option value="">不关联试卷</option>{papers.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         <label className="wide">指定学生（选择后只发给所选学生）<select multiple value={form.studentIds.map(String)} onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => Number(option.value)) })}>{classStudents.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.grade || "年级待补"}</option>)}</select></label>
         <label className="wide">作业要求<textarea value={form.requirements} onChange={(event) => setForm({ ...form, requirements: event.target.value })} placeholder="明确完成范围、拍照要求、订正方式和截止时间" /></label><label className="wide">本地附件<input type="file" multiple accept="image/*,audio/*,video/mp4,.pdf,.docx" onChange={(event) => uploadFiles(event.target.files)} />{files.length > 0 && <small>已暂存：{files.map((item) => item.name).join("、")}</small>}</label><label className="checkLabel"><input type="checkbox" checked={form.allowParentSubmit} onChange={(event) => setForm({ ...form, allowParentSubmit: event.target.checked })} />允许家长代交</label><label className="checkLabel"><input type="checkbox" checked={form.requireRevision} onChange={(event) => setForm({ ...form, requireRevision: event.target.checked })} />需要保留订正版</label></div>
       <div className="modalActions"><button className="secondaryButton" disabled={busy} onClick={() => save(false)}>保存草稿</button><button className="primaryButton" disabled={busy || !form.title || (!form.classId && !form.studentIds.length)} onClick={() => save(true)}>确认接收对象并发布</button></div>

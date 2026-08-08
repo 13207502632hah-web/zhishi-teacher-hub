@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "../../components/AppShell";
+import { ClassPicker } from "../../components/ClassPicker";
 import {
   Button,
   EmptyState,
@@ -106,7 +107,6 @@ export default function PaperDetail() {
   const [exporting, setExporting] = useState("");
   const [actionBusy, setActionBusy] = useState("");
   const [files, setFiles] = useState<Row[]>([]);
-  const [classes, setClasses] = useState<Row[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignment, setAssignment] = useState(defaultAssignment);
   const [aiReview, setAiReview] = useState<PaperReview | null>(null);
@@ -129,7 +129,6 @@ export default function PaperDetail() {
     const requests = await Promise.allSettled([
       requestJson<PaperData>(`/api/papers/${id}`, { signal }),
       requestJson<{ files?: Row[] }>(`/api/papers/${id}/files`, { signal }),
-      requestJson<{ classes?: Row[] }>("/api/classes", { signal }),
     ]);
     if (signal?.aborted) return;
     try {
@@ -145,13 +144,6 @@ export default function PaperDetail() {
       } else {
         setFiles([]);
         auxiliaryErrors.push("原始文件");
-      }
-      const classResult = requests[2];
-      if (classResult.status === "fulfilled" && classResult.value) {
-        setClasses(classResult.value.classes || []);
-      } else {
-        setClasses([]);
-        auxiliaryErrors.push("班级选项");
       }
       if (auxiliaryErrors.length) {
         setReferenceError(`${auxiliaryErrors.join("和")}暂时无法读取，试卷正文仍可查看。`);
@@ -692,13 +684,7 @@ export default function PaperDetail() {
               <button aria-label="关闭" disabled={Boolean(actionBusy)} onClick={dismissAssignment}>×</button>
             </div>
             <div className="paperAssignmentForm">
-              <label>
-                班级
-                <select value={assignment.classId} onChange={(event) => setAssignment({ ...assignment, classId: event.target.value })}>
-                  <option value="">请选择班级</option>
-                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+              <ClassPicker value={assignment.classId} onChange={(value) => setAssignment({ ...assignment, classId: value })} placeholder="选择接收班级" />
               <label>
                 预计提交时间
                 <input type="datetime-local" value={assignment.dueAt} onChange={(event) => setAssignment({ ...assignment, dueAt: event.target.value })} />

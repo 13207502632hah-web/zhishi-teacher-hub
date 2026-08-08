@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/app/components/HardNavigationLink";
 import { AppShell } from "../components/AppShell";
+import { ClassPicker } from "../components/ClassPicker";
 import { EmptyState, MetricCard, Panel, StatusBadge } from "../components/ui/Primitives";
 import { generateFeedback } from "../lib/feedback-generator";
 import { HttpError, requestJson } from "../lib/http-client";
@@ -38,9 +39,9 @@ function feedbackText(form: Record<string, any>) {
 
 export default function FeedbackPage() {
   const [rows, setRows] = useState<Row[]>([]);
+  const [classNames, setClassNames] = useState<Record<number, string>>({});
   const [lessons, setLessons] = useState<Row[]>([]);
   const [students, setStudents] = useState<Row[]>([]);
-  const [classes, setClasses] = useState<Row[]>([]);
   const [form, setForm] = useState<any>(blank());
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
@@ -74,16 +75,15 @@ export default function FeedbackPage() {
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setFeedbackLoadError("");
     try {
-      const [f, l, s, c, t, aiDrafts] = await Promise.all([
+      const [f, l, s, t, aiDrafts] = await Promise.all([
         requestJson<{ feedback?: Row[] }>(`/api/feedback?${new URLSearchParams({ type: filter, status: statusFilter, lessonId: lessonFilter, studentId: studentFilter })}`, { signal }),
         requestJson<{ lessons?: Row[] }>("/api/lessons", { signal }),
         requestJson<{ students?: Row[] }>("/api/students", { signal }),
-        requestJson<{ classes?: Row[] }>("/api/classes", { signal }),
         requestJson<{ templates?: Row[] }>("/api/feedback/templates", { signal }),
         requestJson<{ drafts?: Row[] }>("/api/ai/feedback-drafts", { cache: "no-store", signal }),
       ]);
-      if (!f || !l || !s || !c || !t || !aiDrafts) throw new HttpError(200, "反馈中心响应不完整，请重试");
-      setRows(f.feedback || []); setLessons(l.lessons || []); setStudents(s.students || []); setClasses(c.classes || []); setTemplates(t.templates || []); setPendingAiDrafts(aiDrafts.drafts || []);
+      if (!f || !l || !s || !t || !aiDrafts) throw new HttpError(200, "反馈中心响应不完整，请重试");
+      setRows(f.feedback || []); setLessons(l.lessons || []); setStudents(s.students || []); setTemplates(t.templates || []); setPendingAiDrafts(aiDrafts.drafts || []);
     } catch (reason) {
       if (!signal?.aborted) setFeedbackLoadError(errorMessage(reason, "暂时无法读取反馈中心"));
     } finally {
@@ -95,6 +95,22 @@ export default function FeedbackPage() {
     busyRef.current = busy; formDirtyRef.current = formDirty;
   }, [busy, formDirty]);
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load, reloadKey]);
+  useEffect(() => {
+    const classIds = Array.from(new Set(rows.map((item) => Number(item.classId)).filter(Boolean))).slice(0, 200);
+    if (!classIds.length) {
+      setClassNames({});
+      return;
+    }
+    const controller = new AbortController();
+    void requestJson<{ classes?: Row[] }>(`/api/classes/options?ids=${classIds.join(",")}`, { signal: controller.signal })
+      .then((data) => {
+        setClassNames(Object.fromEntries((data?.classes || []).map((item) => [Number(item.id), String(item.name)])));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setClassNames({});
+      });
+    return () => controller.abort();
+  }, [rows]);
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams(location.search), lesson = params.get("lesson"), student = params.get("student"), requestedType = params.get("type"); setFilter(requestedType === "lesson" || requestedType === "stage" ? requestedType : ""); setStatusFilter(params.get("status") || ""); setLessonFilter(params.get("lessonId") || ""); setStudentFilter(params.get("studentId") || "");
@@ -312,7 +328,7 @@ export default function FeedbackPage() {
     <Panel className="feedbackListPanel" eyebrow="确认与送达" title="反馈记录" description={`当前显示 ${rows.length} 条反馈`}>
     <div className="feedbackGrid">{rows.length === 0 ? <EmptyState title="还没有反馈" description="可从已完成课时生成草稿，或手动建立阶段反馈。系统不会自动向家长发送消息。" action={<button className="secondaryButton" disabled={busy} onClick={() => openFeedback(blank())}>建立第一条反馈</button>} /> : rows.map((item) => <article className="feedbackCard" key={item.id}>
       <div><span>{item.type === "lesson" ? item.audience === "group" ? "家长群版" : "微信私聊版" : "阶段"}</span><StatusBadge tone={feedbackTone(item)}>{item.sentAt ? "已发送" : item.copiedAt ? "已复制" : item.status === "confirmed" ? "已确认" : "草稿"}</StatusBadge></div>
-      <h3>{item.studentId ? students.find((s) => s.id === item.studentId)?.name || "学生反馈" : item.classId ? classes.find((c) => c.id === item.classId)?.name || "班级反馈" : "通用反馈"}</h3>
+      <h3>{item.studentId ? students.find((s) => s.id === item.studentId)?.name || "学生反馈" : item.classId ? classNames[Number(item.classId)] || "班级反馈" : "通用反馈"}</h3>
       <pre>{String(item.content || feedbackText(item)).slice(0, 280)}</pre>{item.evidence?.length ? <div className="feedbackEvidence"><b>证据来源</b>{item.evidence.map((evidence: Record<string, any>, index: number) => <span key={`${evidence.sourceType}-${index}`}>{evidence.sourceDate || "日期待补"} · {evidence.label}{evidence.excerpt ? `：${String(evidence.excerpt).slice(0, 90)}` : ""}</span>)}</div> : <div className="feedbackEvidence empty">未关联证据来源</div>}
       <small>创建：{String(item.createdAt || "").slice(0, 16)}　修改：{String(item.updatedAt || "").slice(0, 16)}{item.sentAt ? "　已标记发送" : ""}</small>
       <div className="cardActions"><button disabled={busy} onClick={() => edit(item)}>编辑</button>{item.status === "confirmed" && <><button disabled={busy} onClick={() => copyAsTemplate(item)}>用作模板</button><button disabled={busy} onClick={() => copy(item, "short")}>复制简短版</button><button disabled={busy} onClick={() => copy(item, "standard")}>复制标准版</button><button disabled={busy || Boolean(item.sentAt)} onClick={() => markSent(item.id)}>{item.sentAt ? "已标记发送" : "标记已发送"}</button><button disabled={busy} onClick={() => print(item.id)}>打印</button></>}<button className="dangerButton" disabled={busy} onClick={() => remove(item.id)}>删除</button></div>
@@ -329,7 +345,7 @@ export default function FeedbackPage() {
         <label>语气<select value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })}><option>专业简洁</option><option>温和鼓励</option><option>重点提醒</option></select></label>
         <label>关联课时<select disabled={form.aiGenerated} value={form.lessonId} onChange={(e) => { const lesson = lessons.find((x) => x.id === Number(e.target.value)); setForm({ ...form, lessonId: e.target.value, classId: String(lesson?.classId || form.classId), learningContent: lesson?.actualContent || lesson?.topic || form.learningContent, homeworkRequirements: lesson?.homework || form.homeworkRequirements, nextFocus: lesson?.nextPlan || form.nextFocus, aiPreviewKey: "", aiSentFields: [] }); }}><option value="">暂不关联</option>{lessons.map((x) => <option key={x.id} value={x.id}>{x.date} · {x.topic || x.courseName}</option>)}</select></label>
         <label>学生<select disabled={form.aiGenerated} value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value, aiPreviewKey: "", aiSentFields: [] })}><option value="">班级整体</option>{students.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-        <label>班级<select value={form.classId} onChange={(e) => setForm({ ...form, classId: e.target.value })}><option value="">暂不关联</option>{classes.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+        <ClassPicker value={form.classId} onChange={(value) => setForm({ ...form, classId: value })} placeholder="暂不关联" />
         {form.type === "lesson" ? <>
           <label>上次作业完成情况<textarea value={form.previousHomework} onChange={(e) => setForm({ ...form, previousHomework: e.target.value })} placeholder="如：按时完成，订正认真" /></label>
           <label>课堂表现<textarea value={form.classPerformance} onChange={(e) => setForm({ ...form, classPerformance: e.target.value })} placeholder="如：听课投入，回答积极" /></label>

@@ -95,6 +95,46 @@
   color: #fff;
 }
 
+.classOverviewSearch {
+  align-items: end;
+  background: var(--zs-surface);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  margin-bottom: 1rem;
+  padding: 0.875rem;
+}
+
+.classOverviewSearch label {
+  align-items: center;
+  color: var(--zs-muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+  font-weight: 720;
+  line-height: 1.4;
+  min-height: 44px;
+}
+
+.classOverviewSearch input {
+  background: var(--zs-paper);
+  border: 1px solid var(--zs-line);
+  border-radius: var(--zs-radius-sm);
+  color: var(--zs-ink);
+  flex: 1 1 14rem;
+  font: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  min-width: 10rem;
+  padding: 0.625rem 0.75rem;
+}
+
+.classOverviewSearch .zs-button {
+  min-height: 44px;
+}
+
 .classOverviewMetrics {
   display: grid;
   gap: 0.75rem;
@@ -104,6 +144,34 @@
 
 .classOverviewPanel {
   min-width: 0;
+}
+
+.classOverviewPagination {
+  align-items: center;
+  border-top: 1px solid var(--zs-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-top: 1.25rem;
+  min-height: 3.5rem;
+  padding-top: 1rem;
+}
+
+.classOverviewPagination > span {
+  color: var(--zs-muted);
+  font-size: 0.9375rem;
+  min-height: 2.75rem;
+}
+
+.classOverviewPagination > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.classOverviewPagination .zs-button {
+  min-height: 44px;
 }
 
 .classOverviewGrid {
@@ -291,6 +359,10 @@
 @media (min-width: 40rem) {
   .classRosterRail {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .classOverviewSearch input {
+    flex: 1 1 16rem;
   }
 
   .classOverviewMetrics {

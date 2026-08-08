@@ -165,10 +165,38 @@ test("knowledge filter supports multiple AND tokens without LIKE wildcards", asy
 });
 
 test("lesson closure persists attendance, performance, homework, feedback and review finance", async () => {
-  const [activity, detail, dashboard, classDetail, students] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx")]);
+  const [activity, detail, dashboard, classDetail, students, classPicker] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx"),read("app/components/ClassPicker.tsx")]);
   assert.match(activity,/studentRecord/); assert.match(activity,/saveDraft/); assert.match(activity,/validateLessonCompletion/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/); assert.match(activity,/lesson_finance/); assert.match(activity,/status!='review'|status !== "review"/);
   for (const label of ["学生出勤与课堂表现","单独保存作业草稿","单独保存反馈","教师确认关注","保存草稿","一键完成本节课","待核对"]) assert.match(detail,new RegExp(label));
-  assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(dashboard,/pendingFinance/); assert.match(classDetail,/平均出勤/); assert.match(students,/全部班级/);
+  assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(dashboard,/pendingFinance/); assert.match(classDetail,/平均出勤/); assert.match(students,/ClassPicker/); assert.match(classPicker,/全部班级/);
+});
+
+test("class pickers use the bounded options endpoint instead of full class lists", async () => {
+  const [picker, css, overview, lessons, students, reflections, assessments, assignments, feedback, paperDetail] = await Promise.all([
+    "app/components/ClassPicker.tsx",
+    "app/class-picker.css",
+    "app/classes/page.tsx",
+    "app/lessons/page.tsx",
+    "app/students/page.tsx",
+    "app/reflections/page.tsx",
+    "app/assessments/page.tsx",
+    "app/assignments/page.tsx",
+    "app/feedback/page.tsx",
+    "app/papers/[id]/page.tsx",
+  ].map(read));
+  assert.match(picker, /api\/classes\/options/);
+  assert.match(picker, /params\.set\("limit", "50"\)/);
+  assert.match(picker, /params\.set\("q"/);
+  assert.match(picker, /params\.set\("ids"/);
+  assert.match(picker, /includeAll/);
+  assert.match(picker, /全部班级/);
+  assert.match(css, /class-picker__listbox/);
+  for (const page of [lessons, students, reflections, assessments, assignments, feedback, paperDetail]) {
+    assert.match(page, /ClassPicker/);
+    assert.doesNotMatch(page, /\/api\/classes(?!\/options)/);
+  }
+  assert.match(overview, /\/api\/classes\?/);
+  assert.match(overview, /pageCount/);
 });
 
 test("daily cockpit milestones stay connected to durable, evidence-backed APIs", async () => {
@@ -220,11 +248,12 @@ test("stage two covers political question review, paper drafting and lesson link
 });
 
 test("stage three uses real records for feedback, reflection and analytics", async () => {
-  const [schema, feedbackPage, feedbackSummary, reflectionPage, reflectionApi, analyticsPage, analyticsApi, resourcePage] = await Promise.all([read("db/schema.ts"),read("app/feedback/page.tsx"),read("app/api/feedback/summary/route.ts"),read("app/reflections/page.tsx"),read("app/api/reflections/route.ts"),read("app/analytics/page.tsx"),read("app/api/analytics/route.ts"),read("app/resources/page.tsx")]);
+  const [schema, feedbackPage, feedbackSummary, reflectionPage, reflectionApi, analyticsPage, analyticsApi, resourcePage, classPicker] = await Promise.all([read("db/schema.ts"),read("app/feedback/page.tsx"),read("app/api/feedback/summary/route.ts"),read("app/reflections/page.tsx"),read("app/api/reflections/route.ts"),read("app/analytics/page.tsx"),read("app/api/analytics/route.ts"),read("app/resources/page.tsx"),read("app/components/ClassPicker.tsx")]);
   for (const field of ["learningContent","periodStart","periodSummary","problemType","actionCompleted","sourceRef"]) assert.match(schema,new RegExp(field));
   for (const label of ["单节课反馈","阶段反馈","专业简洁","温和鼓励","重点提醒","汇总真实课时、出勤、作业与测验","尚未发送"]) assert.match(feedbackPage,new RegExp(label));
   for (const table of ["lessons","attendance","assignment_submissions","assessment_results","student_lesson_records"]) assert.match(feedbackSummary,new RegExp(table));
-  for (const label of ["全文搜索","全部班级","全部问题类型","日历","沉淀为策略","完整内容默认私密"]) assert.match(reflectionPage,new RegExp(label));
+  for (const label of ["全文搜索","全部问题类型","日历","沉淀为策略","完整内容默认私密"]) assert.match(reflectionPage,new RegExp(label));
+  assert.match(reflectionPage, /ClassPicker/); assert.match(classPicker, /全部班级/);
   assert.match(reflectionApi,/lessonTopic/); assert.match(reflectionApi,/className/);
   for (const label of ["周","月","学期","口径说明","数据不足","反馈及时率","知识点覆盖率","常用题目"]) assert.match(analyticsPage,new RegExp(label));
   assert.match(analyticsApi,/julianday/); assert.match(analyticsApi,/f\.status='confirmed'/); assert.match(analyticsApi,/use_count/); assert.match(resourcePage,/这里不会填充虚构资源/);

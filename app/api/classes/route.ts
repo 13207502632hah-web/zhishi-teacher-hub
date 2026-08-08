@@ -7,14 +7,29 @@ const value = (input: unknown) => String(input || "").trim();
 
 export async function GET(request: Request) {
   const access = await requirePermission("classes:read"); if (isDenied(access)) return access;
-  const selected = new URL(request.url).searchParams.get("status") || "active", statuses = selected === "all" ? [] : [selected === "archived" ? "archived" : "active"];
+  const params = new URL(request.url).searchParams;
+  const selected = params.get("status") || "active", statuses = selected === "all" ? [] : [selected === "archived" ? "archived" : "active"];
+  const q = value(params.get("q"));
+  const requestedPage = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
+  const requestedPageSize = Math.min(200, Math.max(1, Number.parseInt(params.get("pageSize") || "50", 10) || 50));
   const where: string[] = [], bind: unknown[] = [];
   if (access.role === "teacher") { where.push("(c.owner_id IS NULL OR c.owner_id=?)"); bind.push(access.id); }
   if (access.role === "assistant") { where.push("EXISTS (SELECT 1 FROM staff_class_access sca WHERE sca.class_id=c.id AND sca.user_id=?)"); bind.push(access.id); }
   if (statuses.length) { where.push("c.status=?"); bind.push(statuses[0]); }
-  const sql = `SELECT c.id,c.owner_id AS ownerId,c.name,c.stage,c.grade,c.course_type AS courseType,c.start_date AS startDate,c.schedule,c.notes,c.status,c.created_at AS createdAt,c.updated_at AS updatedAt, (SELECT COUNT(*) FROM enrollments e WHERE e.class_id=c.id AND e.status='active') AS studentCount, (SELECT COUNT(*) FROM lessons l WHERE l.class_id=c.id) AS lessonCount, (SELECT COUNT(DISTINCT slr.student_id) FROM student_lesson_records slr JOIN lessons l ON l.id=slr.lesson_id WHERE l.class_id=c.id AND slr.risk_confirmed=1) AS riskCount FROM classes c ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY CASE c.status WHEN 'active' THEN 0 ELSE 1 END,c.updated_at DESC`;
-  const rows = await env.DB.prepare(sql).bind(...bind).all();
-  return Response.json({ classes: rows.results });
+  if (q) {
+    where.push("(c.name LIKE ? OR c.stage LIKE ? OR c.grade LIKE ?)");
+    const like = `%${q}%`;
+    bind.push(like, like, like);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const countRow = await env.DB.prepare(`SELECT COUNT(*) AS total FROM classes c ${whereSql}`).bind(...bind).first<{ total: number }>();
+  const total = Number(countRow?.total || 0);
+  const pageCount = Math.max(1, Math.ceil(total / requestedPageSize));
+  const page = Math.min(requestedPage, pageCount);
+  const offset = (page - 1) * requestedPageSize;
+  const sql = `SELECT c.id,c.owner_id AS ownerId,c.name,c.stage,c.grade,c.course_type AS courseType,c.start_date AS startDate,c.schedule,c.notes,c.status,c.created_at AS createdAt,c.updated_at AS updatedAt, (SELECT COUNT(*) FROM enrollments e WHERE e.class_id=c.id AND e.status='active') AS studentCount, (SELECT COUNT(*) FROM lessons l WHERE l.class_id=c.id) AS lessonCount, (SELECT COUNT(DISTINCT slr.student_id) FROM student_lesson_records slr JOIN lessons l ON l.id=slr.lesson_id WHERE l.class_id=c.id AND slr.risk_confirmed=1) AS riskCount FROM classes c ${whereSql} ORDER BY CASE c.status WHEN 'active' THEN 0 ELSE 1 END,c.updated_at DESC LIMIT ? OFFSET ?`;
+  const rows = await env.DB.prepare(sql).bind(...bind, requestedPageSize, offset).all();
+  return Response.json({ classes: rows.results, total, page, pageSize: requestedPageSize, pageCount });
 }
 
 export async function POST(request: Request) {

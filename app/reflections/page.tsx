@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { AppShell, EmptyState } from "../components/AppShell";
+import { ClassPicker } from "../components/ClassPicker";
 import { HttpError, requestJson } from "../lib/http-client";
 import styles from "./reflections.module.css";
 
@@ -34,7 +35,6 @@ type ReflectionRow = {
 };
 
 type LessonRow = { id: number; date: string; topic?: string | null; courseName?: string | null };
-type ClassRow = { id: number; name: string };
 
 type ReflectionForm = {
   lessonId: string;
@@ -150,7 +150,6 @@ const toAiDraft = (value: unknown): AiDraft | null => {
 export default function ReflectionsPage() {
   const [rows, setRows] = useState<ReflectionRow[]>([]);
   const [lessons, setLessons] = useState<LessonRow[]>([]);
-  const [classes, setClasses] = useState<ClassRow[]>([]);
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
   const [month, setMonth] = useState("");
@@ -191,15 +190,13 @@ export default function ReflectionsPage() {
     setReflectionLoadError("");
     try {
       const query = new URLSearchParams({ q, tag, month, topic, problemType, classId });
-      const [reflectionData, lessonData, classData] = await Promise.all([
+      const [reflectionData, lessonData] = await Promise.all([
         requestJson<{ reflections?: ReflectionRow[] }>(`/api/reflections?${query.toString()}`, { signal }),
         requestJson<{ lessons?: LessonRow[] }>("/api/lessons", { signal }),
-        requestJson<{ classes?: ClassRow[] }>("/api/classes", { signal }),
       ]);
-      if (!reflectionData || !lessonData || !classData) throw new HttpError(200, "反思或关联数据为空，请重试");
+      if (!reflectionData || !lessonData) throw new HttpError(200, "反思或关联数据为空，请重试");
       setRows(reflectionData.reflections || []);
       setLessons(lessonData.lessons || []);
-      setClasses(classData.classes || []);
     } catch (reason) {
       if (!signal?.aborted) setReflectionLoadError(errorMessage(reason, "暂时无法读取教学反思，请稍后重试"));
     } finally {
@@ -511,7 +508,7 @@ export default function ReflectionsPage() {
             <label>全文搜索<input value={q} onChange={(event) => setQ(event.target.value)} placeholder="做法、困难、证据或改进动作" /></label>
             <label>主题标签<input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="如：材料分析" /></label>
             <label>课题<input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="按真实课时课题筛选" /></label>
-            <label>班级<select value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">全部班级</option>{classes.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+            <ClassPicker includeAll label="班级" value={classId} onChange={setClassId} />
             <label>问题类型<select value={problemType} onChange={(event) => setProblemType(event.target.value)}><option value="">全部问题类型</option>{problemTypes.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
             <label>月份<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
             <button className={styles.filterButton} type="submit">应用筛选</button>

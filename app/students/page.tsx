@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { AppShell } from "../components/AppShell";
+import { ClassPicker } from "../components/ClassPicker";
 import { useSessionState } from "../components/SessionProvider";
 import {
   Button,
@@ -43,11 +44,6 @@ type Student = {
   status?: string;
   textbookVersion?: string;
   weakKnowledge?: string;
-};
-
-type ClassRow = {
-  id: number;
-  name: string;
 };
 
 type StudentFilters = {
@@ -109,7 +105,6 @@ export default function StudentsPage() {
   const { session } = useSessionState();
   const canWrite = session.role === "teacher";
   const [rows, setRows] = useState<Student[]>([]);
-  const [classes, setClasses] = useState<ClassRow[]>([]);
   const [attentionMode, setAttentionMode] = useState(false);
   const [attentionRange, setAttentionRange] = useState<AttentionRange | null>(null);
   const [attentionRules, setAttentionRules] = useState<string[]>([]);
@@ -118,8 +113,8 @@ export default function StudentsPage() {
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(true);
   const [studentLoadError, setStudentLoadError] = useState("");
-  const [classLoading, setClassLoading] = useState(true);
   const [classLoadError, setClassLoadError] = useState("");
+  const [classRefreshKey, setClassRefreshKey] = useState(0);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<StudentForm>(blank);
   const [formBaseline, setFormBaseline] = useState(JSON.stringify(blank()));
@@ -190,38 +185,12 @@ export default function StudentsPage() {
     }
   }, [appliedFilters, attentionMode]);
 
-  const loadClasses = useCallback(async (signal?: AbortSignal) => {
-    setClassLoading(true);
-    setClassLoadError("");
-    try {
-      const data = await requestJson<{ classes?: ClassRow[] }>(
-        "/api/classes?status=active",
-        { signal },
-      );
-      if (!data) throw new HttpError(200, "班级选项响应为空，请重试");
-      setClasses(data.classes || []);
-    } catch (reason) {
-      if (!signal?.aborted) {
-        setClasses([]);
-        setClassLoadError(failureMessage(reason, "暂时无法读取班级选项"));
-      }
-    } finally {
-      if (!signal?.aborted) setClassLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     if (!initialized) return;
     const controller = new AbortController();
     void loadStudents(controller.signal);
     return () => controller.abort();
   }, [initialized, loadStudents]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadClasses(controller.signal);
-    return () => controller.abort();
-  }, [loadClasses]);
 
   const openEditor = () => {
     if (!canWrite || saveBusy) return;
@@ -431,17 +400,14 @@ export default function StudentsPage() {
                   onChange={(event) => setDraftFilters({ ...draftFilters, q: event.target.value })}
                 />
               </label>
-              <label>
-                班级
-                <select
-                  disabled={classLoading || Boolean(classLoadError)}
-                  value={draftFilters.classId}
-                  onChange={(event) => setDraftFilters({ ...draftFilters, classId: event.target.value })}
-                >
-                  <option value="">{classLoading ? "正在读取班级…" : "全部班级"}</option>
-                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+              <ClassPicker
+                includeAll
+                label="班级"
+                value={draftFilters.classId}
+                onChange={(value) => setDraftFilters({ ...draftFilters, classId: value })}
+                refreshKey={classRefreshKey}
+                onError={setClassLoadError}
+              />
               <label>
                 年级
                 <select value={draftFilters.grade} onChange={(event) => setDraftFilters({ ...draftFilters, grade: event.target.value })}>
@@ -464,7 +430,7 @@ export default function StudentsPage() {
             {classLoadError && (
               <div className="studentClassError" role="alert">
                 <span>班级选项暂时不可用：{classLoadError}</span>
-                <Button variant="secondary" onClick={() => void loadClasses()}>重新读取班级选项</Button>
+                <Button variant="secondary" onClick={() => setClassRefreshKey((value) => value + 1)}>重新读取班级选项</Button>
               </div>
             )}
           </Panel>
@@ -571,7 +537,7 @@ export default function StudentsPage() {
                 <div className="studentFormGrid">
                   <label>姓名<input autoComplete="off" maxLength={40} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
                   <label>昵称<input autoComplete="off" value={form.nickname} onChange={(event) => setForm({ ...form, nickname: event.target.value })} /></label>
-                  <label>所属班级<select disabled={classLoading || Boolean(classLoadError)} value={form.classId} onChange={(event) => setForm({ ...form, classId: event.target.value })}><option value="">暂不分班</option>{classes.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+                  <ClassPicker value={form.classId} onChange={(value) => setForm({ ...form, classId: value })} placeholder="暂不分班" />
                   <label>年级<select value={form.grade} onChange={(event) => setForm({ ...form, grade: event.target.value })}>{grades.map((item) => <option key={item}>{item}</option>)}</select></label>
                   <label>学校<input value={form.school} onChange={(event) => setForm({ ...form, school: event.target.value })} /></label>
                   <label>教材版本<input value={form.textbookVersion} onChange={(event) => setForm({ ...form, textbookVersion: event.target.value })} /></label>

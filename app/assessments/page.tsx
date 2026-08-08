@@ -3,6 +3,7 @@
 import Link from "@/app/components/HardNavigationLink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { ClassPicker } from "../components/ClassPicker";
 import { EmptyState, MetricCard, Panel, StatusBadge } from "../components/ui/Primitives";
 import { HttpError, requestJson } from "../lib/http-client";
 
@@ -35,7 +36,6 @@ const statusTone = (status: string): "success" | "warning" =>
 
 export default function AssessmentsPage() {
   const [rows, setRows] = useState<Row[]>([]);
-  const [classes, setClasses] = useState<Row[]>([]);
   const [papers, setPapers] = useState<Row[]>([]);
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -85,16 +85,14 @@ export default function AssessmentsPage() {
     setAssessmentLoadError("");
     try {
       const params = new URLSearchParams({ classId: classFilter, status });
-      const [assessmentData, classData, paperData] = await Promise.all([
+      const [assessmentData, paperData] = await Promise.all([
         requestJson<{ assessments?: Row[] }>(`/api/assessments?${params}`, { signal }),
-        requestJson<{ classes?: Row[] }>("/api/classes?status=active", { signal }),
         requestJson<{ papers?: Row[] }>("/api/papers?status=all", { signal }),
       ]);
-      if (!assessmentData || !classData || !paperData) {
+      if (!assessmentData || !paperData) {
         throw new HttpError(200, "测验中心响应不完整，请重试");
       }
       setRows(assessmentData.assessments || []);
-      setClasses(classData.classes || []);
       setPapers(paperData.papers || []);
     } catch (reason) {
       if (!signal?.aborted) {
@@ -243,13 +241,7 @@ export default function AssessmentsPage() {
           description="按班级与录入状态缩小范围。"
         >
           <div className="assessmentToolbar" role="group" aria-label="筛选测验">
-            <label>
-              班级
-              <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
-                <option value="">全部班级</option>
-                {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
+            <ClassPicker includeAll value={classFilter} onChange={setClassFilter} />
             <label>
               状态
               <select value={status} onChange={(event) => setStatus(event.target.value)}>
@@ -356,16 +348,7 @@ export default function AssessmentsPage() {
                   onChange={(event) => setForm({ ...form, date: event.target.value })}
                 />
               </label>
-              <label>
-                班级
-                <select
-                  value={form.classId}
-                  onChange={(event) => setForm({ ...form, classId: event.target.value })}
-                >
-                  <option value="">请选择班级</option>
-                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+              <ClassPicker value={form.classId} onChange={(value) => setForm({ ...form, classId: value })} placeholder="请选择班级" />
               <label>
                 类型
                 <select

@@ -68,6 +68,11 @@ export default function ClassesPage() {
   const canWrite = session.role === "teacher";
   const [rows, setRows] = useState<ClassRow[]>([]);
   const [filter, setFilter] = useState("active");
+  const [searchInput, setSearchInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pageCount, setPageCount] = useState(1);
   const [loading, setLoading] = useState(true);
   const [classLoadError, setClassLoadError] = useState("");
   const [open, setOpen] = useState(false);
@@ -93,21 +98,35 @@ export default function ClassesPage() {
     setLoading(true);
     setClassLoadError("");
     try {
-      const data = await requestJson<{ classes?: ClassRow[] }>(
-        `/api/classes?status=${filter}`,
+      const params = new URLSearchParams({
+        status: filter,
+        q: query,
+        page: String(page),
+      });
+      const data = await requestJson<{
+        classes?: ClassRow[];
+        total?: number;
+        page?: number;
+        pageCount?: number;
+      }>(
+        `/api/classes?${params.toString()}`,
         { signal },
       );
       if (!data) throw new HttpError(200, "班级列表响应为空，请重试");
       setRows(data.classes || []);
+      setTotal(Number(data.total || 0));
+      setPageCount(Math.max(1, Number(data.pageCount || 1)));
+      if (typeof data.page === "number" && data.page !== page) setPage(data.page);
     } catch (reason) {
       if (!signal?.aborted) {
         setRows([]);
+        setTotal(0);
         setClassLoadError(failureMessage(reason, "暂时无法读取班级"));
       }
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [filter]);
+  }, [filter, page, query]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -271,7 +290,10 @@ export default function ClassesPage() {
           <button
             aria-current={filter === "active" ? "page" : undefined}
             className={filter === "active" ? "isActive" : ""}
-            onClick={() => setFilter("active")}
+            onClick={() => {
+              setFilter("active");
+              setPage(1);
+            }}
           >
             <span>当前点名册</span>
             <b>进行中班级</b>
@@ -279,7 +301,10 @@ export default function ClassesPage() {
           <button
             aria-current={filter === "archived" ? "page" : undefined}
             className={filter === "archived" ? "isActive" : ""}
-            onClick={() => setFilter("archived")}
+            onClick={() => {
+              setFilter("archived");
+              setPage(1);
+            }}
           >
             <span>历史留档</span>
             <b>已归档班级</b>
@@ -287,8 +312,41 @@ export default function ClassesPage() {
           <Link href="/students"><span>个人成长</span><b>学生档案</b></Link>
         </nav>
 
+        <form
+          className="classOverviewSearch"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setQuery(searchInput.trim());
+            setPage(1);
+          }}
+        >
+          <label htmlFor="class-overview-search">搜索班级</label>
+          <input
+            id="class-overview-search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="班级名称、学段或年级"
+          />
+          <Button type="submit" disabled={loading}>搜索</Button>
+          {query ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={loading}
+              onClick={() => {
+                setQuery("");
+                setSearchInput("");
+                setPage(1);
+              }}
+            >
+              清除搜索
+            </Button>
+          ) : null}
+        </form>
+
         <div className="classOverviewMetrics">
-          <MetricCard label={filter === "active" ? "进行中班级" : "已归档班级"} value={rows.length} detail="当前筛选范围" />
+          <MetricCard label={filter === "active" ? "进行中班级" : "已归档班级"} value={total} detail="当前筛选范围" />
           <MetricCard label="在班学生" value={totals.students} detail="仅统计有效班级关系" />
           <MetricCard label="累计课时" value={totals.lessons} detail="当前列表内的课时记录" />
           <MetricCard label="教师确认关注" value={totals.risks} detail="有明确课堂记录的学生" />
@@ -344,6 +402,29 @@ export default function ClassesPage() {
                 })}
               </div>
             )}
+            {!loading && !classLoadError && rows.length > 0 ? (
+              <div className="classOverviewPagination" aria-live="polite">
+                <span>第 {page} / {pageCount} 页</span>
+                <div>
+                  <Button
+                    variant="secondary"
+                    disabled={loading || page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    aria-label="上一页班级"
+                  >
+                    上一页
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={loading || page >= pageCount}
+                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                    aria-label="下一页班级"
+                  >
+                    下一页
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </Panel>
         )}
       </div>
