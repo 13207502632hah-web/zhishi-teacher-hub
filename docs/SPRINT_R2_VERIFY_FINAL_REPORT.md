@@ -7,8 +7,9 @@ PRE_R1_BASE_SHA:  6d167de94d1d3121c26780a20fa1c85b3b230e89
 R1_HEAD:          4ac67f828a040d3d94fa5d1d2a511027eee2f2d2
 R2_VERIFY_HEAD:   019d1bed525abb7e32a8a9cb7e6e9486466d537d
 R2_1_HEAD:        ebce07cbfc3068d61dbaf7aada0b042bc7649174
-CURRENT_HEAD:     ebce07cbfc3068d61dbaf7aada0b042bc7649174
-DEPLOYED_SHA:     ebce07cbfc3068d61dbaf7aada0b042bc7649174
+R1_04R_HEAD:      4ea16344e0caef145af1fd5007cccb0596c0ccf0
+CURRENT_HEAD:     4ea16344e0caef145af1fd5007cccb0596c0ccf0
+DEPLOYED_SHA:     4ea16344e0caef145af1fd5007cccb0596c0ccf0
 branch:           main
 ```
 
@@ -18,15 +19,17 @@ branch:           main
 PRE_R1_BASE_SHA (6d167de)
   -> R1_HEAD (4ac67f8)
   -> R2_VERIFY_HEAD (019d1be)
-  -> R2_1_HEAD / CURRENT_HEAD / DEPLOYED_SHA (ebce07c)
+  -> R2_1_HEAD (ebce07c)
+  -> R1_04R_HEAD / CURRENT_HEAD / DEPLOYED_SHA (4ea1634)
 ```
 
-`git log --oneline 6d167de..ebce07c`：
+`git log --oneline 6d167de..4ea1634`：
 
 ```text
 4ac67f8 fix: harden schedule import, question scale, finance idempotency and source access (R1)
 019d1be fix: harden schedule import, question recall, finance idempotency and source access (R2 verify)
 ebce07c docs: record R2.1 production release gate (READY FOR STAGING)
+4ea1634 fix: close question duplicate recall gap (R1-04R)
 ```
 
 范围：不新增产品功能；只按 `docs/r1-followup-plan-2026-08-08.md` 闭环 R1 报告暴露的
@@ -42,7 +45,7 @@ VERIFIED:      R1-04R candidate recall / top3 recall / precision（12/12 ground 
 PARTIAL:       R1-04R performance（有界且较 G1 改善，但无数量级提升）
 NOT_VERIFIED:  线上 Cloudflare Worker CPU（本地 SQLite 可测，线上未测）
 BLOCKED:       生产环境带认证 smoke（无合法、可读的生产测试凭据）
-最终结论:       READY FOR STAGING
+最终结论:       DEPLOYED（R1-04R 已上线；带认证 smoke 仍 BLOCKED，不声明 PRODUCTION READY）
 ```
 
 ## 3. R1-01 ~ R1-08
@@ -539,7 +542,7 @@ docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
 
 ## 11. 最终结论
 
-**READY FOR STAGING。**
+**DEPLOYED（R1-04R 已上线生产；带认证 smoke 仍 BLOCKED）。**
 
 代码层面无未关闭的 P0/P1；`PRODUCTION_AUTH_SMOKE = BLOCKED`，
 线上 CPU 证据未取得，因此不声明 `PRODUCTION READY`。
@@ -709,6 +712,31 @@ PRODUCTION_LOGIN: BLOCKED
 PRODUCTION_AUTH_SMOKE: BLOCKED
 P0: none
 P1: none
-FINAL RELEASE STATUS: READY FOR STAGING
+FINAL RELEASE STATUS: DEPLOYED
+DEPLOYED_SHA: 4ea16344e0caef145af1fd5007cccb0596c0ccf0
+SITES_VERSION: appgprj_6a50708fea408191bf864f1778576733~appgver_198f0b561eb0819186430495f9f4a45b（版本 60）
+DEPLOYMENT_ID: appgdep_6a76e4a25bb081918a4a6a5e570397ea
+PRODUCTION_URL: https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site
 MANUAL_ACTION_REQUIRED: 请通过正常生产账号管理方式建立一个专用测试教师账号（__PROD_SMOKE_TEACHER__），并安全提供运行时凭据。
 ```
+
+## R1-04R Production Release Gate
+
+执行时间：2026-08-08（Asia/Shanghai）
+
+生产 URL：`https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site`
+
+发布提交：`4ea16344e0caef145af1fd5007cccb0596c0ccf0`
+
+Sites 版本：`appgprj_6a50708fea408191bf864f1778576733~appgver_198f0b561eb0819186430495f9f4a45b`（版本 60）
+
+Sites 部署 ID：`appgdep_6a76e4a25bb081918a4a6a5e570397ea`
+
+部署状态：`succeeded`（provider deployment `jz4hbwctq7--zhishi-teacher-hub`，env_set_revision 8）
+
+公开 smoke：`/` 返回 200，部署 URL 可直接访问；未认证受保护页面行为沿用 R2.1 公开 smoke 结果。
+
+带认证生产 smoke：仍 BLOCKED（原因见上文安全凭据调查）；本发布不将未执行项伪造成 PASS。
+
+R1-04R 已上线：5k/20k/50k recall / top1 / top3 = 1.0，false negatives = 0，
+precision = 0.9231；coverage 仍为有界诚实语义（1990/5000、1990/20000、1990/50000）。
