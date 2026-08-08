@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { audit, isDenied, requirePermission } from "../../lib/access";
 import { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } from "../../lib/schedule-import";
 import { inspectScheduleImportRow, loadPreviousScheduleIdentities } from "../../lib/schedule-import-preview";
+import type { ScheduleIdentityCache } from "../../lib/schedule-import-identity";
 import { requireTeacherAdminApi } from "../../lib/teacher-auth";
 import { cellValueToText, readFirstWorksheetCompat } from "../../lib/xlsx-compat";
 
@@ -61,9 +62,14 @@ export async function POST(request: Request) {
   const sourceRows = calendarRows.length ? calendarRows : selected.table.filter((row) => row.some((cell) => String(cell ?? "").trim())).map((cells) => ({ raw: Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""])), sourceCell: "" }));
   const normalized = sourceRows.map((source, index) => { const value = normalizeScheduleRow(source.raw, mapping, file.name); return { rowNumber: index + 2, sourceCell: source.sourceCell, raw: source.raw, value, issues: validateNormalizedSchedule(value) }; });
   const previousByIdentity = await loadPreviousScheduleIdentities(env.DB);
+  const identityCache: ScheduleIdentityCache = {
+    classIds: new Map(),
+    studentIds: new Map(),
+    classStudentSets: new Map(),
+  };
   const rowsWithPreview = await Promise.all(normalized.map(async (row) => ({
     ...row,
-    preview: await inspectScheduleImportRow(env.DB, row.value, row.issues, previousByIdentity),
+    preview: await inspectScheduleImportRow(env.DB, row.value, row.issues, previousByIdentity, { cache: identityCache }),
   })));
   const storageKey = `schedule-imports/${Date.now()}-${fingerprint.slice(0, 12)}.${ext}`; await env.FILES.put(storageKey, buffer, { httpMetadata: { contentType: file.type || "application/octet-stream" } });
   const report = {

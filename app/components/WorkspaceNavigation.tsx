@@ -114,9 +114,9 @@ export function WorkspaceNavigation({
             <small>{session.roleName || "公开资源"} · 个人工作区</small>
           </div>
           {session.authenticated && (
-            <Link aria-label="退出登录" href="/api/auth/logout?return_to=%2Fresources">
+            <a aria-label="退出登录" href="/api/auth/logout?return_to=%2Fresources">
               退出
-            </Link>
+            </a>
           )}
         </div>
       </aside>

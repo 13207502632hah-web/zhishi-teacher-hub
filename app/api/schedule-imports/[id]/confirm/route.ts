@@ -6,7 +6,13 @@ import {
   markScheduleImportRow,
   reconcileLessonFinance,
 } from "../../../../lib/schedule-import-confirm";
-import { findClassId, findStudentRecords, lessonUnlockable } from "../../../../lib/schedule-import-identity";
+import {
+  classCacheKey,
+  findClassId,
+  findStudentRecords,
+  lessonUnlockable,
+  type ScheduleIdentityCache,
+} from "../../../../lib/schedule-import-identity";
 import {
   inspectScheduleImportRow,
   loadPreviousScheduleIdentities,
@@ -15,6 +21,8 @@ import {
 import { scheduleImportFinalStatus } from "../../../../lib/schedule-import-status";
 import { validateNormalizedSchedule } from "../../../../lib/schedule-import";
 import { requireTeacherAdminApi } from "../../../../lib/teacher-auth";
+
+const CONFIRM_CHUNK_SIZE = 50;
 
 export async function POST(
   _: Request,
@@ -41,6 +49,7 @@ export async function POST(
       status: "confirmed",
       report: parseReport(task.report),
       rows,
+      done: true,
     });
   }
   const claim = await env.DB
@@ -54,8 +63,24 @@ export async function POST(
     );
   }
 
+  const identityCache: ScheduleIdentityCache = {
+    classIds: new Map(),
+    studentIds: new Map(),
+    classStudentSets: new Map(),
+  };
   const rows = (await env.DB
-    .prepare("SELECT * FROM schedule_import_rows WHERE import_id=? ORDER BY row_number")
+    .prepare(`
+      SELECT * FROM schedule_import_rows
+      WHERE import_id=?
+        AND (
+          processing_state IS NULL
+          OR processing_state IN ('pending','failed','blocked','needs_reconcile')
+          OR (processing_state='processing' AND datetime(updated_at)<datetime('now','-5 minutes'))
+        )
+        AND (processing_state IS NULL OR processing_state != 'done')
+      ORDER BY row_number
+      LIMIT ${CONFIRM_CHUNK_SIZE}
+    `)
     .bind(importId)
     .all()).results as Array<Record<string, unknown>>;
   const previousByIdentity = await loadPreviousScheduleIdentities(env.DB, importId);
@@ -134,6 +159,7 @@ export async function POST(
           sourceLineage: String(row.source_lineage || ""),
           sourceRowId: String(row.source_row_id || ""),
           currentImportLessonIds,
+          cache: identityCache,
         },
       );
 
@@ -170,7 +196,7 @@ export async function POST(
           report.blocked++;
           continue;
         }
-        const outcome = await applyLessonUpdate(rowId, value, old, preview.existingLessonId, access.id);
+        const outcome = await applyLessonUpdate(rowId, value, old, preview.existingLessonId, access.id, identityCache);
         if (outcome === "done") {
           report.updated++;
         } else {
@@ -183,13 +209,14 @@ export async function POST(
         (value.studentNames?.length ? `${value.studentNames.join("、")}课程` : "");
       let classId: number | null = null;
       if (className) {
-        let found = await findClassId(env.DB, className, access.id);
+        let found = await findClassId(env.DB, className, access.id, identityCache);
         if (!found) {
           const created = await env.DB
             .prepare("INSERT INTO classes(owner_id,name,stage,grade,course_type,status) VALUES(?,?,?,?,?,?) RETURNING id")
             .bind(access.id, className, "高中", "待补全", "导入课表", "active")
             .first<{ id: number }>();
           found = created?.id ?? null;
+          identityCache.classIds?.set(classCacheKey(className, access.id), found);
         }
         classId = found;
       }
@@ -197,7 +224,7 @@ export async function POST(
       let lessonId: number | null = null;
       try {
         for (const name of value.studentNames || []) {
-          const studentIds = await findStudentRecords(env.DB, name);
+          const studentIds = await findStudentRecords(env.DB, name, identityCache);
           if (studentIds.length > 1) {
             throw new Error(`学生“${name}”存在同名档案，请人工选择`);
           }
@@ -209,6 +236,7 @@ export async function POST(
               .first<{ id: number }>();
             if (student) {
               studentId = Number(student.id);
+              identityCache.studentIds?.set(name, [studentId]);
               report.studentsCreated++;
             }
           }
@@ -217,6 +245,9 @@ export async function POST(
               .prepare("INSERT OR IGNORE INTO enrollments(class_id,student_id,status) VALUES(?,?,?)")
               .bind(classId, studentId, "active")
               .run();
+            if (identityCache.classStudentSets?.has(classId)) {
+              identityCache.classStudentSets.get(classId)?.add(studentId);
+            }
           }
         }
 
@@ -282,7 +313,14 @@ export async function POST(
   } catch {
     // 审计失败不应把已经完成的业务写入标记为失败。
   }
-  return Response.json({ ok: true, status: finalStatus.status, report, rows: resultRows });
+  return Response.json({
+    ok: true,
+    status: finalStatus.status,
+    report,
+    rows: resultRows,
+    done: rows.length < CONFIRM_CHUNK_SIZE || finalStatus.status === "confirmed",
+    processed: rows.length,
+  });
 }
 
 async function finalizeInterruptedRow(
@@ -313,6 +351,7 @@ async function applyLessonUpdate(
   old: Record<string, unknown>,
   lessonId: number,
   ownerId: number,
+  cache?: ScheduleIdentityCache,
 ): Promise<"done" | "blocked"> {
   let targetClassId = old.classId ? Number(old.classId) : null;
   const className = value.className ||
@@ -320,17 +359,18 @@ async function applyLessonUpdate(
   let mutated = false;
   try {
     if (className) {
-      let found = await findClassId(env.DB, className, ownerId);
+      let found = await findClassId(env.DB, className, ownerId, cache);
       if (!found) {
         const created = await env.DB
           .prepare("INSERT INTO classes(owner_id,name,stage,grade,course_type,status) VALUES(?,?,?,?,?,?) RETURNING id")
           .bind(ownerId, className, "高中", "待补全", "导入课表", "active")
           .first<{ id: number }>();
         found = created?.id ?? null;
+        cache?.classIds?.set(classCacheKey(className, ownerId), found);
       }
       targetClassId = found;
       for (const name of value.studentNames || []) {
-        const studentIds = await findStudentRecords(env.DB, name);
+        const studentIds = await findStudentRecords(env.DB, name, cache);
         if (studentIds.length > 1) {
           throw new Error(`学生“${name}”存在同名档案，请人工选择`);
         }
@@ -340,13 +380,19 @@ async function applyLessonUpdate(
             .prepare("INSERT INTO students(name,grade,status,notes) VALUES(?,?,?,?) RETURNING id")
             .bind(name, "待补全", "active", "由课表导入自动创建，资料待补全")
             .first<{ id: number }>();
-          if (student) studentId = Number(student.id);
+          if (student) {
+            studentId = Number(student.id);
+            cache?.studentIds?.set(name, [studentId]);
+          }
         }
         if (targetClassId && studentId) {
           await env.DB
             .prepare("INSERT OR IGNORE INTO enrollments(class_id,student_id,status) VALUES(?,?,?)")
             .bind(targetClassId, studentId, "active")
             .run();
+          if (cache?.classStudentSets?.has(targetClassId)) {
+            cache.classStudentSets.get(targetClassId)?.add(studentId);
+          }
         }
       }
     }

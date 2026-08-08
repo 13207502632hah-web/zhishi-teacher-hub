@@ -79,6 +79,8 @@ type ConfirmResult = {
   status?: string;
   report?: ConfirmReport;
   rows?: ConfirmRow[];
+  done?: boolean;
+  processed?: number;
 };
 type HistoryItem = {
   id: number;
@@ -167,6 +169,23 @@ const parseHistoryValue = (raw: string | null): ScheduleValue | null => {
 
 const errorMessage = (reason: unknown, fallback: string) =>
   reason instanceof HttpError ? reason.message : fallback;
+
+const MAX_CONFIRM_CHUNKS = 20;
+
+const addReport = (target: ConfirmReport, source?: ConfirmReport) => {
+  if (!source) return;
+  for (const key of [
+    "created",
+    "updated",
+    "skipped",
+    "blocked",
+    "studentsCreated",
+  ] as const) {
+    if (typeof source[key] === "number") {
+      target[key] = (target[key] || 0) + source[key];
+    }
+  }
+};
 
 export default function ScheduleImportsPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -290,10 +309,33 @@ export default function ScheduleImportsPage() {
 
     setBusyAction("confirm");
     setMessage("正在重新检查冲突并写入有效课时…");
+    setUploadStage({
+      name: "checking",
+      label: "正在逐行核对现有课时与冲突…",
+      total: result.report.total || result.rows.length,
+    });
     try {
-      const data = await requestJson<ConfirmResult>(`/api/schedule-imports/${result.id}/confirm`, { method: "POST" });
-      const report = data?.report;
-      if (!report) throw new HttpError(200, "导入响应不完整，请到课时列表核对");
+      const aggregate: ConfirmReport = {};
+      let finalData: ConfirmResult | null = null;
+      let processedTotal = 0;
+      for (let chunk = 0; chunk < MAX_CONFIRM_CHUNKS; chunk++) {
+        const data = await requestJson<ConfirmResult>(`/api/schedule-imports/${result.id}/confirm`, { method: "POST" });
+        if (!data?.report) throw new HttpError(200, "导入响应不完整，请到课时列表核对");
+        finalData = data;
+        addReport(aggregate, data.report);
+        processedTotal += data.processed || 0;
+        setRemainingCount(data.report.remaining || 0);
+        setUploadStage({
+          name: "checking",
+          label: `已处理 ${processedTotal}/${result.report.total || result.rows.length} 行 · 成功 ${aggregate.created || 0} · 待确认 ${data.report.remaining || 0} · 失败 ${aggregate.blocked || 0}`,
+          total: result.report.total || result.rows.length,
+        });
+        if (data.done !== false) break;
+      }
+      const data = finalData;
+      if (!data?.report) throw new HttpError(200, "导入响应不完整，请到课时列表核对");
+      const report = aggregate;
+      report.remaining = data.report.remaining;
       setConfirmedRows(data?.rows || []);
       const status = data?.status || "confirmed";
       if (status === "confirmed") {
@@ -314,6 +356,7 @@ export default function ScheduleImportsPage() {
       setMessage(errorMessage(reason, "确认写入失败，尚未完成的行可重试"));
     } finally {
       setBusyAction("");
+      setUploadStage(null);
     }
   };
 
@@ -345,9 +388,19 @@ export default function ScheduleImportsPage() {
     if (historyBusyId !== null) return;
     setHistoryBusyId(id);
     try {
-      const data = await requestJson<ConfirmResult>(`/api/schedule-imports/${id}/confirm`, { method: "POST" });
-      const report = data?.report;
-      if (!report) throw new HttpError(200, "导入响应不完整，请稍后重试");
+      const aggregate: ConfirmReport = {};
+      let finalData: ConfirmResult | null = null;
+      for (let chunk = 0; chunk < MAX_CONFIRM_CHUNKS; chunk++) {
+        const data = await requestJson<ConfirmResult>(`/api/schedule-imports/${id}/confirm`, { method: "POST" });
+        if (!data?.report) throw new HttpError(200, "导入响应不完整，请稍后重试");
+        finalData = data;
+        addReport(aggregate, data.report);
+        if (data.done !== false) break;
+      }
+      const data = finalData;
+      if (!data?.report) throw new HttpError(200, "导入响应不完整，请稍后重试");
+      const report = aggregate;
+      report.remaining = data.report.remaining;
       const status = data?.status || "confirmed";
       setMessage(
         `${status === "confirmed" ? "重试完成：" : "仍需处理："}新建 ${report.created || 0} 节、调整 ${report.updated || 0} 节、跳过 ${report.skipped || 0} 节、阻止 ${report.blocked || 0} 节，剩余 ${report.remaining || 0} 行。`,

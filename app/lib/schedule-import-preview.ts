@@ -8,6 +8,7 @@ import {
   lessonUnlockable,
   scheduleFieldsChanged,
   type ScheduleBusinessValue,
+  type ScheduleIdentityCache,
 } from "./schedule-import-identity";
 
 export type NormalizedScheduleRow = ReturnType<typeof normalizeScheduleRow>;
@@ -26,6 +27,7 @@ export type SchedulePreviewContext = {
   sourceLineage?: string;
   sourceRowId?: string;
   currentImportLessonIds?: Set<number>;
+  cache?: ScheduleIdentityCache;
 };
 
 type PreviousSchedule = {
@@ -91,6 +93,7 @@ export async function inspectScheduleImportRow(
     value,
     context.ownerId,
     context.currentImportLessonIds,
+    context.cache,
   );
   if (exact) {
     const decision = await decideAgainstOldLesson(db, value, exact, context);
@@ -106,7 +109,7 @@ export async function inspectScheduleImportRow(
 
   const studentsToCreate: string[] = [];
   for (const name of value.studentNames || []) {
-    const matches = await findStudentRecords(db, name);
+    const matches = await findStudentRecords(db, name, context.cache);
     if (matches.length > 1) {
       return blocked([`学生“${name}”存在同名档案，请人工选择`]);
     }
@@ -117,7 +120,7 @@ export async function inspectScheduleImportRow(
     (value.studentNames?.length ? `${value.studentNames.join("、")}课程` : "");
   let classToCreate: string | null = null;
   if (className) {
-    const existingClass = await findClassId(db, className, context.ownerId);
+    const existingClass = await findClassId(db, className, context.ownerId, context.cache);
     if (!existingClass) classToCreate = className;
   }
 
@@ -228,7 +231,7 @@ async function overlappingLesson(
 ) {
   const className = String(value.className || "").trim();
   if (className) {
-    const classId = await findClassId(db, className, context.ownerId);
+    const classId = await findClassId(db, className, context.ownerId, context.cache);
     if (!classId) return null;
     const query = excludedLessonId
       ? "SELECT l.id,l.course_name AS courseName FROM lessons l WHERE l.id!=? AND l.class_id=? AND l.date=? AND l.status!='cancelled' AND l.start_time<? AND l.end_time>? LIMIT 1"
@@ -242,7 +245,7 @@ async function overlappingLesson(
         .first<Record<string, unknown>>();
   }
   for (const name of value.studentNames || []) {
-    const studentIds = await findStudentRecords(db, name);
+    const studentIds = await findStudentRecords(db, name, context.cache);
     if (studentIds.length !== 1) continue;
     const query = excludedLessonId
       ? "SELECT l.id,l.course_name AS courseName FROM lessons l JOIN enrollments e ON e.class_id=l.class_id WHERE l.id!=? AND e.student_id=? AND l.date=? AND l.status!='cancelled' AND l.start_time<? AND l.end_time>? LIMIT 1"

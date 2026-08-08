@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 
 type HardNavigationLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
@@ -7,6 +8,5 @@ type HardNavigationLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "hr
 };
 
 export default function HardNavigationLink({ href, prefetch, ...props }: HardNavigationLinkProps) {
-  void prefetch;
-  return <a href={href} {...props} />;
+  return <Link href={href} prefetch={prefetch} {...props} />;
 }

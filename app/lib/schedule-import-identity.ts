@@ -13,7 +13,16 @@ export type ScheduleBusinessValue = {
   settlementCycle?: string;
 };
 
+export type ScheduleIdentityCache = {
+  classIds?: Map<string, number | null>;
+  studentIds?: Map<string, number[]>;
+  classStudentSets?: Map<number, Set<number>>;
+};
+
 const normalizedName = (value?: string | null) => String(value ?? "").trim();
+
+export const classCacheKey = (className: string, ownerId?: number) =>
+  `${typeof ownerId === "number" ? `owner:${ownerId}` : "global"}|${normalizedName(className)}`;
 
 export function scheduleScopeKey(value: ScheduleBusinessValue) {
   const className = normalizedName(value.className);
@@ -41,9 +50,12 @@ export async function findClassId(
   db: D1Database,
   className: string,
   ownerId?: number,
+  cache?: ScheduleIdentityCache,
 ) {
   const name = normalizedName(className);
   if (!name) return null;
+  const cacheKey = classCacheKey(name, ownerId);
+  if (cache?.classIds?.has(cacheKey)) return cache.classIds.get(cacheKey) ?? null;
   const scoped = typeof ownerId === "number" && Number.isFinite(ownerId);
   const query = scoped
     ? "SELECT id FROM classes WHERE name=? AND status='active' AND (owner_id=? OR owner_id IS NULL) LIMIT 1"
@@ -52,18 +64,25 @@ export async function findClassId(
     ? db.prepare(query).bind(name, ownerId)
     : db.prepare(query).bind(name);
   const row = await statement.first<{ id: number }>();
-  return row ? Number(row.id) : null;
+  const id = row ? Number(row.id) : null;
+  cache?.classIds?.set(cacheKey, id);
+  return id;
 }
 
 export async function findStudentRecords(
   db: D1Database,
   name: string,
+  cache?: ScheduleIdentityCache,
 ) {
+  const cacheKey = normalizedName(name);
+  if (cache?.studentIds?.has(cacheKey)) return cache.studentIds.get(cacheKey) ?? [];
   const rows = (await db
     .prepare("SELECT id FROM students WHERE name=? AND status='active'")
     .bind(name)
     .all()).results as Array<{ id: number }>;
-  return rows.map((row) => Number(row.id));
+  const ids = rows.map((row) => Number(row.id));
+  cache?.studentIds?.set(cacheKey, ids);
+  return ids;
 }
 
 const lessonSelect =
@@ -74,10 +93,11 @@ export async function findLessonByIdentity(
   value: ScheduleBusinessValue,
   ownerId?: number,
   excludedLessonIds?: Set<number>,
+  cache?: ScheduleIdentityCache,
 ) {
   const className = normalizedName(value.className);
   if (className) {
-    const classId = await findClassId(db, className, ownerId);
+    const classId = await findClassId(db, className, ownerId, cache);
     if (!classId) return null;
     const exclusion = exclusionSql(excludedLessonIds);
     const excluded = exclusion.placeholders
@@ -93,7 +113,7 @@ export async function findLessonByIdentity(
   if (!names.length) return null;
   const resolved: number[] = [];
   for (const name of names) {
-    const studentIds = await findStudentRecords(db, name);
+    const studentIds = await findStudentRecords(db, name, cache);
     if (studentIds.length !== 1) return null;
     resolved.push(studentIds[0]);
   }
@@ -104,7 +124,7 @@ export async function findLessonByIdentity(
     .all()).results as Array<Record<string, unknown>>;
   for (const candidate of candidates) {
     if (excludedLessonIds?.has(Number(candidate.id))) continue;
-    if (await studentsMatchClass(db, candidate.classId, resolved)) {
+    if (await studentsMatchClass(db, candidate.classId, resolved, cache)) {
       return candidate;
     }
   }
@@ -123,13 +143,24 @@ async function studentsMatchClass(
   db: D1Database,
   classId: unknown,
   studentIds: number[],
+  cache?: ScheduleIdentityCache,
 ) {
   const expected = new Set(studentIds.map(Number));
+  const numericClassId = Number(classId);
+  if (cache?.classStudentSets?.has(numericClassId)) {
+    const actual = cache.classStudentSets.get(numericClassId);
+    if (!actual || actual.size !== expected.size) return false;
+    for (const studentId of expected) {
+      if (!actual.has(studentId)) return false;
+    }
+    return true;
+  }
   const enrolled = (await db
     .prepare("SELECT student_id AS studentId FROM enrollments WHERE class_id=? AND status='active'")
     .bind(classId)
     .all()).results as Array<{ studentId: number }>;
   const actual = new Set(enrolled.map((row) => Number(row.studentId)));
+  cache?.classStudentSets?.set(numericClassId, actual);
   if (actual.size !== expected.size) return false;
   for (const studentId of expected) {
     if (!actual.has(studentId)) return false;

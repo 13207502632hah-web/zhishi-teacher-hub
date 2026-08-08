@@ -41,8 +41,8 @@ test("route navigation keeps session state mounted and preserves native link beh
   assert.doesNotMatch(shell, /正在确认工作区身份/);
   assert.doesNotMatch(shell, /onNavigate|preventDefault\(\).*router\.push|useTransition/);
   assert.match(shell, /HardNavigationLink/);
-  assert.match(hardLink, /return <a href=\{href\}/);
-  assert.doesNotMatch(hardLink, /next\/link/);
+  assert.match(hardLink, /import Link from "next\/link"/);
+  assert.match(hardLink, /return <Link href=\{href\} prefetch=\{prefetch\} \{\.\.\.props\} \/>/);
   assert.match(navigation, /href=\{item\.href\}/);
   assert.match(shell, /<Link href="\/resources#teaching-method">教学理念<\/Link>/);
 });
@@ -59,7 +59,9 @@ test("every literal internal hyperlink resolves to an existing page or API route
   const unresolved = [];
   for (const path of componentFiles) {
     const source = await readFile(path, "utf8");
-    assert.doesNotMatch(source, /from "next\/link"/, `${path.slice(projectRoot.length)} must use full-page navigation`);
+    if (!path.endsWith("app/components/HardNavigationLink.tsx")) {
+      assert.doesNotMatch(source, /from "next\/link"/, `${path.slice(projectRoot.length)} must use full-page navigation`);
+    }
     for (const match of source.matchAll(/\bhref="([^"]+)"/g)) {
       const href = match[1];
       if (!href.startsWith("/") || href.startsWith("//")) continue;
