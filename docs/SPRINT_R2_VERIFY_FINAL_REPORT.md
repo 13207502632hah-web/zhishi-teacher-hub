@@ -38,6 +38,8 @@ ebce07c docs: record R2.1 production release gate (READY FOR STAGING)
 VERIFIED:      R1-01 R1-02 R1-05 R1-06 R1-07 R1-08
 VERIFIED:      R1-04 correctness（候选池内 recall/top1/top3=1；coverage 语义诚实）
 PARTIAL:       R1-03（存量 lineage） R1-04 performance（latency 未稳定改善）
+VERIFIED:      R1-04R candidate recall / top3 recall / precision（12/12 ground truth 全命中）
+PARTIAL:       R1-04R performance（有界且较 G1 改善，但无数量级提升）
 NOT_VERIFIED:  线上 Cloudflare Worker CPU（本地 SQLite 可测，线上未测）
 BLOCKED:       生产环境带认证 smoke（无合法、可读的生产测试凭据）
 最终结论:       READY FOR STAGING
@@ -226,6 +228,72 @@ candidate_count=2000, comparisons=28000, latency_ms=274.92
 `单选题/高中/高一`，同一 WHERE 命中全部行，所以 coverage=2000/5000、2000/20000、
 2000/50000，分母即题库总量。
 
+## R1-04R Recall Repair
+
+**最终状态：** candidate recall / top3 / precision VERIFIED；performance PARTIAL。
+
+**原始失败 case：** 5k/20k/50k 各漏 3 个 ground-truth positive：
+punctuation-only change（1-based 601/2401/6001）、whitespace change
+（1-based 1751/7001/17501）、candidate-pool boundary outside
+（1-based 3000/18000/48000）。1k 全命中。
+
+**failure stage：** 全部为 `B. CANDIDATE_GENERATION_MISS`。三个 case 都未进入
+候选池，不存在进入候选池后 similarity/ranking 淘汰；in-pool recall 修复前已为
+1.0，无 `D/E` 问题，也没有 `F INVALID_GROUND_TRUTH`。
+
+**root cause：** ground-truth bank 全部行共享 `单选题/高中/高一`，候选 WHERE 命中
+全表；候选池因此由 `ORDER BY id DESC LIMIT 2000` 决定，只覆盖最新 2000 行。
+punctuation/whitespace 旧行与 boundary-outside 行都在池外，而 candidate
+generation 没有任何 normalized-text 前缀/签名召回路径，fingerprint 又因 wording
+variation 不同，导致这些行永远不可达。
+
+**production fix：** `app/lib/question-import-candidates.ts` 新增文本签名候选源：
+对导入 ref 题干做 normalize（NFKC、小写、去空白/标点），取前 8 字符并按字符用
+`%` 连接成 LIKE 模式；每个模式有界 `LIMIT 25`，50 个模式一批 `UNION ALL`，
+每批最多 50 个 bind params（低于 D1 每 statement 100 params 上限）；文本源合并去重
+后上限 400，剩余预算继续走 metadata/fingerprint/token 路径，最终去重、按 id
+倒序，总候选仍受 2000 预算约束。coverage 改为 metadata 条件与文本模式的并集
+去重 COUNT，`compared = candidates.length`，`complete = compared >= total`，
+接口兼容不变。
+
+**candidate architecture before：**
+
+```text
+Source A fingerprint IN
+Source B question_type/stage/grade IN + stem bigram OR
+-> ORDER BY id DESC LIMIT 2000
+```
+
+**candidate architecture after：**
+
+```text
+Source A fingerprint IN
+Source B question_type/stage/grade IN + stem bigram OR
+Source C normalized text signature LIKE（每模式 LIMIT 25，50/批 UNION ALL，上限 400）
+-> id dedupe -> ORDER BY id DESC -> 总预算 2000
+```
+
+**tests added：** `tests/question-import-candidates.test.mjs` 新增
+`text signature recall reaches rows outside the latest-2000 pool when metadata
+matches the whole bank`：5000 行全同 metadata bank，植入 punctuation / whitespace /
+boundary-outside 三个旧行，断言全部进入候选池、预算不超 2000、coverage
+`complete=false`、三个旧行都能到达 similarity report。修复前 RED，修复后 GREEN。
+
+**fresh benchmark（2026-08-08，`outputs/scale-benchmark.json`）：**
+
+| scale | ground_truth | candidate_hits | top1_hits | top3_hits | false_negatives | false_positives | recall | precision | candidate_count | comparisons | latency |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1k | 12 | 12 | 12 | 12 | 0 | 1 | 1.0 | 0.9231 | 1000 | 14000 | 90.26 |
+| 5k | 12 | 12 | 12 | 12 | 0 | 1 | 1.0 | 0.9231 | 1990 | 27860 | 203.37 |
+| 20k | 12 | 12 | 12 | 12 | 0 | 1 | 1.0 | 0.9231 | 1990 | 27860 | 196.16 |
+| 50k | 12 | 12 | 12 | 12 | 0 | 1 | 1.0 | 0.9231 | 1990 | 27860 | 248.45 |
+
+coverage 诚实语义保留：5k/20k/50k 为 1990/5000、1990/20000、1990/50000
+`complete=false`，即预算有界截断而非全库检测；API 显式报告实际比对范围。
+
+唯一 FP 仍是“同材料不同问法” hard negative（相似度 0.833 >= 0.82），
+precision 稳定 0.9231；“不同材料近问法” negative（0.765 < 0.82）继续正确不报告。
+
 ### R1-05
 
 **最终状态：VERIFIED**
@@ -357,6 +425,24 @@ candidate_count=2000, comparisons=28000, latency_ms=274.92
 本表为 G1 定稿，替代此前 `recall=1.0 / precision=0.875 / FP=1/8 / coverage=9/9`
 的旧版表；旧表使用旧植入集，口径与 `R1-04 Accuracy` 不一致。
 
+### R1-04R 修复后性能
+
+| 重复检测指标（R1-04R fresh run） | 1k | 5k | 20k | 50k |
+|---|---:|---:|---:|---:|
+| recall | 1.0 | 1.0 | 1.0 | 1.0 |
+| precision | 0.9231 | 0.9231 | 0.9231 | 0.9231 |
+| top1 / top3 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| FN | 0 | 0 | 0 | 0 |
+| coverage | 1000/1000 | 1990/5000 | 1990/20000 | 1990/50000 |
+| candidate_count | 1000 | 1990 | 1990 | 1990 |
+| comparisons | 14000 | 27860 | 27860 | 27860 |
+| latency_ms | 90.26 | 203.37 | 196.16 | 248.45 |
+
+candidate SQL 从修复前 1 条增至 8 条（text-signature 分批 + metadata 池 +
+coverage COUNT），但比较次数与 payload 保持有界；5k/20k/50k latency 对比 G1
+快照（279.89 / 276.72 / 274.92 ms）均有下降，无数量级提升，且 facets 耗时
+1k=11.88ms、5k=21.10ms、20k=59.28ms、50k=191.51ms 保持线性合理。
+
 | Facets | 1k | 5k | 20k | 50k |
 |---|---:|---:|---:|---:|
 | SQL 数 | 12 | 12 | 12 | 12 |
@@ -376,7 +462,7 @@ candidate_count=2000, comparisons=28000, latency_ms=274.92
 |---|---|---|
 | Typecheck | PASS | `tsc --noEmit` 0 错误 |
 | Lint | PASS | ESLint 0 error / 0 warning；`outputs/**` 已忽略 |
-| Full Tests | PASS | 341 / 341 pass，0 fail / 0 skipped（含 vinext build） |
+| Full Tests | PASS | 342 / 342 pass，0 fail / 0 skipped（含 vinext build） |
 | Standalone Build | PASS | `npm run build` 成功 |
 | Teaching E2E | PASS | 2 rounds / 15 business modules / 60 checks |
 | Surface Audit | PASS | 30 pages / 328 checks / 0 anomalies |
@@ -384,6 +470,7 @@ candidate_count=2000, comparisons=28000, latency_ms=274.92
 | Mini Production Guard | PASS | login/sync/me 均 503 MINI_FEATURE_DISABLED，无数据写入 |
 | Migration | PASS | OLD_DB / FRESH_DB / SCHEMA_SOURCE 全 PASS |
 | Scale Scenario | PASS | 1k / 5k / 20k / 50k 全部通过 |
+| R1-04R Regression | PASS | text signature 池外旧行召回 / 预算 / coverage / similarity 可达 |
 
 备注：`mini:production-guard` 与 `surface-audit` 并行时共用端口 3000 会互相干扰；
 单独串行复跑通过，属于测试 harness 并行化注意点，不是产品缺陷。
@@ -394,9 +481,10 @@ candidate_count=2000, comparisons=28000, latency_ms=274.92
 修改前（R1 HEAD）：328
 修改后（R2 HEAD）：341
 新增：13
+R1-04R：342（+1 text signature 池外召回 regression）
 ```
 
-以真实 runner 输出为准（`node --test` 341 / 341）；历史 287 / 299 等数字为陈旧口径。
+以真实 runner 输出为准（`node --test` 342 / 342）；历史 287 / 299 等数字为陈旧口径。
 
 ## 9. Git
 
@@ -426,10 +514,24 @@ docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
 保持 untracked，不提交、不删除。提交后 `git log --oneline 6d167de..HEAD` 为：
 `4ac67f8` + 本轮 R2 提交。
 
+R1-04R 变更文件：
+
+```text
+app/lib/question-import-candidates.ts
+tests/question-import-candidates.test.mjs
+docs/R1_04R_FAILURE_ANALYSIS.md
+docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
+```
+
+`git diff --check` 无错误（仅 CRLF 提示）；`docs/r1-followup-plan-2026-08-08.md`
+保持 untracked，不提交、不删除。
+
 ## 10. Remaining Risks
 
 - schedule re-import：存量无 lineage 行的跨日期修订只能 blocked，不能自动判断（PARTIAL，设计内）。
-- question similarity：候选预算使全库级检测在题库超过预算后受限；API 显式报告 coverage（PARTIAL，不 silent）。
+- question similarity：R1-04R 已新增 normalized text-signature 召回并关闭全部
+  ground-truth FN；候选预算仍使全库级检测在题库超过预算后受限，API 显式报告
+  coverage（PARTIAL，不 silent）。
 - Cloudflare CPU：本轮只有本地 SQLite benchmark，线上 Worker CPU 未测量（NOT_VERIFIED）。
 - 生产认证 smoke：生产 Secret 已配置但明文不可读，本环境无法取得安全测试凭据，未执行（BLOCKED）。
 - R2 source 失败对象清理：尚未实现定时清理，按 R1F-13 后续立项。
@@ -441,6 +543,10 @@ docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
 
 代码层面无未关闭的 P0/P1；`PRODUCTION_AUTH_SMOKE = BLOCKED`，
 线上 CPU 证据未取得，因此不声明 `PRODUCTION READY`。
+
+R1-04R 关闭 5k/20k/50k 重复检测的全部 ground-truth false negative
+（candidate recall / top1 / top3 = 12/12），precision 稳定 0.9231，候选仍受
+2000 预算约束；coverage 语义与 performance PARTIAL 结论不变。
 
 ## Production Release Gate
 
@@ -555,7 +661,7 @@ MANUAL_ACTION_REQUIRED: 请通过正常生产账号管理方式建立一个专�
 全部 PASS；唯一 blocker 为线上带认证 smoke 无法安全取得凭据。按任务规定，不得把
 BLOCKED 伪装成 PASS，不得绕过鉴权，因此不声明 `PRODUCTION READY`。
 
-## G1 Final Output
+## G1 Final Output（R1-04R 修复前历史快照）
 
 ```text
 R1_04_CORRECTNESS: VERIFIED
@@ -569,6 +675,36 @@ R1_04_PERFORMANCE: PARTIAL
 20K_TOP3_RECALL: 0.75
 50K_TOP3_RECALL: 0.75
 50K_LATENCY: 274.92
+PRODUCTION_LOGIN: BLOCKED
+PRODUCTION_AUTH_SMOKE: BLOCKED
+P0: none
+P1: none
+FINAL RELEASE STATUS: READY FOR STAGING
+MANUAL_ACTION_REQUIRED: 请通过正常生产账号管理方式建立一个专用测试教师账号（__PROD_SMOKE_TEACHER__），并安全提供运行时凭据。
+```
+
+## R1-04R Final Output
+
+```text
+R1_04_SEMANTICS: VERIFIED
+R1_04_CANDIDATE_RECALL: VERIFIED
+R1_04_TOP3_RECALL: VERIFIED
+R1_04_PRECISION: VERIFIED
+R1_04_PERFORMANCE: PARTIAL
+1K_RECALL: 1
+5K_RECALL: 1
+20K_RECALL: 1
+50K_RECALL: 1
+1K_TOP3_RECALL: 1
+5K_TOP3_RECALL: 1
+20K_TOP3_RECALL: 1
+50K_TOP3_RECALL: 1
+FALSE_NEGATIVES: 0
+PRECISION: 0.9231
+50K_LATENCY: 248.45
+COVERAGE_5K: 1990/5000 complete=false
+COVERAGE_20K: 1990/20000 complete=false
+COVERAGE_50K: 1990/50000 complete=false
 PRODUCTION_LOGIN: BLOCKED
 PRODUCTION_AUTH_SMOKE: BLOCKED
 P0: none

@@ -36,6 +36,10 @@ export const QUESTION_SIMILARITY_BUDGET = 2000;
 export const QUESTION_SIMILARITY_THRESHOLD = 0.82;
 export const QUESTION_SIMILARITY_TOP = 3;
 const STEM_TOKEN_BUDGET = 12;
+const TEXT_SIGNATURE_LENGTH = 8;
+const TEXT_PATTERN_CHUNK = 50;
+const TEXT_PATTERN_ROW_LIMIT = 25;
+const TEXT_CANDIDATE_BUDGET = 400;
 
 type D1Like = {
   prepare: (sql: string) => {
@@ -141,9 +145,36 @@ function representativeStemTokens(refs: SourceQuestionRef[]): string[] {
   return selected;
 }
 
+const chunkValues = <T>(values: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+};
+
+/**
+ * 把题干前 8 个规范化字符展开为容忍空格/标点穿插的 LIKE 模式，
+ * 让文本源能直接命中规范化后相同、原始字符串不同的旧题行。
+ */
+function stemTextPatterns(refs: SourceQuestionRef[]): string[] {
+  const patterns = new Set<string>();
+  for (const ref of refs) {
+    const signature = normalize(ref.prepared.stem)
+      .replace(/[%_\\]/g, "")
+      .slice(0, TEXT_SIGNATURE_LENGTH);
+    if (!signature || /^\d+$/.test(signature)) continue;
+    patterns.add(signature.split("").join("%"));
+  }
+  return [...patterns];
+}
+
+const sqlStringLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
 /**
  * 两阶段候选检索：先按 fingerprint / question_type / stage / grade 用一条廉价 SQL
- * 获取有界候选池，昂贵的文本相似度只在该候选池内执行。coverage 明确报告本次
+ * 获取有界候选池，昂贵的文本相似度只在该候选池内执行；题库过大时再按题干文本
+ * 签名补充旧行，避免 `ORDER BY id DESC LIMIT` 只覆盖库尾。coverage 明确报告本次
  * 实际比对范围，避免把部分比对误报成全库检测。
  */
 export async function collectSimilarityCandidates(
@@ -168,16 +199,56 @@ export async function collectSimilarityCandidates(
     params.push(...stemTokens.map((token) => `%${token}%`));
   }
   const where = conditions.length ? ` WHERE ${conditions.join(" OR ")}` : "";
-  const [poolResult, totalRow] = await Promise.all([
-    db.prepare(`SELECT id, stem, fingerprint FROM questions${where} ORDER BY id DESC LIMIT ?`).bind(...params, budget).all<{ id: number; stem: string; fingerprint: string | null }>(),
-    db.prepare(`SELECT COUNT(*) AS count FROM questions${where}`).bind(...params).first<{ count: number }>(),
+
+  const textPatterns = stemTextPatterns(refs);
+  const textSubquery = `SELECT id, stem, fingerprint FROM (SELECT id, stem, fingerprint FROM questions WHERE stem LIKE ? ORDER BY id DESC LIMIT ${TEXT_PATTERN_ROW_LIMIT})`;
+  const textChunkSql = (patterns: string[]) => patterns.map(() => textSubquery).join(" UNION ALL ");
+  const textChunkResults = await Promise.all(
+    chunkValues(textPatterns, TEXT_PATTERN_CHUNK).map((patterns) =>
+      db.prepare(textChunkSql(patterns)).bind(...patterns.map((pattern) => `%${pattern}%`)).all<{ id: number; stem: string; fingerprint: string | null }>(),
+    ),
+  );
+  const textCandidatesById = new Map<number, SimilarityCandidate>();
+  for (const chunkResult of textChunkResults) {
+    for (const row of chunkResult.results || []) {
+      const id = Number(row.id);
+      if (textCandidatesById.has(id)) continue;
+      textCandidatesById.set(id, {
+        id,
+        stem: String(row.stem || ""),
+        fingerprint: String(row.fingerprint || ""),
+      });
+    }
+  }
+  const textCandidates = [...textCandidatesById.values()]
+    .sort((left, right) => right.id - left.id)
+    .slice(0, Math.min(TEXT_CANDIDATE_BUDGET, budget));
+
+  const unionConditions = [...conditions];
+  if (textPatterns.length) {
+    unionConditions.push(`(${textPatterns.map((pattern) => `stem LIKE ${sqlStringLiteral(`%${pattern}%`)}`).join(" OR ")})`);
+  }
+  const unionWhere = unionConditions.length ? ` WHERE ${unionConditions.join(" OR ")}` : "";
+  const remaining = Math.max(0, budget - textCandidates.length);
+  const [totalRow, poolResult] = await Promise.all([
+    db.prepare(`SELECT COUNT(DISTINCT id) AS count FROM questions${unionWhere}`).bind(...params).first<{ count: number }>(),
+    remaining > 0
+      ? db.prepare(`SELECT id, stem, fingerprint FROM questions${where} ORDER BY id DESC LIMIT ?`).bind(...params, remaining).all<{ id: number; stem: string; fingerprint: string | null }>()
+      : Promise.resolve({ results: [] as Array<{ id: number; stem: string; fingerprint: string | null }> }),
   ]);
   const total = Number(totalRow?.count || 0);
-  const candidates = (poolResult.results || []).map((row) => ({
-    id: Number(row.id),
-    stem: String(row.stem || ""),
-    fingerprint: String(row.fingerprint || ""),
-  }));
+  const candidatesById = new Map<number, SimilarityCandidate>();
+  for (const candidate of textCandidates) candidatesById.set(candidate.id, candidate);
+  for (const row of poolResult.results || []) {
+    const id = Number(row.id);
+    if (candidatesById.has(id)) continue;
+    candidatesById.set(id, {
+      id,
+      stem: String(row.stem || ""),
+      fingerprint: String(row.fingerprint || ""),
+    });
+  }
+  const candidates = [...candidatesById.values()].sort((left, right) => right.id - left.id);
   return {
     candidates,
     coverage: { total, compared: candidates.length, complete: candidates.length >= total },

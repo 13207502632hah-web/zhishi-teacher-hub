@@ -82,11 +82,13 @@ function setupDatabase(questionCount, plant = null) {
   const insert = db.prepare(
     "INSERT INTO questions(stem,fingerprint,question_type,stage,grade,status) VALUES(?,?,?,?,?,?)",
   );
+  const plants = Array.isArray(plant) ? plant : plant ? [plant] : [];
   db.exec("BEGIN");
   try {
     for (let index = 0; index < questionCount; index++) {
-      if (plant && index === plant.index) {
-        insert.run(plant.stem, plant.fingerprint, plant.questionType, plant.stage, plant.grade, "active");
+      const planted = plants.find((item) => item.index === index);
+      if (planted) {
+        insert.run(planted.stem, planted.fingerprint, planted.questionType, planted.stage, planted.grade, "active");
       } else {
         insert.run(
           `题干 ${index}`,
@@ -219,6 +221,40 @@ test("token retrieval recalls a near-duplicate outside the old first-2000 pool",
     similar.some((row) => row.candidateId === plantedId),
     "recalled candidate must reach the similarity report",
   );
+});
+
+test("text signature recall reaches rows outside the latest-2000 pool when metadata matches the whole bank", { skip: !sqlite }, async () => {
+  const plants = [
+    { index: 500, stem: "基础题干 0。材料分析！", fingerprint: "old-fp-0", questionType: "单选题", stage: "高中", grade: "高一" },
+    { index: 750, stem: "基础题干 1 坚持  人民民主", fingerprint: "old-fp-1", questionType: "单选题", stage: "高中", grade: "高一" },
+    { index: 1000, stem: "边界外 题干 11 近似变体乙 的表述", fingerprint: "old-fp-2", questionType: "单选题", stage: "高中", grade: "高一" },
+  ];
+  const db = setupDatabase(5000, plants);
+  const plantedIds = plants.map((plant) => Number(db.db.prepare("SELECT id FROM questions WHERE fingerprint=?").get(plant.fingerprint).id));
+  const refs = helpers.buildSourceQuestionRefs(
+    [
+      { stem: "基础题干 0 材料分析", fingerprint: "ref-fp-0", sourceQuestionNumber: 1 },
+      { stem: "基础题干 1 坚持人民民主", fingerprint: "ref-fp-1", sourceQuestionNumber: 2 },
+      { stem: "边界外 题干 11 近似变体乙", fingerprint: "ref-fp-2", sourceQuestionNumber: 3 },
+    ],
+    prepareQuestion,
+  );
+  const { candidates, coverage } = await helpers.collectSimilarityCandidates(db, refs);
+  for (const plantedId of plantedIds) {
+    assert.ok(
+      candidates.some((candidate) => candidate.id === plantedId),
+      `old row ${plantedId} must be recalled outside the latest-2000 pool`,
+    );
+  }
+  assert.ok(candidates.length <= helpers.QUESTION_SIMILARITY_BUDGET);
+  assert.equal(coverage.complete, false);
+  const similar = helpers.scanSimilarityCandidates(refs, candidates);
+  for (const plantedId of plantedIds) {
+    assert.ok(
+      similar.some((row) => row.candidateId === plantedId),
+      `recalled old row ${plantedId} must reach the similarity report`,
+    );
+  }
 });
 
 test("recall and bounded coverage hold at 1k/5k/20k/50k question banks", { skip: !sqlite }, async () => {
