@@ -18,7 +18,7 @@ branch:   main
 VERIFIED:      R1-01 R1-02 R1-05 R1-06 R1-07 R1-08
 PARTIAL:       R1-03（存量 lineage） R1-04（有界候选 coverage）
 NOT_VERIFIED:  线上 Cloudflare Worker CPU（本地 SQLite 可测，线上未测）
-BLOCKED:       生产环境带认证 smoke（无安全凭据，未执行）
+BLOCKED:       生产环境带认证 smoke（Secret 已配置但明文不可读，未执行）
 最终结论:       READY FOR STAGING
 ```
 
@@ -300,7 +300,7 @@ docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
 - schedule re-import：存量无 lineage 行的跨日期修订只能 blocked，不能自动判断（PARTIAL，设计内）。
 - question similarity：候选预算使全库级检测在题库超过预算后受限；API 显式报告 coverage（PARTIAL，不 silent）。
 - Cloudflare CPU：本轮只有本地 SQLite benchmark，线上 Worker CPU 未测量（NOT_VERIFIED）。
-- 生产认证 smoke：无安全凭据，未执行（BLOCKED）。
+- 生产认证 smoke：生产 Secret 已配置但明文不可读，本环境无法取得安全测试凭据，未执行（BLOCKED）。
 - R2 source 失败对象清理：尚未实现定时清理，按 R1F-13 后续立项。
 - mini guard / surface audit 并行端口冲突：测试 harness 注意点，串行无问题。
 
@@ -310,3 +310,112 @@ docs/SPRINT_R2_VERIFY_FINAL_REPORT.md
 
 代码层面无未关闭的 P0/P1；`PRODUCTION_AUTH_SMOKE = BLOCKED`，
 线上 CPU 证据未取得，因此不声明 `PRODUCTION READY`。
+
+## Production Release Gate
+
+执行时间：2026-08-08（Asia/Shanghai）
+
+生产 URL：`https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site`
+
+发布提交：`019d1bed525abb7e32a8a9cb7e6e9486466d537d`
+
+Sites 版本：`appgprj_6a50708fea408191bf864f1778576733~appgver_37e10ead31cc81918544da919b719956`（版本 58）
+
+Sites 部署：`appgdep_6a76ac811a2c81918a097b99f2d259e5`（`succeeded`）
+
+### Git lineage
+
+`git merge-base --is-ancestor 4ac67f8 019d1be` exit 0，PASS。
+
+`git log --oneline 4ac67f8..019d1be`：
+
+```text
+019d1be fix: harden schedule import, question recall, finance idempotency and source access (R2 verify)
+```
+
+R2_VERIFY 全部修改确认建立在 R1 commit `4ac67f8` 之上。
+
+### 安全凭据调查（BLOCKED 根因）
+
+- 生产 Sites Secret 已配置 `TEACHER_ADMIN_ACCOUNT` / `TEACHER_ADMIN_PASSWORD` /
+  `TEACHER_ADMIN_SESSION_SECRET`，但连接器对全部 Secret 仅返回 `value:null`，
+  本环境无法取得明文。
+- 项目没有 Web 注册/建号 API；Web 登录只接受环境配置的单教师管理员身份，
+  助教/学生/家长角色未接通 Web 登录，不存在可安全复用的专用
+  `__R2_PROD_SMOKE__` 测试账号机制。
+- 使用工作区外 `local-dev-vars.patch` 中的既有测试凭据（非仓库内容）对生产
+  `/api/auth/login` 实测，返回 401，确认不是生产凭据。
+- 不能通过覆盖生产 Secret 注入测试凭据：原值不可读，覆盖会永久改变真实管理员
+  密码；不能修改鉴权逻辑或加入测试后门（任务明确禁止）。
+- 因此本环境无法在不等待用户提供凭据、不违反安全边界的前提下执行线上带认证
+  smoke。
+
+### 公开生产 Smoke
+
+重新执行并记录：
+
+```text
+/ -> 200
+/teacher-login -> 200
+/api/session -> {"authenticated":false}
+/workspace -> 307（到 /teacher-login）
+/schedule-imports -> 307（到 /teacher-login）
+/questions -> 307（到 /teacher-login）
+/papers -> 307（到 /teacher-login）
+```
+
+未认证受保护页面按预期跳转教师登录页，无 5xx。
+
+### 带认证生产 Smoke
+
+| 项 | 结果 |
+|---|---|
+| Login | BLOCKED |
+| Session | BLOCKED |
+| Logout | BLOCKED |
+| Schedule import | BLOCKED |
+| Repeated confirm | BLOCKED |
+| Finance exactly-once | BLOCKED |
+| Question import + duplicate detection | BLOCKED |
+| Source authorization | BLOCKED |
+| Candidate pagination | BLOCKED |
+| Cleanup | N/A（未创建任何 smoke 对象） |
+
+未创建任何 `__R2_PROD_SMOKE__` 生产业务对象，未污染真实教学/财务/题库数据，
+因此无测试数据需要清理。
+
+### 5xx / 错误
+
+公开 smoke 期间无 5xx。带认证路径因安全凭据不可取得未执行，无法收集认证后的
+错误日志，不会把未执行项伪造成 PASS。
+
+### 最终本地回归
+
+| Gate | Result | Details |
+|---|---|---|
+| Typecheck | PASS | `tsc --noEmit` 0 错误 |
+| Lint | PASS | ESLint 0 error / 0 warning |
+| Full Tests | PASS | 341 / 341 pass，0 fail / 0 skipped |
+| Build | PASS | `vinext build` 成功 |
+
+### Release Gate 输出
+
+```text
+PRODUCTION_LOGIN: BLOCKED
+PRODUCTION_SESSION: BLOCKED
+PRODUCTION_SCHEDULE_IMPORT: BLOCKED
+PRODUCTION_IDEMPOTENCY: BLOCKED
+PRODUCTION_QUESTION_IMPORT: BLOCKED
+PRODUCTION_SOURCE_ACCESS: BLOCKED
+PRODUCTION_CANDIDATE_PAGINATION: BLOCKED
+PRODUCTION_CLEANUP: N/A（未创建测试数据）
+
+P0 remaining: 无（代码/测试层面）；发布阻塞项：PRODUCTION_AUTH_SMOKE（无安全可读凭据）
+P1 remaining: 无
+
+FINAL RELEASE STATUS: READY FOR STAGING
+```
+
+判定依据：Git lineage、公开生产 smoke、本地 typecheck / lint / full tests / build
+全部 PASS；唯一 blocker 为线上带认证 smoke 无法安全取得凭据。按任务规定，不得把
+BLOCKED 伪装成 PASS，不得绕过鉴权，因此不声明 `PRODUCTION READY`。
