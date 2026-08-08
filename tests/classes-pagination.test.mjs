@@ -282,19 +282,32 @@ test("a class beyond the first 50 is reachable through options q and ids", { ski
   assert.equal(byIds.data.classes[0].name, "班级-4300");
 });
 
-test("paginated classes payload stays under 1MB with 4300 fixtures", { skip: !sqlite }, async () => {
+test("paginated classes payload drops at least 80% versus the full list", { skip: !sqlite }, async () => {
   const { db } = setupDatabase();
   insertClasses(db, 4300);
 
+  const all = [];
+  for (let page = 1; page <= 22; page++) {
+    const part = await getJson(classesRoute(), "/api/classes", searchParams({ pageSize: "200", page: String(page) }));
+    assert.equal(part.response.status, 200);
+    all.push(...part.data.classes);
+  }
+  assert.equal(all.length, 4300);
+  const fullBytes = Buffer.byteLength(JSON.stringify({ classes: all }), "utf8");
+
   const result = await getJson(classesRoute(), "/api/classes");
   assert.equal(result.response.status, 200);
-  const payloadBytes = Buffer.byteLength(JSON.stringify(result.data), "utf8");
+  const defaultBytes = Buffer.byteLength(JSON.stringify(result.data), "utf8");
   assert.ok(
-    payloadBytes < 1_000_000,
-    `default classes payload must stay under 1MB, got ${payloadBytes} bytes`,
+    defaultBytes < fullBytes * 0.2,
+    `default page must cut at least 80% of the full classes payload (${defaultBytes} bytes vs ${fullBytes} bytes)`,
   );
 
   const options = await getJson(optionsRoute(), "/api/classes/options");
   const optionsBytes = Buffer.byteLength(JSON.stringify(options.data), "utf8");
   assert.ok(optionsBytes < 100_000, `options payload must stay small, got ${optionsBytes} bytes`);
+  assert.ok(
+    optionsBytes < fullBytes * 0.2,
+    `options payload must cut at least 80% of the full classes payload (${optionsBytes} bytes vs ${fullBytes} bytes)`,
+  );
 });
