@@ -34,6 +34,20 @@ const { questionTextSimilarity } = loadTsModule("app/lib/question-similarity.ts"
 const OLD_POOL_LIMIT = 2000;
 const IMPORT_REFS = 300;
 
+const DUPLICATE_GROUND_TRUTH = [
+  { type: "punctuation-only change", ref: "基础题干 0 材料分析", duplicate: "基础题干 0。材料分析！" },
+  { type: "whitespace change", ref: "基础题干 1 坚持人民民主", duplicate: "基础题干 1 坚持  人民民主" },
+  { type: "question-number change", ref: "基础题干 2 全过程人民民主三性统一", duplicate: "基础题干 2 全过程人民民主3性统一" },
+  { type: "minor wording change", ref: "基础题干 3 人民代表大会制度是根本政治制度", duplicate: "基础题干 3 人民代表大会制度是我国根本政治制度" },
+  { type: "moderate paraphrase", ref: "基础题干 4 人民通过选举组成国家权力机关", duplicate: "基础题干 4 人民通过选举组成国家权力机关行使权力" },
+  { type: "deliberately hard duplicate", ref: "基础题干 5 全过程人民民主是最广泛最真实最管用的民主", duplicate: "基础题干 5 全过程人民民主是最广泛、最真实、最管用的社会主义民主" },
+];
+
+const DUPLICATE_NEGATIVES = [
+  { type: "same material + different question", ref: "基础题干 6 关于依法治国下列说法正确的是", trap: "基础题干 6 关于依法治国下列说法错误的是" },
+  { type: "different material + similar question", ref: "基础题干 7 坚持和发展中国特色社会主义", trap: "基础题干 7 坚持和发展中国特色市场经济" },
+];
+
 class CountingStatement {
   constructor(db, statementSql, onQuery) {
     this.db = db;
@@ -139,6 +153,83 @@ function createDatabase(questionCount) {
   return db;
 }
 
+/**
+ * 每个数据集都要放下全部 9 个 planted 行；对于放不下原始跨区位置的
+ * 小数据集，把越界位置按同一语义映射到库内唯一位置（1k 全库在预算内，
+ * 5k 越界项映射到 1200 之后）。
+ */
+function groundTruthPositions(questionCount) {
+  const raw = [1201, 2500, 5300, 10500, questionCount - 4, questionCount - 3, questionCount - 2, questionCount - 1, 1200];
+  const unique = [];
+  for (const value of raw) {
+    let position = Math.max(0, Math.min(questionCount - 1, value));
+    while (unique.includes(position)) position = Math.min(questionCount - 1, position - 1);
+    unique.push(position);
+  }
+  return unique;
+}
+
+function createGroundTruthDatabase(questionCount) {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stem TEXT NOT NULL,
+      fingerprint TEXT,
+      question_type TEXT,
+      stage TEXT,
+      grade TEXT,
+      status TEXT NOT NULL DEFAULT 'active'
+    );
+  `);
+  const insert = db.prepare(`
+    INSERT INTO questions(stem, fingerprint, question_type, stage, grade, status)
+    VALUES(?,?,?,?,?,?)
+  `);
+  const positions = groundTruthPositions(questionCount);
+  const positives = DUPLICATE_GROUND_TRUTH.map((pair, index) => ({
+    type: pair.type,
+    refIndex: index,
+    refStem: pair.ref,
+    stem: pair.duplicate,
+    fingerprint: `gt-fp-${index}`,
+    position: positions[index],
+    id: null,
+  }));
+  const negatives = DUPLICATE_NEGATIVES.map((pair, index) => ({
+    type: pair.type,
+    refIndex: positives.length + index,
+    refStem: pair.ref,
+    stem: pair.trap,
+    fingerprint: `neg-fp-${index}`,
+    position: positions[positives.length + index],
+    id: null,
+  }));
+  const exact = {
+    type: "exact duplicate",
+    refIndex: positives.length + negatives.length,
+    refStem: "基础题干 8 依法治国基本方略",
+    stem: "基础题干 8 依法治国基本方略",
+    fingerprint: "exact-fp-8",
+    position: positions[positives.length + negatives.length],
+    id: null,
+  };
+  const plantedByPosition = new Map();
+  for (const item of [...positives, ...negatives, exact]) plantedByPosition.set(item.position, item);
+  for (let index = 0; index < questionCount; index++) {
+    const planted = plantedByPosition.get(index);
+    if (planted) {
+      insert.run(planted.stem, planted.fingerprint, "单选题", "高中", "高一", "active");
+    } else {
+      insert.run(`不相关题干 ${index}`, `base-fp-${index}`, "材料题", "小学", "一年级", "active");
+    }
+  }
+  const findId = (fingerprint) => Number(db.prepare("SELECT id FROM questions WHERE fingerprint=?").get(fingerprint)?.id || 0);
+  for (const item of [...positives, ...negatives]) item.id = findId(item.fingerprint);
+  exact.id = findId(exact.fingerprint);
+  return { db, positives, negatives, exact };
+}
+
 function buildImportRefs() {
   const refs = [];
   for (let index = 0; index < IMPORT_REFS; index++) {
@@ -158,6 +249,23 @@ function buildImportRefs() {
     questionType: raw.questionType,
     stage: raw.stage,
     grade: raw.grade,
+  }));
+}
+
+function buildGroundTruthRefs() {
+  const raw = [
+    ...DUPLICATE_GROUND_TRUTH.map((item) => ({ stem: item.ref })),
+    ...DUPLICATE_NEGATIVES.map((item) => ({ stem: item.ref })),
+    { stem: "基础题干 8 依法治国基本方略" },
+  ];
+  return candidatesHelper.buildSourceQuestionRefs(raw, (entry, index) => ({
+    stem: String(entry.stem || ""),
+    // 导入题 fingerprint 必须与库中既有题不同，扫描才会把库中 planted 行当作
+    // 候选相似项而不是排除掉的同 fingerprint 精确重复。
+    fingerprint: `ref-fp-${index}`,
+    questionType: "单选题",
+    stage: "高中",
+    grade: "高一",
   }));
 }
 
@@ -217,6 +325,62 @@ async function benchmarkSimilarity(questionCount) {
   return results;
 }
 
+async function benchmarkDuplicateMetrics(questionCount) {
+  const { db, positives, negatives, exact } = createGroundTruthDatabase(questionCount);
+  const refs = buildGroundTruthRefs();
+  const adapter = new CountingAdapter(db);
+  const start = performance.now();
+  const { candidates, coverage } = await candidatesHelper.collectSimilarityCandidates(adapter, refs);
+  const rows = candidatesHelper.scanSimilarityCandidates(refs, candidates);
+  const duration = performance.now() - start;
+
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const truePositiveKeys = new Set(positives.map((pair) => `${pair.refIndex}:${pair.id}`));
+  truePositiveKeys.add(`${exact.refIndex}:${exact.id}`);
+  const truePositives = rows.filter((row) => truePositiveKeys.has(`${row.sourceIndex}:${row.candidateId}`));
+  const falsePositives = rows.length - truePositives.length;
+  const top1ById = new Map();
+  const top3ById = new Map();
+  for (const row of rows) {
+    if (!top1ById.has(row.sourceIndex)) top1ById.set(row.sourceIndex, row.candidateId);
+    if (!top3ById.has(row.sourceIndex)) top3ById.set(row.sourceIndex, new Set());
+    top3ById.get(row.sourceIndex).add(row.candidateId);
+  }
+  const pairs = positives.map((pair) => ({
+    type: pair.type,
+    position: pair.position + 1,
+    recalled: candidateIds.has(pair.id),
+    top1: top1ById.get(pair.refIndex) === pair.id,
+    top3: top3ById.get(pair.refIndex)?.has(pair.id) || false,
+    similarityRows: rows.filter((row) => row.sourceIndex === pair.refIndex).length,
+  }));
+  const negativesReported = negatives.filter((pair) => rows.some((row) => row.sourceIndex === pair.refIndex && row.candidateId === pair.id)).length;
+  const recalledCount = pairs.filter((pair) => pair.recalled).length;
+  const exactDetected = Number(db.prepare("SELECT COUNT(*) AS count FROM questions WHERE fingerprint=?").get(exact.fingerprint)?.count || 0) > 0;
+
+  const result = {
+    dataset: questionCount,
+    sqlCount: adapter.sqlCount,
+    durationMs: Number(duration.toFixed(2)),
+    coverage,
+    positivePairs: positives.length,
+    exactPairs: 1,
+    exactDetected,
+    candidateRecall: Number((recalledCount / positives.length).toFixed(4)),
+    top1Recall: Number((pairs.filter((pair) => pair.top1).length / positives.length).toFixed(4)),
+    top3Recall: Number((pairs.filter((pair) => pair.top3).length / positives.length).toFixed(4)),
+    falseNegatives: positives.length - recalledCount,
+    reportedRows: rows.length,
+    truePositives: truePositives.length,
+    falsePositives,
+    precision: rows.length ? Number((truePositives.length / rows.length).toFixed(4)) : null,
+    negativesReported,
+    pairs,
+  };
+  db.close();
+  return result;
+}
+
 async function benchmarkFacets(questionCount) {
   const db = createDatabase(questionCount);
   const queries = facetColumns.map((column) => ({
@@ -241,12 +405,14 @@ async function benchmarkFacets(questionCount) {
   return result;
 }
 
-const datasets = [1000, 5000, 20000];
+const datasets = [1000, 5000, 20000, 50000];
 const similarity = [];
 const facets = [];
+const duplicateMetrics = [];
 for (const dataset of datasets) {
   similarity.push(await benchmarkSimilarity(dataset));
   facets.push(await benchmarkFacets(dataset));
+  duplicateMetrics.push(await benchmarkDuplicateMetrics(dataset));
 }
 
 const report = {
@@ -260,6 +426,7 @@ const report = {
   },
   similarity,
   facets,
+  duplicateMetrics,
 };
 
 mkdirSync("outputs", { recursive: true });
@@ -268,10 +435,14 @@ writeFileSync("outputs/scale-benchmark.json", `${JSON.stringify(report, null, 2)
 console.log("=== 相似度候选基准 ===");
 for (const row of similarity) {
   console.log(`${row.dataset} 题 before: sql=${row.before.sqlCount} candidates=${row.before.candidateCount} comparisons=${row.before.comparisonCount} duration=${row.before.durationMs}ms payload=${row.before.allIdsPayloadBytes}B top=${row.before.topRows}`);
-  console.log(`${row.dataset} 题 after:  sql=${row.after.sqlCount} candidates=${row.after.candidateCount} comparisons=${row.after.comparisonCount} duration=${row.after.durationMs}ms payload=${row.after.allIdsPayloadBytes}B top=${row.after.topRows} coverage=${row.after.coverage.complete}`);
+  console.log(`${row.dataset} 题 after:  sql=${row.after.sqlCount} candidates=${row.after.candidateCount} comparisons=${row.after.comparisonCount} duration=${row.after.durationMs}ms payload=${row.after.allIdsPayloadBytes}B top=${row.after.topRows} coverage=${row.after.coverage.compared}/${row.after.coverage.total} complete=${row.after.coverage.complete}`);
 }
 console.log("=== Facets 基准 ===");
 for (const row of facets) {
   console.log(`${row.dataset} 题 sql=${row.sqlCount} duration=${row.durationMs}ms`);
+}
+console.log("=== 重复检测指标 ===");
+for (const row of duplicateMetrics) {
+  console.log(`${row.dataset} 题 recall=${row.candidateRecall} precision=${row.precision} top1=${row.top1Recall} top3=${row.top3Recall} exact=${row.exactDetected} fp=${row.falsePositives}/${row.reportedRows} coverage=${row.coverage.compared}/${row.coverage.total}`);
 }
 console.log("报告已写入 outputs/scale-benchmark.json");

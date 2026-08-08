@@ -1,4 +1,4 @@
-import { questionTextSimilarity } from "./question-similarity";
+import { bigrams, normalize, questionTextSimilarity } from "./question-similarity";
 
 export type PreparedQuestion = Record<string, unknown> & {
   stem: string;
@@ -32,9 +32,10 @@ export type SimilarityRow = {
   exact: boolean;
 };
 
-export const QUESTION_SIMILARITY_BUDGET = 1200;
+export const QUESTION_SIMILARITY_BUDGET = 2000;
 export const QUESTION_SIMILARITY_THRESHOLD = 0.82;
 export const QUESTION_SIMILARITY_TOP = 3;
+const STEM_TOKEN_BUDGET = 12;
 
 type D1Like = {
   prepare: (sql: string) => {
@@ -107,6 +108,39 @@ const placeholders = (length: number) => Array.from({ length }, () => "?").join(
 const uniqueValues = (values: Array<string | undefined>) =>
   [...new Set(values.filter((value): value is string => Boolean(value)))];
 
+function representativeStemTokens(refs: SourceQuestionRef[]): string[] {
+  const stems = refs.map((ref) => normalize(ref.prepared.stem)).filter(Boolean);
+  if (!stems.length) return [];
+  const tokenRefs = new Map<string, Set<number>>();
+  stems.forEach((stem, index) => {
+    for (const token of bigrams(stem)) {
+      if (/[A-Za-z0-9]/.test(token)) continue;
+      const indexes = tokenRefs.get(token) || new Set<number>();
+      indexes.add(index);
+      tokenRefs.set(token, indexes);
+    }
+  });
+  const remaining = new Set(stems.map((_, index) => index));
+  const selected: string[] = [];
+  while (remaining.size && selected.length < STEM_TOKEN_BUDGET) {
+    let best = "";
+    let bestCount = 0;
+    for (const [token, indexes] of tokenRefs) {
+      if (selected.includes(token)) continue;
+      let count = 0;
+      for (const index of indexes) if (remaining.has(index)) count += 1;
+      if (count > bestCount || (count === bestCount && count > 0 && token < best)) {
+        best = token;
+        bestCount = count;
+      }
+    }
+    if (!bestCount) break;
+    selected.push(best);
+    for (const index of tokenRefs.get(best) || []) remaining.delete(index);
+  }
+  return selected;
+}
+
 /**
  * 两阶段候选检索：先按 fingerprint / question_type / stage / grade 用一条廉价 SQL
  * 获取有界候选池，昂贵的文本相似度只在该候选池内执行。coverage 明确报告本次
@@ -128,10 +162,15 @@ export async function collectSimilarityCandidates(
   pushCondition("question_type", uniqueValues(refs.map((ref) => String(ref.prepared.questionType || ""))));
   pushCondition("stage", uniqueValues(refs.map((ref) => String(ref.prepared.stage || ""))));
   pushCondition("grade", uniqueValues(refs.map((ref) => String(ref.prepared.grade || ""))));
+  const stemTokens = representativeStemTokens(refs);
+  if (stemTokens.length) {
+    conditions.push(`(${stemTokens.map(() => "stem LIKE ?").join(" OR ")})`);
+    params.push(...stemTokens.map((token) => `%${token}%`));
+  }
   const where = conditions.length ? ` WHERE ${conditions.join(" OR ")}` : "";
   const [poolResult, totalRow] = await Promise.all([
     db.prepare(`SELECT id, stem, fingerprint FROM questions${where} ORDER BY id DESC LIMIT ?`).bind(...params, budget).all<{ id: number; stem: string; fingerprint: string | null }>(),
-    db.prepare("SELECT COUNT(*) AS count FROM questions").bind().first<{ count: number }>(),
+    db.prepare(`SELECT COUNT(*) AS count FROM questions${where}`).bind(...params).first<{ count: number }>(),
   ]);
   const total = Number(totalRow?.count || 0);
   const candidates = (poolResult.results || []).map((row) => ({

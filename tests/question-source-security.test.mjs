@@ -159,14 +159,14 @@ test("teacher reads any existing source key and missing keys stay 404-equivalent
   assert.equal(await helpers.canReadQuestionSourceObject(access("teacher", 1), db, null, "question-sources/2026-01-01/missing.docx"), false);
 });
 
-test("assistant can read own uploads and unassociated keys", { skip: !sqlite }, async () => {
+test("assistant can read own uploads but denies unassociated foreign uploads", { skip: !sqlite }, async () => {
   const db = setupDatabase();
   const store = objectStore({
     "question-sources/2026-01-01/own.docx": { customMetadata: { uploadedBy: "10", fingerprint: "fp" } },
     "question-sources/2026-01-01/teacher.docx": { customMetadata: { uploadedBy: "1", fingerprint: "fp" } },
   });
   assert.equal(await helpers.canReadQuestionSourceObject(access("assistant"), db, store.entries["question-sources/2026-01-01/own.docx"], "question-sources/2026-01-01/own.docx"), true);
-  assert.equal(await helpers.canReadQuestionSourceObject(access("assistant"), db, store.entries["question-sources/2026-01-01/teacher.docx"], "question-sources/2026-01-01/teacher.docx"), true, "unassociated files remain readable for queue recovery");
+  assert.equal(await helpers.canReadQuestionSourceObject(access("assistant"), db, store.entries["question-sources/2026-01-01/teacher.docx"], "question-sources/2026-01-01/teacher.docx"), false, "unassociated foreign uploads must not be readable without an authorized link");
 });
 
 test("assistant is denied an associated key without class access", { skip: !sqlite }, async () => {

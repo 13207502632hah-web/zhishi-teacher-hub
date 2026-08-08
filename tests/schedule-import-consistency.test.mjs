@@ -53,15 +53,25 @@ class D1Statement {
     return this;
   }
 
+  maybeFailInjected() {
+    const raw = this.db;
+    if (raw.failWriteSql && this.sql.includes(raw.failWriteSql)) {
+      raw.failWriteSql = null;
+      throw new Error(raw.failWriteMessage || "注入写入失败");
+    }
+  }
+
   async all() {
     return { results: this.db.prepare(this.sql).all(...this.params) };
   }
 
   first() {
+    this.maybeFailInjected();
     return this.db.prepare(this.sql).get(...this.params) ?? null;
   }
 
   async run() {
+    this.maybeFailInjected();
     const info = this.db.prepare(this.sql).run(...this.params);
     return { meta: { changes: Number(info.changes || 0), lastRowId: Number(info.lastInsertRowid || 0) } };
   }
@@ -248,7 +258,7 @@ async function insertLesson(db, row, classId = null) {
   return Number(inserted.id);
 }
 
-async function confirmRowLikeRoute(db, rowId, value, ownerId = 1) {
+async function confirmRowLikeRoute(db, rowId, value, ownerId = 1, options = {}) {
   const row = (await db
     .prepare("SELECT * FROM schedule_import_rows WHERE id=?")
     .bind(rowId)
@@ -318,19 +328,19 @@ async function confirmRowLikeRoute(db, rowId, value, ownerId = 1) {
   const className = value.className ||
     (value.studentNames?.length ? `${value.studentNames.join("、")}课程` : "");
   let classId = null;
-  if (className) {
-    let found = await helpers.findClassId(db, className, ownerId);
-    if (!found) {
-      found = await db
-        .prepare("INSERT INTO classes(owner_id,name,stage,grade,course_type,status) VALUES(?,?,?,?,?,?) RETURNING id")
-        .bind(ownerId, className, "高中", "待补全", "导入课表", "active")
-        .first();
-    }
-    classId = found ? Number(found.id) : null;
-  }
-
   let lessonId = null;
   try {
+    if (className) {
+      let found = await helpers.findClassId(db, className, ownerId);
+      if (!found) {
+        const created = await db
+          .prepare("INSERT INTO classes(owner_id,name,stage,grade,course_type,status) VALUES(?,?,?,?,?,?) RETURNING id")
+          .bind(ownerId, className, "高中", "待补全", "导入课表", "active")
+          .first();
+        found = created ? Number(created.id) : null;
+      }
+      classId = found ? Number(found) : null;
+    }
     for (const name of value.studentNames || []) {
       const studentIds = await helpers.findStudentRecords(db, name);
       if (studentIds.length > 1) {
@@ -359,6 +369,11 @@ async function confirmRowLikeRoute(db, rowId, value, ownerId = 1) {
       .run();
     await helpers.reconcileLessonFinance(db, lessonId, value);
     await helpers.markScheduleImportRow(db, rowId, { action: "created", state: "done", lessonId });
+    try {
+      if (options.audit) await options.audit();
+    } catch {
+      // audit failure must not roll back already committed business writes
+    }
     return { outcome: "done", lessonId };
   } catch (error) {
     await markRowBlocked(
@@ -645,4 +660,114 @@ test("owner-scoped class lookup never reuses another owner's lesson", { skip: !s
     .bind(result.lessonId)
     .first();
   assert.equal(Number(ownLesson.classId), Number(ownClass.id));
+});
+
+async function storedRow(db, rowId) {
+  return db
+    .prepare("SELECT action,processing_state AS state,lesson_id AS lessonId FROM schedule_import_rows WHERE id=?")
+    .bind(rowId)
+    .first();
+}
+
+async function failedWriteRetriesOnce(db, rowId, row, sqlFragment) {
+  db.db.failWriteSql = sqlFragment;
+  const first = await confirmRowLikeRoute(db, rowId, row);
+  assert.equal(first.outcome, "blocked", `${sqlFragment} must block the first confirm`);
+  const state = await storedRow(db, rowId);
+  assert.equal(state.action, "blocked");
+  const hadLesson = Boolean(state.lessonId);
+  assert.equal(state.state, hadLesson ? "needs_reconcile" : "failed");
+  assert.equal(count(db, "lessons"), hadLesson ? 1 : 0);
+
+  const second = await confirmRowLikeRoute(db, rowId, row);
+  assert.equal(second.outcome, "done", `${sqlFragment} retry must finish`);
+  assert.equal(count(db, "lessons"), 1);
+  assert.equal(count(db, "lesson_finance"), 1);
+  assert.deepEqual(
+    {
+      classes: count(db, "classes"),
+      students: count(db, "students"),
+      enrollments: count(db, "enrollments"),
+    },
+    { classes: 1, students: 1, enrollments: 1 },
+    `${sqlFragment} retry must create one class, one student and one enrollment`,
+  );
+  const done = await storedRow(db, rowId);
+  assert.equal(done.action, "created");
+  assert.equal(done.state, "done");
+  assert.ok(done.lessonId);
+}
+
+test("class create failure never leaves an orphan lesson and retries exactly once", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "INSERT INTO classes");
+});
+
+test("student create failure never leaves an orphan lesson and retries exactly once", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "INSERT INTO students");
+});
+
+test("enrollment failure never leaves an orphan lesson and retries exactly once", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "INSERT OR IGNORE INTO enrollments");
+});
+
+test("lesson insert failure never creates a partial lesson and retries exactly once", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "INSERT INTO lessons");
+});
+
+test("row link update failure after lesson insert reconciles without a second lesson", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "UPDATE schedule_import_rows SET action='created'");
+});
+
+test("finance write failure after lesson insert reconciles without a second lesson", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "INSERT OR IGNORE INTO lesson_finance");
+});
+
+test("final row mark failure keeps the lesson link and a retry completes exactly once", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  await failedWriteRetriesOnce(db, rowId, row, "SET action=?,issue=?,lesson_id=COALESCE");
+});
+
+test("audit failure after commit does not roll back the created lesson", { skip: !sqlite }, async () => {
+  const db = setupDatabase();
+  const importId = await createImport(db);
+  const row = baseRow();
+  const rowId = await insertRow(db, importId, row);
+  const result = await confirmRowLikeRoute(db, rowId, row, 1, {
+    audit: async () => {
+      throw new Error("审计写入中断");
+    },
+  });
+  assert.equal(result.outcome, "done");
+  assert.equal(count(db, "lessons"), 1);
+  assert.equal(count(db, "lesson_finance"), 1);
+  const state = await storedRow(db, rowId);
+  assert.equal(state.action, "created");
+  assert.equal(state.state, "done");
 });

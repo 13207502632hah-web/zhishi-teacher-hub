@@ -32,7 +32,7 @@ export async function canReadQuestionSourceObject(
     .prepare("SELECT id FROM question_sets WHERE source_document=? LIMIT 1")
     .bind(key)
     .first<{ id: number }>();
-  if (!referenced) return true;
+  if (!referenced) return false;
   return hasQuestionSetClassAccess(db, Number(referenced.id), access.id);
 }
 

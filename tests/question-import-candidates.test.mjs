@@ -66,7 +66,7 @@ class D1Adapter {
   }
 }
 
-function setupDatabase(questionCount) {
+function setupDatabase(questionCount, plant = null) {
   const db = new sqlite(":memory:");
   db.exec(`
     CREATE TABLE questions (
@@ -82,15 +82,24 @@ function setupDatabase(questionCount) {
   const insert = db.prepare(
     "INSERT INTO questions(stem,fingerprint,question_type,stage,grade,status) VALUES(?,?,?,?,?,?)",
   );
-  for (let index = 0; index < questionCount; index++) {
-    insert.run(
-      `题干 ${index}`,
-      `fp-${index}`,
-      index % 3 === 0 ? "单选题" : "材料题",
-      "高中",
-      "高一",
-      "active",
-    );
+  db.exec("BEGIN");
+  try {
+    for (let index = 0; index < questionCount; index++) {
+      if (plant && index === plant.index) {
+        insert.run(plant.stem, plant.fingerprint, plant.questionType, plant.stage, plant.grade, "active");
+      } else {
+        insert.run(
+          `题干 ${index}`,
+          `fp-${index}`,
+          index % 3 === 0 ? "单选题" : "材料题",
+          "高中",
+          "高一",
+          "active",
+        );
+      }
+    }
+  } finally {
+    db.exec("COMMIT");
   }
   return new D1Adapter(db);
 }
@@ -159,14 +168,14 @@ test("similarity scan keeps only the top three candidates per source ref", { ski
 });
 
 test("candidate collection is bounded and reports incomplete coverage above budget", { skip: !sqlite }, async () => {
-  const db = setupDatabase(1300);
+  const db = setupDatabase(2500);
   const refs = helpers.buildSourceQuestionRefs(
     [{ stem: "新题", fingerprint: "new-fp", sourceQuestionNumber: 1 }],
     prepareQuestion,
   );
   const { candidates, coverage } = await helpers.collectSimilarityCandidates(db, refs);
   assert.equal(candidates.length, helpers.QUESTION_SIMILARITY_BUDGET);
-  assert.equal(coverage.total, 1300);
+  assert.equal(coverage.total, 2500);
   assert.equal(coverage.compared, helpers.QUESTION_SIMILARITY_BUDGET);
   assert.equal(coverage.complete, false);
 });
@@ -180,4 +189,66 @@ test("candidate collection marks full coverage when the whole bank fits the budg
   const { coverage } = await helpers.collectSimilarityCandidates(db, refs);
   assert.equal(coverage.total, 500);
   assert.equal(coverage.complete, true);
+});
+
+test("token retrieval recalls a near-duplicate outside the old first-2000 pool", { skip: !sqlite }, async () => {
+  const db = setupDatabase(5000, {
+    index: 3500,
+    stem: "新题 0 近似题干变体",
+    fingerprint: "fp-3500",
+    questionType: "解答题",
+    stage: "初中",
+    grade: "初三",
+  });
+  const planted = db.db.prepare("SELECT id FROM questions WHERE fingerprint=?").get("fp-3500");
+  assert.ok(planted, "planted row must exist");
+  const plantedId = Number(planted.id);
+  const refs = helpers.buildSourceQuestionRefs(
+    [{ stem: "新题 0 近似题干变体", fingerprint: "new-fp", sourceQuestionNumber: 1 }],
+    prepareQuestion,
+  );
+  const { candidates, coverage } = await helpers.collectSimilarityCandidates(db, refs);
+  assert.ok(
+    candidates.some((candidate) => candidate.id === plantedId),
+    "attribute-different near-duplicate must still be recalled by stem tokens",
+  );
+  assert.equal(coverage.complete, false);
+  assert.ok(candidates.length <= helpers.QUESTION_SIMILARITY_BUDGET);
+  const similar = helpers.scanSimilarityCandidates(refs, candidates);
+  assert.ok(
+    similar.some((row) => row.candidateId === plantedId),
+    "recalled candidate must reach the similarity report",
+  );
+});
+
+test("recall and bounded coverage hold at 1k/5k/20k/50k question banks", { skip: !sqlite }, async () => {
+  for (const size of [1000, 5000, 20000, 50000]) {
+    const db = setupDatabase(size, {
+      index: size - 1,
+      stem: "规模题干 近似副本 700",
+      fingerprint: "plant-fp",
+      questionType: "解答题",
+      stage: "小学",
+      grade: "三年级",
+    });
+    const planted = db.db.prepare("SELECT id FROM questions WHERE fingerprint=?").get("plant-fp");
+    const plantedId = Number(planted.id);
+    const refs = helpers.buildSourceQuestionRefs(
+      [{ stem: "规模题干 近似副本 700", fingerprint: "new-fp", sourceQuestionNumber: 1 }],
+      prepareQuestion,
+    );
+    const { candidates, coverage } = await helpers.collectSimilarityCandidates(db, refs);
+    assert.ok(
+      candidates.some((candidate) => candidate.id === plantedId),
+      `${size} 题库必须召回 planted 近似题`,
+    );
+    assert.ok(candidates.length <= helpers.QUESTION_SIMILARITY_BUDGET, `${size} 题库候选池有界`);
+    assert.ok(coverage.total <= size, `${size} 题库 coverage.total 不应超过题库总量`);
+    assert.equal(coverage.total, size, `${size} 题库条件命中量应与题库总量一致`);
+    assert.equal(
+      coverage.complete,
+      size <= helpers.QUESTION_SIMILARITY_BUDGET,
+      `${size} 题库 coverage.complete 应反映候选池是否取尽`,
+    );
+  }
 });

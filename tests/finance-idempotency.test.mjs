@@ -63,6 +63,9 @@ class D1Statement {
   }
 
   async run() {
+    if (this.db.failComplete && /UPDATE idempotency_operations SET status='completed'/.test(this.sql)) {
+      throw new Error("simulated completeOperation failure");
+    }
     const info = this.db.prepare(this.sql).run(...this.params);
     return { meta: { changes: Number(info.changes || 0), lastRowId: Number(info.lastInsertRowid || 0) } };
   }
@@ -323,4 +326,51 @@ test("adjustment confirmations keep their amount and replay the same snapshot", 
   assert.equal(replay.body.replayed, true);
   assert.equal(replay.body.snapshot.adjustment, 50);
   assert.equal(replay.body.snapshot.adjustmentReason, "加课补贴");
+});
+
+test("stale started operation is reclaimed and confirms exactly once", { skip: !sqlite }, async () => {
+  const { db } = setupDatabase();
+  const input = baseInput();
+  db.prepare("INSERT INTO idempotency_operations(actor_type,actor_id,action,operation_id,status) VALUES(?,?,?,?,?)")
+    .run("user", 1, "finance.confirm", input.operationId, "started");
+  db.prepare("UPDATE idempotency_operations SET updated_at=datetime('now','-10 minutes') WHERE operation_id=?")
+    .run(input.operationId);
+
+  const first = await responseJson(await helpers.confirmFinanceSettlement(input));
+  assert.equal(first.status, 200);
+  assert.equal(first.body.replayed, false);
+  assert.ok(Number.isInteger(first.body.id));
+  assert.equal(count(db, "lesson_finance"), 1);
+  const operation = db.prepare("SELECT status FROM idempotency_operations WHERE operation_id=?").get(input.operationId);
+  assert.equal(operation.status, "completed");
+
+  const replay = await responseJson(await helpers.confirmFinanceSettlement(input));
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.replayed, true);
+  assert.equal(replay.body.id, first.body.id);
+  assert.equal(count(db, "lesson_finance"), 1);
+});
+
+test("completeOperation failure after commit is recovered by replay", { skip: !sqlite }, async () => {
+  const { db } = setupDatabase();
+  const input = baseInput();
+  db.failComplete = true;
+
+  const first = await responseJson(await helpers.confirmFinanceSettlement(input));
+  assert.equal(first.status, 200);
+  assert.equal(first.body.replayed, false);
+  assert.ok(Number.isInteger(first.body.id));
+  assert.equal(count(db, "lesson_finance"), 1);
+  let operation = db.prepare("SELECT status FROM idempotency_operations WHERE operation_id=?").get(input.operationId);
+  assert.equal(operation.status, "started", "business commit survives a failed completion write");
+
+  db.failComplete = false;
+  const replay = await responseJson(await helpers.confirmFinanceSettlement(input));
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.replayed, true);
+  assert.equal(replay.body.id, first.body.id);
+  assert.equal(count(db, "lesson_finance"), 1);
+  operation = db.prepare("SELECT status,result_json AS resultJson FROM idempotency_operations WHERE operation_id=?").get(input.operationId);
+  assert.equal(operation.status, "completed");
+  assert.match(operation.resultJson, /"replayed":true/);
 });

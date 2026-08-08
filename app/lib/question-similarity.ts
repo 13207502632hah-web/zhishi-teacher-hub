@@ -1,8 +1,8 @@
-function normalize(value: unknown) {
+export function normalize(value: unknown) {
   return String(value || "").normalize("NFKC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
-function bigrams(value: string) {
+export function bigrams(value: string) {
   if (value.length < 2) return value ? [value] : [];
   return Array.from({ length: value.length - 1 }, (_, index) => value.slice(index, index + 2));
 }

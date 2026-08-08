@@ -49,6 +49,17 @@ test("question pagination is clamped after filtering instead of returning a fals
   );
 });
 
+test("question pagination keeps a stable secondary id order for every sort path", async () => {
+  const route = await read("app/api/questions/route.ts");
+
+  assert.match(route, /asc\(questions\.updatedAt\), asc\(questions\.id\)/);
+  assert.match(route, /desc\(questions\.updatedAt\), desc\(questions\.id\)/);
+  assert.match(route, /desc\(questions\.difficulty\), desc\(questions\.id\)/);
+  assert.match(route, /asc\(questions\.difficulty\), asc\(questions\.id\)/);
+  assert.match(route, /desc\(questions\.useCount\), desc\(questions\.id\)/);
+  assert.match(route, /asc\(questions\.useCount\), asc\(questions\.id\)/);
+});
+
 test("adding many selected questions to a paper keeps every unique valid id", async () => {
   const { mergeQuestionSelection } = await loadTsModule("app/lib/question-list.ts");
 

@@ -176,6 +176,7 @@ const database = await findDatabase(path.join(root, ".wrangler", "state", "v3", 
 assert.ok(database?.includes(`${path.sep}.wrangler${path.sep}state${path.sep}`), "只允许使用项目本地 D1");
 const sqlite = new DatabaseSync(database);
 sqlite.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
+cleanup();
 
 function sql(statement) {
   sqlite.exec(statement);
@@ -298,6 +299,7 @@ function cleanup() {
     DELETE FROM enrollments WHERE class_id IN (${classIds}) OR student_id IN (${studentIds});
     DELETE FROM pricing_rules WHERE student_id IN (${studentIds});
     DELETE FROM workflow_templates WHERE name LIKE ${quote(`${marker}%`)};
+    DELETE FROM idempotency_operations WHERE operation_id LIKE ${quote(`${marker}%`)};
     DELETE FROM questions WHERE id IN (${questionIds});
     DELETE FROM students WHERE id IN (${studentIds});
     DELETE FROM classes WHERE id IN (${classIds});`);
@@ -1360,6 +1362,61 @@ async function exercisePaperRecommendationAllCandidates(cookie) {
   return { checks, ok: true };
 }
 
+async function exercise15kMatchPagination(cookie) {
+  const checks = [];
+  const knowledge = `${marker}_15k_pagination`;
+  const total = 15000;
+  sql(`
+    WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<${total})
+    INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status)
+    SELECT ${quote(`${marker}_15k_`)}||printf('%05d',n),'单选题','高中','高一',${quote(knowledge)},'A','15k分页合成样本','active' FROM seq;
+  `);
+  const stored = Number(rows(`SELECT COUNT(*) AS total FROM questions WHERE status='active' AND knowledge_points=${quote(knowledge)}`)[0].total);
+  assert.equal(stored, total, `15k 匹配题量应为 ${total}，实际 ${stored}`);
+  const ids = rows(`SELECT id FROM questions WHERE status='active' AND knowledge_points=${quote(knowledge)} ORDER BY id`).map((row) => Number(row.id));
+  assert.equal(ids.length, total);
+  // API 使用 updated_at DESC, id DESC；同一批插入的题目按 id 降序分页。
+  const expectedIdAt = (position) => ids[ids.length - position];
+  const expectedStemAt = (position) => `${marker}_15k_${String(total - position + 1).padStart(5, "0")}`;
+  const requestedPositions = [1201, 2000, 5000, 10000, 15000];
+
+  for (const position of requestedPositions) {
+    const page = Math.ceil(position / 50);
+    const result = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&page=${page}`, { cookie });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    assert.equal(Number(result.data.total), total, `page ${page} total=${result.data.total}`);
+    assert.equal(Number(result.data.page), page);
+    assert.equal(Number(result.data.pageCount), Math.ceil(total / 50));
+    assert.equal(Number(result.data.candidateLimited), 0, "普通分页不应对 15k 匹配结果做候选截断");
+    const pageIndex = (position - 1) % 50;
+    const question = result.data.questions?.[pageIndex];
+    assert.ok(question, `page ${page} 必须包含位置 ${position}`);
+    assert.equal(Number(question.id), expectedIdAt(position), `位置 ${position} 的题目 ID 错误`);
+    assert.equal(String(question.stem), expectedStemAt(position), `位置 ${position} 的题目内容错误`);
+    checks.push(`普通分页可访问第 ${position} 条匹配题`);
+  }
+
+  const first = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&page=1`, { cookie });
+  assert.equal(first.response.status, 200, JSON.stringify(first.data));
+  assert.equal(Number(first.data.total), total);
+  const firstIds = first.data.questions.map((item) => Number(item.id));
+  assert.equal(firstIds.length, 50);
+  assert.equal(new Set(firstIds).size, 50, "第一页 50 条不应重复");
+  checks.push("普通分页第一页 50 条无重复");
+
+  const candidate = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&candidate=1&page=1`, { cookie });
+  assert.equal(candidate.response.status, 200, JSON.stringify(candidate.data));
+  assert.equal(Number(candidate.data.total), total);
+  assert.equal(Number(candidate.data.candidateTotal), total);
+  assert.equal(Boolean(candidate.data.candidateLimited), true, "candidate=1 必须声明有界截断");
+  assert.ok(Array.isArray(candidate.data.allIds));
+  assert.ok(candidate.data.allIds.length <= 1200, `candidate=1 allIds=${candidate.data.allIds.length}`);
+  assert.ok(candidate.data.allIds.length < total);
+  checks.push("candidate=1 仍只返回有界 ID 缓冲");
+
+  return { checks, ok: true };
+}
+
 async function exerciseBusinessCoverage(cookie) {
   const modules = [
     ["recognition", exerciseRecognitionBusiness],
@@ -1376,6 +1433,7 @@ async function exerciseBusinessCoverage(cookie) {
     ["questionFacetCounts", exerciseQuestionFacetCounts],
     ["questionKnowledgeMultiKeyword", exerciseQuestionKnowledgeMultiKeyword],
     ["paperRecommendationAllCandidates", exercisePaperRecommendationAllCandidates],
+    ["15kMatchPagination", exercise15kMatchPagination],
   ];
   const results = {};
   for (const [name, run] of modules) results[name] = await run(cookie);

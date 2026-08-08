@@ -7,6 +7,10 @@ export async function beginOperation(actor: OperationActor, action: string, oper
   if (!operationId || operationId.length < 8 || operationId.length > 128) {
     return { error: Response.json({ error: "缺少有效的 operationId" }, { status: 400 }) };
   }
+  const reclaimed = await env.DB.prepare("UPDATE idempotency_operations SET status='started',result_json=NULL,updated_at=CURRENT_TIMESTAMP WHERE actor_type=? AND actor_id=? AND action=? AND operation_id=? AND status='started' AND datetime(updated_at)<datetime('now','-5 minutes')")
+    .bind(actor.type, actor.id, action, operationId)
+    .run();
+  if (Number(reclaimed.meta?.changes || 0) > 0) return { acquired: true };
   const inserted = await env.DB.prepare("INSERT OR IGNORE INTO idempotency_operations(actor_type,actor_id,action,operation_id,status,expires_at) VALUES(?,?,?,?, 'started', datetime('now','+30 day'))")
     .bind(actor.type, actor.id, action, operationId).run();
   if (Number(inserted.meta?.changes || 0) > 0) return { acquired: true };

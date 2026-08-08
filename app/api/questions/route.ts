@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, lt, or, sql, type SQL } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { questions } from "../../../db/schema";
@@ -27,7 +27,13 @@ export async function GET(request: Request) {
   if (issue === "duplicate") conditions.push(sql`${questions.fingerprint} IN (SELECT fingerprint FROM questions WHERE fingerprint IS NOT NULL AND fingerprint != '' GROUP BY fingerprint HAVING COUNT(*) > 1)`);
   if (issue === "ready") conditions.push(sql`COALESCE(${questions.stem},'')!='' AND COALESCE(${questions.answer},'')!='' AND COALESCE(${questions.knowledgePoints},'')!='' AND COALESCE(${questions.parseConfidence},1)>=0.7 AND NOT (${questions.fingerprint} IN (SELECT fingerprint FROM questions WHERE fingerprint IS NOT NULL AND fingerprint!='' GROUP BY fingerprint HAVING COUNT(*)>1)) AND (CASE WHEN ${questions.questionType} IN ('单选题','多选题','判断题') THEN COALESCE(${questions.options},'')!='' ELSE COALESCE(${questions.scoringPoints},${questions.answerPoints},${questions.analysis},'')!='' END)`);
   const where = conditions.length ? and(...conditions) : undefined;
-  const order = sort === "updated_asc" ? asc(questions.updatedAt) : sort === "difficulty_desc" ? desc(questions.difficulty) : sort === "difficulty_asc" ? asc(questions.difficulty) : sort === "use_count_desc" ? desc(questions.useCount) : sort === "use_count_asc" ? asc(questions.useCount) : desc(questions.updatedAt);
+  const order: SQL[] =
+    sort === "updated_asc" ? [asc(questions.updatedAt), asc(questions.id)]
+      : sort === "difficulty_desc" ? [desc(questions.difficulty), desc(questions.id)]
+      : sort === "difficulty_asc" ? [asc(questions.difficulty), asc(questions.id)]
+      : sort === "use_count_desc" ? [desc(questions.useCount), desc(questions.id)]
+      : sort === "use_count_asc" ? [asc(questions.useCount), asc(questions.id)]
+      : [desc(questions.updatedAt), desc(questions.id)];
   const [countRows, idRows, issues] = await Promise.all([
     getDb().select({ count: sql<number>`count(*)` }).from(questions).where(where),
     (candidateAll
@@ -37,7 +43,7 @@ export async function GET(request: Request) {
   ]);
   const total = Number(countRows[0]?.count || 0);
   const pageCount = Math.max(1, Math.ceil(total / pageSize)), page = Math.min(requestedPage, pageCount);
-  const rows = await getDb().select().from(questions).where(where).orderBy(order).limit(pageSize).offset((page - 1) * pageSize);
+  const rows = await getDb().select().from(questions).where(where).orderBy(...order).limit(pageSize).offset((page - 1) * pageSize);
   const listRows = rows.map(({ answer, analysis, answerPoints, scoringPoints, standardExpression, ...row }) => ({ ...row, answerAvailable: Boolean(String(answer || "").trim()), analysisAvailable: Boolean(String(analysis || answerPoints || scoringPoints || standardExpression || "").trim()) }));
   return Response.json({
     questions: listRows,
