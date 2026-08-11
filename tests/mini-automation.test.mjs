@@ -21,6 +21,9 @@ test("automation is local-only by default and redacts runtime credentials", asyn
   assert.match(source, /Bearer \[REDACTED\]/);
   assert.match(source, /__e2e__/);
   assert.match(source, /cleanupFixtures/);
+  assert.match(source, /DatabaseSync/);
+  assert.match(source, /backupDatabase/);
+  assert.doesNotMatch(source, /runProcess\("sqlite3"/);
   assert.match(source, /args: \["--port", "9431"\]/);
   assert.match(source, /ws:\/\/127\.0\.0\.1:9420/);
   assert.match(source, /wechatUploaded: false/);

@@ -6,6 +6,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
+import { backup as backupDatabase, DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -210,13 +211,34 @@ async function findDatabase() {
   return files[0];
 }
 
-async function sqlite(db, sql, label = "本地 D1") {
-  return runProcess("sqlite3", [db, sql], { label });
+function sqlite(db, sql, label = "本地 D1") {
+  const database = new DatabaseSync(db);
+  try {
+    database.exec(sql);
+    return { stdout: "", stderr: "" };
+  } catch (error) {
+    throw new Error(`${label}失败：${sanitize(error instanceof Error ? error.message : error)}`);
+  } finally {
+    database.close();
+  }
 }
 
-async function sqliteRows(db, sql) {
-  const result = await runProcess("sqlite3", ["-json", db, sql], { label: "本地 D1 查询" });
-  return result.stdout.trim() ? JSON.parse(result.stdout) : [];
+function sqliteRows(db, sql) {
+  const database = new DatabaseSync(db, { readOnly: true });
+  try {
+    return database.prepare(sql).all();
+  } finally {
+    database.close();
+  }
+}
+
+async function backupLocalDatabase(db, target) {
+  const database = new DatabaseSync(db, { readOnly: true });
+  try {
+    await backupDatabase(database, target);
+  } finally {
+    database.close();
+  }
 }
 
 async function hasTable(db, table) {
@@ -232,7 +254,7 @@ async function hasColumn(db, table, column) {
 async function applyMigration(db, filename, applied) {
   const migration = path.join(DRIZZLE_ROOT, filename);
   if (!await ensurePath(migration)) throw new Error(`缺少迁移：${filename}`);
-  await sqlite(db, `.read '${migration}'`, `应用 ${filename}`);
+  sqlite(db, await readFile(migration, "utf8"), `应用 ${filename}`);
   applied.push(filename);
 }
 
@@ -284,7 +306,7 @@ async function prepareDatabase() {
 
   await mkdir(path.join(ARTIFACT_ROOT, "backups"), { recursive: true });
   const backup = path.join(ARTIFACT_ROOT, "backups", `local-d1-${timestamp()}.sqlite`);
-  await sqlite(db, `.backup '${backup}'`, "备份本地 D1");
+  await backupLocalDatabase(db, backup);
 
   if (!await hasTable(db, "users")) {
     const migrations = (await readdir(DRIZZLE_ROOT)).filter((name) => /^00(?:0\d|1[0-4])_.*\.sql$/.test(name)).sort();
