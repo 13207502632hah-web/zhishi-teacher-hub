@@ -100,9 +100,9 @@ scripts/reproduce-runtime-issues.mjs` 会实际创建演示数据、删除课时
 `CF_PAGES_ENV=production` 启动本地服务，同时故意误配
 `WECHAT_TEST_MODE=true` 与 AppID/AppSecret，验证：
 
-- `POST /api/mini/login`（测试码与正式 code）返回 503
+- `POST /api/v2/mini/login`（测试码与正式 code）返回 503
   `MINI_FEATURE_DISABLED`。
-- `GET /api/mini/sync`、`GET /api/mini/me` 返回 503
+- `GET /api/v2/mini/sync`、`GET /api/v2/mini/me` 返回 503
   `MINI_FEATURE_DISABLED`。
 - `wechat_accounts`、`mini_sessions`、`sync_events` 数量与请求前完全一致，
   证明即使环境变量被误配也不会创建账号、会话或同步事件。

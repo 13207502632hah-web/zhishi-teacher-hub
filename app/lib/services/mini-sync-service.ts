@@ -29,10 +29,9 @@ export async function recordConfirmedFeedbackEvent(row: Record<string, unknown>)
 
 export async function syncEventsFor(access: MiniAccess, cursor: number) {
   const studentIds = await accessibleStudentIds(access);
-  const clauses = ["account_id=?"], bindings: unknown[] = [cursor, access.accountId];
-  if (access.role === "teacher") clauses.push("audience_role='teacher'", "(audience_role IS NULL AND student_id IS NULL AND account_id IS NULL)");
-  else if (studentIds.length) { clauses.push(`student_id IN (${studentIds.map(() => "?").join(",")})`); bindings.push(...studentIds); }
-  const rows = await env.DB.prepare(`SELECT id,event_type AS eventType,entity_type AS entityType,entity_id AS entityId,payload,is_deleted AS deleted,created_at AS createdAt FROM sync_events WHERE id>? AND (${clauses.join(" OR ")}) ORDER BY id LIMIT 250`)
+  const clauses = ["account_id=?"], bindings: unknown[] = [cursor, access.role, access.accountId];
+  if (studentIds.length) { clauses.push(`student_id IN (${studentIds.map(() => "?").join(",")})`); bindings.push(...studentIds); }
+  const rows = await env.DB.prepare(`SELECT id,event_type AS eventType,entity_type AS entityType,entity_id AS entityId,payload,is_deleted AS deleted,created_at AS createdAt FROM sync_events WHERE id>? AND (audience_role IS NULL OR audience_role=?) AND (${clauses.join(" OR ")}) ORDER BY id LIMIT 250`)
     .bind(...bindings).all<Record<string, unknown>>();
   const events = rows.results.map((row) => ({ ...row, payload: row.payload ? safeJson(String(row.payload)) : null, deleted: Boolean(row.deleted) }));
   const latest = events.length ? Number((events[events.length - 1] as Record<string, unknown>).id) : Number((await env.DB.prepare("SELECT COALESCE(MAX(id),0) AS cursor FROM sync_events").first<{ cursor: number }>())?.cursor || cursor);
@@ -40,7 +39,6 @@ export async function syncEventsFor(access: MiniAccess, cursor: number) {
 }
 
 export async function accessibleStudentIds(access: MiniAccess) {
-  if (access.role === "teacher") return [];
   const rows = await env.DB.prepare("SELECT student_id AS studentId FROM mini_bindings WHERE account_id=? AND status='active' UNION SELECT student_id AS studentId FROM parent_student_links WHERE parent_account_id=? AND status='active'")
     .bind(access.accountId, access.accountId).all<{ studentId: number }>();
   const ids = rows.results.map((row) => Number(row.studentId)).filter(Boolean);

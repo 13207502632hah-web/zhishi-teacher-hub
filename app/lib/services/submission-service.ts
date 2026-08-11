@@ -6,25 +6,22 @@ import { accessibleStudentIds, recordSyncEvent } from "./mini-sync-service";
 export async function listSubmissions(access: MiniAccess, assignmentId: number) {
   const bind: unknown[] = [assignmentId];
   let scope = "";
-  if (access.role !== "teacher") {
-    const ids = await accessibleStudentIds(access);
-    if (!ids.length) return [];
-    scope = ` AND s.student_id IN (${ids.map(() => "?").join(",")})`;
-    bind.push(...ids);
-  }
+  const ids = await accessibleStudentIds(access);
+  if (!ids.length) return [];
+  scope = ` AND s.student_id IN (${ids.map(() => "?").join(",")})`;
+  bind.push(...ids);
   const rows = await env.DB.prepare(`SELECT s.id,s.assignment_id AS assignmentId,s.student_id AS studentId,st.name AS studentName,s.status,s.score,s.review_tags AS reviewTags,s.teacher_note AS teacherNote,s.submitted_at AS submittedAt,s.updated_at AS updatedAt,(SELECT MAX(version) FROM submission_versions WHERE submission_id=s.id) AS latestVersion,(SELECT teacher_note FROM submission_reviews WHERE submission_id=s.id AND status='confirmed' ORDER BY id DESC LIMIT 1) AS confirmedNote,(SELECT revision_requirements FROM submission_reviews WHERE submission_id=s.id AND status='confirmed' ORDER BY id DESC LIMIT 1) AS revisionRequirements FROM assignment_submissions s JOIN students st ON st.id=s.student_id WHERE s.assignment_id=?${scope} ORDER BY st.name`)
     .bind(...bind).all();
   return Promise.all(rows.results.map(async (row: any) => {
     const version = await env.DB.prepare("SELECT id,text_content AS textContent FROM submission_versions WHERE submission_id=? ORDER BY version DESC LIMIT 1").bind(row.id).first<Record<string, unknown>>();
     const assets = version?.id ? (await env.DB.prepare("SELECT fa.id,fa.original_name AS name,fa.mime_type AS mimeType,fa.size FROM submission_assets sa JOIN file_assets fa ON fa.id=sa.asset_id WHERE sa.submission_version_id=? AND fa.status='active' ORDER BY sa.position").bind(version.id).all<Record<string, unknown>>()).results : [];
-    return { ...row, textContent: version?.textContent || "", attachments: assets.map((asset) => ({ ...asset, url: `/api/mini/files/${asset.id}` })) };
+    return { ...row, textContent: version?.textContent || "", attachments: assets.map((asset) => ({ ...asset, url: `/api/v2/mini/files/${asset.id}` })) };
   }));
 }
 
 export async function submitAssignment(access: MiniAccess, body: Record<string, any>) {
   const assignmentId = Number(body.assignmentId), operationId = String(body.operationId || "");
   const studentId = access.role === "student" ? Number(access.studentId || 0) : Number(body.studentId || 0);
-  if (access.role === "teacher") return Response.json({ error: "教师不能代替学生提交作业" }, { status: 403 });
   const allowedIds = await accessibleStudentIds(access);
   if (!studentId || !allowedIds.includes(studentId)) return Response.json({ error: "无权为该学生提交" }, { status: 403 });
   const assignment = await env.DB.prepare("SELECT a.id,a.status,COALESCE(s.allow_parent_submit,1) AS allowParentSubmit FROM assignments a LEFT JOIN assignment_settings s ON s.assignment_id=a.id WHERE a.id=? AND a.status='published' AND (EXISTS(SELECT 1 FROM assignment_targets t WHERE t.assignment_id=a.id AND t.target_type='student' AND t.target_id=?) OR (NOT EXISTS(SELECT 1 FROM assignment_targets st WHERE st.assignment_id=a.id AND st.target_type='student') AND EXISTS(SELECT 1 FROM enrollments e WHERE e.class_id=a.class_id AND e.student_id=? AND e.status='active')))")

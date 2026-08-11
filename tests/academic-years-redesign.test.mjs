@@ -140,3 +140,20 @@ test("promotion API guards the batch and does not report repeated requests as su
   assert.doesNotMatch(route, /repeated:\s*true/);
   assert.match(route, /确认失败|晋升未完成/);
 });
+
+test("confirmed promotion has a teacher-approved 24-hour conflict-safe undo", async () => {
+  const [route, undo, migration, approvals, executor, operations] = await Promise.all([
+    read("app/api/academic-years/[year]/promotion/route.ts"),
+    read("app/api/v2/academic-years/[year]/promotion/undo/route.ts"),
+    read("drizzle/0032_promotion_safe_undo.sql"),
+    read("app/api/v2/approvals/route.ts"),
+    read("app/lib/v2/approval-executor.ts"),
+    read("app/v2/operations/OperationsWorkspace.tsx"),
+  ]);
+  for (const field of ["undo_until", "undone_by", "undone_at", "undo_reason"]) assert.match(migration, new RegExp(field));
+  for (const marker of ["undoPromotion", "确认撤销晋升", "status='undoing'", "status='undone'", "undo_conflict", "compensation", "studentUpdatedAt", "expectedConfirmedAt"]) assert.match(route, new RegExp(marker));
+  assert.match(route, /datetime\(undo_until\)>datetime\('now'\)/);
+  assert.match(undo, /operationId/); assert.match(undo, /academic_year\.undo/); assert.match(undo, /undoOpen/); assert.match(undo, /createApproval/);
+  assert.match(approvals, /academic_year\.undo/); assert.match(executor, /academic_year\.undo/); assert.match(executor, /undoPromotion/);
+  assert.match(operations, /申请安全撤销本次晋升/); assert.match(operations, /promotion\/undo/);
+});

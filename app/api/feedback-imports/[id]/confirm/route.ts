@@ -1,9 +1,8 @@
 import { env } from "cloudflare:workers";
-import { audit, isDenied, requirePermission } from "../../../../lib/access";
+import { audit, isDenied, requirePermission, type AccessContext } from "../../../../lib/access";
 
-export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
-  const id = Number((await context.params).id), body = await request.json().catch(() => ({})) as Record<string, unknown>, task = await env.DB.prepare("SELECT * FROM feedback_imports WHERE id=?").bind(id).first<Record<string, unknown>>();
+export async function confirmFeedbackImport(access: AccessContext, id: number, body: Record<string, unknown>) {
+  const task = await env.DB.prepare("SELECT * FROM feedback_imports WHERE id=?").bind(id).first<Record<string, unknown>>();
   if (!task) return Response.json({ error: "反馈导入任务不存在" }, { status: 404 });
   if (task.status === "confirmed") return Response.json({ ok: true, repeated: true, lessonId: task.confirmed_lesson_id });
   const parsed = JSON.parse(String(task.parsed_payload || "{}")) as Record<string, unknown>, studentId = Number(parsed.studentId || 0), existingLessonId = Number(body.lessonId || task.matched_lesson_id || 0), mode = String(body.mode || (existingLessonId ? "update" : "create"));
@@ -21,4 +20,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   await env.DB.prepare("UPDATE feedback_imports SET status='confirmed',confirmed_lesson_id=?,confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(lessonId, id).run();
   await audit(access, "confirm", "feedback_import", id, { lessonId, mode });
   return Response.json({ ok: true, lessonId, assignmentDraft: Boolean(parsed.homework) });
+}
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
+  const id = Number((await context.params).id), body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  return confirmFeedbackImport(access, id, body);
 }

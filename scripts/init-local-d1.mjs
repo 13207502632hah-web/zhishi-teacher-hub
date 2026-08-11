@@ -22,6 +22,24 @@ function databaseHasRequiredTables(file) {
   }
 }
 
+function databaseHasTable(file, name) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try { return Boolean(db.prepare("SELECT 1 FROM sqlite_schema WHERE type IN ('table','view') AND name=?").get(name)); }
+  finally { db.close(); }
+}
+
+function databaseHasColumn(file, table, column) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try { return db.prepare(`SELECT 1 FROM pragma_table_info(?) WHERE name=?`).get(table, column) != null; }
+  finally { db.close(); }
+}
+
+async function applyMigrationToDatabase(database, filename) {
+  const db = new DatabaseSync(database);
+  try { db.exec("PRAGMA foreign_keys=OFF;"); await applyMigrationFile(db, path.join(drizzleRoot, filename)); db.exec("PRAGMA foreign_keys=ON;"); }
+  finally { db.close(); }
+}
+
 async function findDatabase(directory = d1Root) {
   let entries;
   try {
@@ -154,6 +172,22 @@ async function startServerToCreateDatabase() {
 
 const existing = await findDatabase();
 if (existing) {
+  // 旧版初始化器只判断基础表是否存在；V2 是不破坏旧数据的追加迁移，
+  // 因此现有本地库也需要补跑一次。表存在后保持幂等，不会重复执行 FTS rebuild。
+  if (!databaseHasTable(existing, "v2_jobs")) {
+    const db = new DatabaseSync(existing);
+    try { db.exec("PRAGMA foreign_keys=OFF;"); await applyMigrationFile(db, path.join(drizzleRoot, "0029_zhishi_v2_platform.sql")); db.exec("PRAGMA foreign_keys=ON;"); }
+    finally { db.close(); }
+  }
+  if (!databaseHasTable(existing, "v2_mobile_records")) {
+    await applyMigrationToDatabase(existing, "0030_mobile_records_and_sync.sql");
+  }
+  if (!databaseHasTable(existing, "staff_credentials")) await applyMigrationToDatabase(existing, "0031_staff_authentication.sql");
+  if (!databaseHasColumn(existing, "grade_promotion_runs", "undo_until")) await applyMigrationToDatabase(existing, "0032_promotion_safe_undo.sql");
+  if (!databaseHasColumn(existing, "v2_jobs", "lease_owner")) await applyMigrationToDatabase(existing, "0033_v2_background_job_leases.sql");
+  if (!databaseHasColumn(existing, "assignments", "kind")) await applyMigrationToDatabase(existing, "0034_assignment_learning_modes.sql");
+  if (!databaseHasTable(existing, "class_files")) await applyMigrationToDatabase(existing, "0035_class_files.sql");
+  if (!databaseHasTable(existing, "class_notices")) await applyMigrationToDatabase(existing, "0036_class_notices.sql");
   console.log(`本地 D1 已就绪：${path.relative(root, existing)}`);
 } else {
   let database = await findAnySqlite();

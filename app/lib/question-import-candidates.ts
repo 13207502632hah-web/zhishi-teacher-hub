@@ -1,4 +1,4 @@
-import { bigrams, normalize, questionTextSimilarity } from "./question-similarity";
+import { bigrams, normalize, profiledQuestionTextSimilarity, questionTextProfile } from "./question-similarity";
 
 export type PreparedQuestion = Record<string, unknown> & {
   stem: string;
@@ -262,7 +262,9 @@ export function scanSimilarityCandidates(
 ): SimilarityRow[] {
   const threshold = options.threshold ?? QUESTION_SIMILARITY_THRESHOLD;
   const top = options.top ?? QUESTION_SIMILARITY_TOP;
-  const compare = options.compare || questionTextSimilarity;
+  const compare = options.compare;
+  const candidateProfiles = compare ? null : new Map(candidates.map((candidate) => [candidate.id, questionTextProfile(candidate.stem)]));
+  const refProfiles = compare ? null : new Map(refs.map((ref) => [ref.sourceIndex, questionTextProfile(ref.prepared.stem)]));
   return refs.flatMap((ref) => candidates
     .filter((candidate) => candidate.fingerprint !== ref.fingerprint)
     .map((candidate) => ({
@@ -271,7 +273,7 @@ export function scanSimilarityCandidates(
       sourceStem: ref.prepared.stem.slice(0, 180),
       candidateId: candidate.id,
       candidateStem: candidate.stem.slice(0, 180),
-      similarity: compare(ref.prepared.stem, candidate.stem),
+      similarity: compare ? compare(ref.prepared.stem, candidate.stem) : profiledQuestionTextSimilarity(refProfiles?.get(ref.sourceIndex) || questionTextProfile(ref.prepared.stem), candidateProfiles?.get(candidate.id) || questionTextProfile(candidate.stem)),
       exact: false,
     }))
     .filter((item) => item.similarity >= threshold)

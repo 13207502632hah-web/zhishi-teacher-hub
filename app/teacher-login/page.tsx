@@ -14,7 +14,7 @@ export default function TeacherLoginPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const requestedReturnTo = searchParams.get("return_to") || "/workspace";
+  const requestedReturnTo = searchParams.get("return_to") || "/v2";
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -48,13 +48,13 @@ export default function TeacherLoginPage() {
       </section>
 
       <section className="teacherLoginCard" aria-labelledby="teacher-login-title">
-        <p>教师专用入口</p>
-        <h1 id="teacher-login-title">教师管理员登录</h1>
-        <span className="teacherLoginIntro">登录后进入个人工作区。学生、家长和公开访客无法通过此入口查看教师数据。</span>
+        <p>工作室成员入口</p>
+        <h1 id="teacher-login-title">教师管理员登录 / 助教登录</h1>
+        <span className="teacherLoginIntro">主教师使用管理员账号，助教使用已分配的邮箱与独立密码。学生、家长和公开访客无法通过此入口查看教师数据。</span>
         <form onSubmit={submit}>
-          <label htmlFor="teacher-account">管理员账号</label>
+          <label htmlFor="teacher-account">账号或助教邮箱</label>
           <input id="teacher-account" type="text" value={account} onChange={(event) => setAccount(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} aria-describedby="teacher-login-account-hint" required />
-          <small id="teacher-login-account-hint">请输入配置的教师管理员账号，可包含字母、数字或符号。</small>
+          <small id="teacher-login-account-hint">主教师输入配置的管理员账号；助教输入成员设置中的邮箱。</small>
           <label htmlFor="teacher-password">登录密码</label>
           <input id="teacher-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
           {message && <div className="formError" role="alert">{message}</div>}

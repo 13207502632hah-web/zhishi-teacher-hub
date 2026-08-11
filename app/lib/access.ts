@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { getTeacherAdminSession } from "./teacher-auth";
+import { getStaffSession } from "./staff-auth";
 
 export type RoleCode = "teacher" | "assistant" | "student" | "parent";
-export type AccessContext = { id: number; name: string; email: string; roles: RoleCode[]; role: RoleCode };
+export type AccessContext = { id: number; name: string; email: string; roles: RoleCode[]; role: RoleCode; authType: "teacher_admin" | "staff" };
 
 const permissions: Record<RoleCode, string[]> = {
   teacher: ["*"],
@@ -23,7 +24,23 @@ async function seedRoles() {
 
 export async function getAccess(): Promise<AccessContext | null> {
   if (await getTeacherAdminSession()) return getTeacherAdminAccess();
+  const staff = await getStaffSession();
+  if (staff) return getStaffAccess(staff.userId);
   return null;
+}
+
+async function getStaffAccess(userId: number): Promise<AccessContext | null> {
+  const rows = await env.DB.prepare("SELECT u.id,u.name,u.email,r.code AS role FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=? AND u.status='active' AND r.code IN ('teacher','assistant') ORDER BY CASE r.code WHEN 'teacher' THEN 0 ELSE 1 END").bind(userId).all<{ id: number; name: string; email: string; role: RoleCode }>();
+  if (!rows.results.length) return null;
+  const roles = [...new Set(rows.results.map((row) => row.role))], role = roles.includes("teacher") ? "teacher" : "assistant", user = rows.results[0];
+  return { id: Number(user.id), name: String(user.name), email: String(user.email), roles, role, authType: "staff" };
+}
+
+/** Rebuilds the same permission context for a leased background job. */
+export async function getBackgroundAccess(userId: number): Promise<AccessContext | null> {
+  const access = await getStaffAccess(userId);
+  if (!access) return null;
+  return access.email === "teacher-admin@local.invalid" ? { ...access, authType: "teacher_admin" } : access;
 }
 
 async function getTeacherAdminAccess(): Promise<AccessContext | null> {
@@ -39,7 +56,7 @@ async function getTeacherAdminAccess(): Promise<AccessContext | null> {
     if (user && teacher) await db.prepare("INSERT OR IGNORE INTO user_roles(user_id,role_id) VALUES(?,?)").bind(user.id, teacher.id).run();
   }
   if (!user) return null;
-  return { id: Number(user.id), name: String(user.name), email: String(user.email), roles: ["teacher"], role: "teacher" };
+  return { id: Number(user.id), name: String(user.name), email: String(user.email), roles: ["teacher"], role: "teacher", authType: "teacher_admin" };
 }
 
 export function can(access: AccessContext, permission: string) {

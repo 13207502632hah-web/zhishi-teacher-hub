@@ -1,4 +1,4 @@
-﻿# 知师研室全面复核与修复计划（2026-08-06）
+# 知师研室全面复核与修复计划（2026-08-06）
 
 > 复核人：Codex（GitHub connector + 本地静态盘点 + 完整验证）
 > 结论：功能主体完整、测试全绿；主要风险集中在 CI 未生效、页面服务端保护不统一、文档与实现不一致、e2e 覆盖不全。
@@ -372,7 +372,7 @@
 ### 批次 D-3 验证（2026-08-06，P3-02）
 
 - `app/lib/mini-auth.ts` 新增 `miniProductionDisabled()` 与
-  `miniDisabledResponse()`；`app/api/mini/login/route.ts` 在解析 body 与任何
+  `miniDisabledResponse()`；`app/api/v2/mini/login/route.ts` 在解析 body 与任何
   写入前先执行同一门禁，生产环境（`NODE_ENV=production` 或
   `CF_PAGES_ENV=production`）统一返回 503 `MINI_FEATURE_DISABLED`。
 - 新增 `scripts/mini-production-guard-e2e.mjs`：生产环境 + 故意误配

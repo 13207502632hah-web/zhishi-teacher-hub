@@ -8,7 +8,7 @@ export async function miniAccountState(access: MiniAccess, expiresAt?: string | 
   const [bindings, account] = await Promise.all([
     env.DB.prepare("SELECT mb.id,mb.student_id AS studentId,s.name AS studentName,mb.role,mb.status,mb.confirmed_at AS confirmedAt FROM mini_bindings mb JOIN students s ON s.id=mb.student_id WHERE mb.account_id=? ORDER BY mb.status='active' DESC,s.name")
       .bind(access.accountId).all<Record<string, unknown>>(),
-    env.DB.prepare("SELECT display_name AS displayName,user_id AS userId,student_id AS legacyStudentId FROM wechat_accounts WHERE id=?").bind(access.accountId).first<Record<string, unknown>>(),
+    env.DB.prepare("SELECT display_name AS displayName,student_id AS legacyStudentId FROM wechat_accounts WHERE id=?").bind(access.accountId).first<Record<string, unknown>>(),
   ]);
   const active = bindings.results.filter((item) => item.status === "active");
   if (!active.length && access.role === "student" && access.studentId) {
@@ -23,19 +23,17 @@ export async function miniAccountState(access: MiniAccess, expiresAt?: string | 
     accountId: access.accountId,
     displayName: account?.displayName || "微信用户",
     role: access.role,
-    bindingRequired: access.role !== "teacher" && active.length === 0,
+    bindingRequired: active.length === 0,
     bindingStatus: active.length ? "active" : bindings.results.some((item) => item.status === "pending") ? "pending" : "unbound",
     students: active,
     pendingBindings: bindings.results.filter((item) => item.status === "pending"),
     currentStudentId: active[0]?.studentId || null,
-    teacherLinked: access.role !== "teacher" || Boolean(access.userId),
     expiresAt: expiresAt || null,
     features: { testLogin: false, subscriptionMessages: false, incrementalSync: true, offlineDrafts: true },
   };
 }
 
 export async function requestMiniBinding(access: MiniAccess, code: string) {
-  if (access.role === "teacher") return Response.json({ error: "教师账号不能改绑为学生或家长" }, { status: 400 });
   const hash = await miniTokenHash(code.trim());
   const invite = await env.DB.prepare("SELECT id,role,student_id AS studentId FROM mini_invites WHERE code_hash=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP")
     .bind(hash).first<{ id: number; role: string; studentId: number }>();

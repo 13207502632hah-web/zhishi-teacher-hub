@@ -26,7 +26,7 @@ flowchart LR
 
 ## 2. 统一领域服务
 
-网站接口和 `/api/mini/*` 不各自复制 SQL 规则，统一使用：
+网站接口和 `/api/v2/mini/*` 不各自复制 SQL 规则，统一使用：
 
 - `assignment-service.ts`：接收范围、发布、列表、统计、附件归属和同步事件。
 - `submission-service.ts`：提交草稿、最终提交、订正版、版本号、幂等和附件关联。
@@ -48,7 +48,7 @@ flowchart LR
 
 ### 生产禁用门禁
 
-当 `NODE_ENV=production` 或 `CF_PAGES_ENV=production` 时，`/api/mini/login`
+当 `NODE_ENV=production` 或 `CF_PAGES_ENV=production` 时，`/api/v2/mini/login`
 与所有经过 `requireMini` 的小程序接口直接返回 503
 `MINI_FEATURE_DISABLED`，不会创建微信账号、会话或同步事件。即使生产环境
 误配 `WECHAT_TEST_MODE=true` 与 AppID/AppSecret，小程序功能仍保持暂停。
@@ -62,7 +62,7 @@ flowchart LR
 4. 旧会话每次访问都会重新读取有效绑定，因此停用后立即失去该学生权限。
 5. 一个家长可绑定多个学生，一个学生可有多位家长。
 
-`GET /api/mini/me` 返回角色、绑定状态、可访问学生、当前学生、教师网站账号关联状态、会话过期时间和功能开关。
+`GET /api/v2/mini/me` 返回角色、绑定状态、可访问学生、当前学生、教师网站账号关联状态、会话过期时间和功能开关。
 
 ## 4. 作业生命周期
 
@@ -107,7 +107,7 @@ stateDiagram-v2
 
 ## 7. 增量同步
 
-`GET /api/mini/sync?cursor=<server-sequence>` 返回当前账号有权访问的变化。游标来自 `sync_events.id`，不使用客户端时间作为唯一依据。
+`GET /api/v2/mini/sync?cursor=<server-sequence>` 返回当前账号有权访问的变化。游标来自 `sync_events.id`，不使用客户端时间作为唯一依据。
 
 事件至少包含：事件类型、实体类型、实体 ID、目标角色/学生/账号、发生时间、撤销标记和最小负载。首次没有游标时返回账号可见的当前快照和最新游标；之后返回增量事件。页面进入、下拉刷新和轻量轮询复用同一接口，不引入 WebSocket。
 
@@ -133,13 +133,13 @@ stateDiagram-v2
 
 ## 10. 接口清单
 
-- 身份：`POST /api/mini/login`、`GET /api/mini/me`、`POST /api/mini/logout`
-- 绑定：`POST /api/mini/bind`、`GET/POST /api/mini/invites`、`POST /api/mini/bindings/:id`
-- 作业：`GET/POST /api/assignments`、`GET/POST /api/mini/assignments`
-- 提交批改：`GET/POST /api/mini/submissions`、`GET/POST /api/assignments/:id/submissions`
-- 文件：`POST /api/assignments/files`、`POST /api/mini/files`、鉴权读取接口
-- 同步：`GET /api/mini/sync`
-- 门户：`GET /api/mini/portal`
+- 身份：`POST /api/v2/mini/login`、`GET /api/v2/mini/me`、`POST /api/v2/mini/logout`
+- 绑定：`POST /api/v2/mini/bind`、`GET/POST /api/v2/mini/invites`、`POST /api/v2/mini/bindings/:id`
+- 作业：`GET/POST /api/assignments`、`GET/POST /api/v2/mini/assignments`
+- 提交批改：`GET/POST /api/v2/mini/submissions`、`GET/POST /api/assignments/:id/submissions`
+- 文件：`POST /api/assignments/files`、`POST /api/v2/mini/files`、鉴权读取接口
+- 同步：`GET /api/v2/mini/sync`
+- 门户：`GET /api/v2/mini/portal`
 
 ## 11. 隐私与响应安全
 

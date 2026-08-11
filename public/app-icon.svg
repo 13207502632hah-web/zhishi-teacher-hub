@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="知师研室">
+  <rect width="1024" height="1024" fill="#173f35"/>
+  <path d="M184 220c0-42 34-76 76-76h504c42 0 76 34 76 76v584c0 42-34 76-76 76H260c-42 0-76-34-76-76z" fill="#fffefa" opacity=".1"/>
+  <g transform="rotate(-3 512 512)">
+    <rect x="264" y="264" width="496" height="496" rx="140" fill="#d8f16b"/>
+    <text x="512" y="615" text-anchor="middle" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="300" font-weight="900" fill="#173f35">知</text>
+  </g>
+  <circle cx="803" cy="221" r="39" fill="#d8f16b"/>
+</svg>

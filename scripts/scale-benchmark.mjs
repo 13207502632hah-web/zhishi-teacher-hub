@@ -459,6 +459,13 @@ for (const dataset of datasets) {
   duplicateMetrics.push(await benchmarkDuplicateMetrics(dataset));
 }
 
+const gates = {
+  similarityCandidateFillMs: { target: 2500, actual: similarity.at(-1).after.durationMs, pass: similarity.at(-1).after.durationMs <= 2500 },
+  structuredFacetsMs: { target: 600, actual: facets.at(-1).durationMs, pass: facets.at(-1).durationMs <= 600 },
+  duplicateRecall: { target: 0.95, actual: Math.min(...duplicateMetrics.map((row) => row.candidateRecall)), pass: duplicateMetrics.every((row) => row.candidateRecall >= 0.95) },
+};
+const gatesPassed = Object.values(gates).every((gate) => gate.pass);
+
 const report = {
   generatedAt: new Date().toISOString(),
   constants: {
@@ -471,6 +478,8 @@ const report = {
   similarity,
   facets,
   duplicateMetrics,
+  gates,
+  gatesPassed,
 };
 
 mkdirSync("outputs", { recursive: true });
@@ -515,3 +524,5 @@ for (const row of duplicateMetrics) {
   ].join(", "));
 }
 console.log("报告已写入 outputs/scale-benchmark.json");
+console.log(`发布门禁：${gatesPassed ? "通过" : "失败"}（5万题候选 ${gates.similarityCandidateFillMs.actual}ms / ${gates.similarityCandidateFillMs.target}ms，Facets ${gates.structuredFacetsMs.actual}ms / ${gates.structuredFacetsMs.target}ms，Recall ${gates.duplicateRecall.actual} / ${gates.duplicateRecall.target}）`);
+if (!gatesPassed) process.exitCode = 1;

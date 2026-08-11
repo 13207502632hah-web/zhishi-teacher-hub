@@ -27,8 +27,9 @@ export const workspaceNavigation: NavigationItem[] = [
 ];
 
 export const utilityNavigation: NavigationItem[] = [
+  { href: "/v2", icon: "新", label: "2.0 内测工作台", group: "账户" },
   { href: "/settings", icon: "设", label: "设置", group: "账户" },
-  { href: "/mini-settings", icon: "微", label: "微信小程序（暂停）", group: "账户" },
+  { href: "/mini-settings", icon: "微", label: "微信小程序（体验版准备中）", group: "账户" },
 ];
 
 export const mobilePrimaryNavigation = [
@@ -65,7 +66,7 @@ export function navigationForRole(role?: string) {
 export function utilitiesForRole(role?: string) {
   if (role === "student" || role === "parent") return [];
   if (role === "assistant") {
-    return utilityNavigation.filter((item) => item.href !== "/settings");
+    return utilityNavigation.filter((item) => !["/settings", "/v2"].includes(item.href));
   }
   return utilityNavigation;
 }

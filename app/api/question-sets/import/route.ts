@@ -15,10 +15,10 @@ import {
 import { questionValues } from "../../questions/values";
 
 export const QUESTION_SET_IMPORT_LIMIT = 300;
+type QuestionImportBody = { name?: string; sourceFile?: string; sourceDocument?: string; sourceKey?: string; sourceFingerprint?: string; questions?: Array<Record<string, unknown>> };
 
-export async function POST(request: Request) {
-  const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
-  const body = await request.json() as { name?: string; sourceFile?: string; sourceDocument?: string; sourceKey?: string; sourceFingerprint?: string; questions?: Array<Record<string, unknown>> }, parsed = (body.questions || []).filter((question) => String(question.stem || "").trim());
+export async function importQuestionSetForAccess(access: import("../../../lib/access").AccessContext, body: QuestionImportBody) {
+  const parsed = (body.questions || []).filter((question) => String(question.stem || "").trim());
   if (parsed.length > QUESTION_SET_IMPORT_LIMIT) {
     return Response.json({ error: `单个导入任务最多 ${QUESTION_SET_IMPORT_LIMIT} 题；本次识别到 ${parsed.length} 题，请拆分文件或分批导入`, total: parsed.length, limit: QUESTION_SET_IMPORT_LIMIT }, { status: 422 });
   }
@@ -73,6 +73,11 @@ export async function POST(request: Request) {
   }
   await audit(access, "import", "question_set", set.id, report);
   return Response.json({ questionSet: set, questions: insertedQuestions, questionCount: unique.length, report, duplicateReport }, { status: 201 });
+}
+
+export async function POST(request: Request) {
+  const access = await requirePermission("questions:write"); if (isDenied(access)) return access;
+  return importQuestionSetForAccess(access, await request.json() as QuestionImportBody);
 }
 
 export async function GET(request: Request) {

@@ -35,6 +35,8 @@ test("preview requires a real app id, HTTPS staging and explicit confirmation", 
   assert.match(source, /MINI_PREVIEW_CONFIRMED/);
   assert.match(source, /YES_I_CONFIRMED/);
   assert.match(source, /DEVTOOLS_CLI, \["preview"/);
+  assert.match(source, /releaseTargetPath/);
+  assert.match(source, /无法在临时预览副本中注入开发环境 API 地址/);
   assert.match(source, /未执行 upload、审核或发布/);
 });
 
@@ -45,11 +47,11 @@ test("brand and local artifacts are configured safely", async () => {
     read("mini-program/pages/home/index.wxml"),
     read(".gitignore"),
   ]);
-  assert.equal(JSON.parse(app).window.navigationBarTitleText, "来写作业吧");
-  assert.equal(JSON.parse(project).projectname, "来写作业吧");
+  assert.equal(JSON.parse(app).window.navigationBarTitleText, "知师研室 · 学习端");
+  assert.equal(JSON.parse(project).projectname, "知师研室学习端");
   assert.equal(JSON.parse(project).appid, "wxfec0f64566c68a2c");
   assert.equal(JSON.parse(project).setting.urlCheck, true);
   assert.equal(JSON.parse(project).libVersion, "3.15.2");
-  assert.match(home, /来写作业吧/);
+  assert.match(home, /知师研室 · 学习端/);
   for (const marker of [".dev.vars", "/.artifacts/", "private.*.key", "project.private.config.json"]) assert.ok(ignore.includes(marker), `${marker} must be ignored`);
 });

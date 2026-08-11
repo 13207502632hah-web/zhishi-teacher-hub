@@ -112,16 +112,16 @@ async function main() {
   }
   await waitForServer();
 
-  const loginTestCode = await request("/api/mini/login", {
+  const loginTestCode = await request("/api/v2/mini/login", {
     method: "POST",
     body: { role: "teacher", testCode: marker, displayName: "生产守卫测试" },
   });
-  const loginFormalCode = await request("/api/mini/login", {
+  const loginFormalCode = await request("/api/v2/mini/login", {
     method: "POST",
     body: { code: "production-guard-formal-code" },
   });
-  const sync = await request("/api/mini/sync");
-  const me = await request("/api/mini/me");
+  const sync = await request("/api/v2/mini/sync");
+  const me = await request("/api/v2/mini/me");
 
   for (const [name, result] of [
     ["login testCode", loginTestCode],
