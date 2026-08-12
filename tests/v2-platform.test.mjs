@@ -256,3 +256,9 @@ test("every newly versioned route has an explicit contract inventory reference",
   ];
   for (const route of contractPaths) assert.ok((await read(`app${route}/route.ts`)).length > 20, `${route} contract route must exist`);
 });
+
+test("local D1 initializer accepts the database file before a slow CI route finishes compiling", async () => {
+  const initializer = await read("scripts/init-local-d1.mjs");
+  assert.match(initializer, /if \(await findAnySqlite\(\)\) return/);
+  assert.match(initializer, /路由可能在 D1 已经落盘后仍等待 SSR 编译/);
+});

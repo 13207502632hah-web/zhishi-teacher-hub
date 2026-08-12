@@ -130,6 +130,9 @@ async function requestPublicDbRoute(child, logs, timeoutMs = 60_000) {
     } catch {
       // 服务尚未就绪，继续等待。
     }
+    // Linux CI 首次依赖优化时，路由可能在 D1 已经落盘后仍等待 SSR 编译。
+    // 初始化器只需要本地数据库文件，不应把页面编译耗时误判为 D1 创建失败。
+    if (await findAnySqlite()) return;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new Error(`触发本地 D1 创建超时：${logs.slice(-8).join("\n")}`);
