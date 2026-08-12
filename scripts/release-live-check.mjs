@@ -49,9 +49,15 @@ async function resolveRecord(hostname, type) {
 async function request(url, options = {}) {
   try {
     const response = await fetch(url, {
+      method: options.method || "GET",
       redirect: options.redirect || "follow",
       signal: AbortSignal.timeout(8_000),
-      headers: { "user-agent": "ZhishiReleaseReadiness/2.0" },
+      headers: {
+        accept: options.accept || "*/*",
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        "user-agent": "ZhishiReleaseReadiness/2.0",
+      },
+      body: options.body,
     });
     const body = options.readBody ? await response.text() : "";
     return {
@@ -74,20 +80,52 @@ async function request(url, options = {}) {
   }
 }
 
-export function evaluateReadiness({ dnsRecords, http, homepage, manifest, session }) {
+export function evaluateReadiness({ dnsRecords, http, homepage, manifest, session, miniLogin }) {
   const addressReady = dnsRecords.some((item) => ["A", "AAAA", "CNAME"].includes(item.type) && item.ready);
   const nameserverReady = dnsRecords.some((item) => item.type === "NS" && item.ready);
   const httpRedirectReady = Boolean(http.reachable && [301, 302, 307, 308].includes(http.status) && /^https:\/\//i.test(http.location || ""));
   const httpsReady = Boolean(homepage.reachable && homepage.status >= 200 && homepage.status < 400);
-  const manifestReady = Boolean(manifest.reachable && manifest.status === 200 && /"(?:start_url|display)"\s*:/.test(manifest.body));
-  const apiReady = Boolean(session.reachable && [200, 401, 403].includes(session.status));
+  const manifestReady = Boolean(
+    manifest.reachable
+    && manifest.status === 200
+    && /application\/(?:manifest\+json|json)/i.test(manifest.contentType || "")
+    && /"(?:start_url|display)"\s*:/.test(manifest.body),
+  );
+  const apiReady = Boolean(
+    session.reachable
+    && [200, 401, 403].includes(session.status)
+    && /application\/json/i.test(session.contentType || ""),
+  );
+  const miniLoginReady = Boolean(
+    miniLogin?.reachable
+    && [400, 401, 403].includes(miniLogin.status)
+    && /application\/json/i.test(miniLogin.contentType || ""),
+  );
+  const challengeBlocked = [homepage, manifest, session, miniLogin].some((probe) => (
+    probe?.reachable
+    && probe.status === 403
+    && /text\/html/i.test(probe.contentType || "")
+  ));
   const checks = [
     { name: "权威 DNS", ready: nameserverReady, detail: "根域名存在 NS 记录" },
     { name: "网站地址记录", ready: addressReady, detail: "根域名存在 A、AAAA 或 CNAME 记录" },
     { name: "HTTP 强制 HTTPS", ready: httpRedirectReady, detail: "HTTP 入口跳转到 HTTPS" },
     { name: "HTTPS 首页", ready: httpsReady, detail: "首页证书有效且返回成功状态" },
     { name: "PWA 清单", ready: manifestReady, detail: "manifest.webmanifest 可访问且结构有效" },
-    { name: "会话接口", ready: apiReady, detail: "/api/session 可访问，未登录响应也视为接口在线" },
+    {
+      name: "会话接口",
+      ready: apiReady,
+      detail: challengeBlocked
+        ? "/api/session 被 HTML 安全挑战拦截；小程序和原生客户端无法完成此类挑战"
+        : "/api/session 返回 JSON；未登录的 401/403 JSON 响应也视为接口在线",
+    },
+    {
+      name: "小程序登录入口",
+      ready: miniLoginReady,
+      detail: miniLogin?.reachable && miniLogin.status === 403 && /text\/html/i.test(miniLogin.contentType || "")
+        ? "/api/v2/mini/login 被 HTML 安全挑战拦截，微信客户端无法完成此类挑战"
+        : "/api/v2/mini/login 返回 JSON，探测码被业务层安全拒绝即视为入口在线",
+    },
   ];
   return { checks, liveReady: checks.every((item) => item.ready) };
 }
@@ -96,19 +134,24 @@ async function main() {
   const origin = normalizedOrigin(configuredOrigin());
   const hostname = origin.hostname;
   const dnsRecords = await Promise.all(["NS", "A", "AAAA", "CNAME"].map((type) => resolveRecord(hostname, type)));
-  const [http, homepage, manifest, session] = await Promise.all([
+  const [http, homepage, manifest, session, miniLogin] = await Promise.all([
     request(`http://${hostname}`, { redirect: "manual" }),
-    request(origin.href),
-    request(new URL("/manifest.webmanifest", origin), { readBody: true }),
-    request(new URL("/api/session", origin)),
+    request(origin.href, { accept: "text/html,application/xhtml+xml" }),
+    request(new URL("/manifest.webmanifest", origin), { readBody: true, accept: "application/manifest+json,application/json" }),
+    request(new URL("/api/session", origin), { accept: "application/json" }),
+    request(new URL("/api/v2/mini/login", origin), {
+      method: "POST",
+      accept: "application/json",
+      body: JSON.stringify({ code: "invalid-release-readiness-probe", role: "student" }),
+    }),
   ]);
-  const evaluation = evaluateReadiness({ dnsRecords, http, homepage, manifest, session });
+  const evaluation = evaluateReadiness({ dnsRecords, http, homepage, manifest, session, miniLogin });
   const report = {
     generatedAt: new Date().toISOString(),
     origin: origin.origin,
     strict,
     ...evaluation,
-    probes: { dns: dnsRecords, http, homepage, manifest: { ...manifest, body: manifest.body.slice(0, 1_000) }, session },
+    probes: { dns: dnsRecords, http, homepage, manifest: { ...manifest, body: manifest.body.slice(0, 1_000) }, session, miniLogin },
     boundaries: { dnsChanged: false, deployed: false, certificateIssued: false },
   };
 

@@ -1,23 +1,25 @@
 # 微信小程序、iOS 与中国大陆访问清单
 
-更新日期：2026-08-11
+更新日期：2026-08-12
 
 ## 当前实际状态
 
 - [x] 已购买 `daofazuoye.cn`，用户已确认腾讯云域名命名/实名审核通过；注册期至 2027-08-11。
 - [x] 仓库已统一配置 `https://daofazuoye.cn`，网站、小程序和 iOS 不再引用旧
   `chatgpt.site` 地址。
-- [x] PWA、iOS SwiftUI 工程、小程序学生/家长边界和三端共享 API 已完成本地实现。
+- [x] PWA、iOS SwiftUI 工程、小程序学生/家长边界和三端共享 API 已完成本地实现；PWA 主屏幕入口已验证未登录跳转仍保留 `/v2/record` 返回地址。
 - [x] 小程序已包含作业、跟读与听写、成长记录、班级资料、优秀示范和家校消息；家校
   消息支持教师审批发布、打开已读和“我已知晓”回执。
 - [x] `.cn` 域名命名/实名审核已通过；DNSPod 已发布两条 A 记录和两条验证 TXT，
   Sites 自定义域、证书与 HTTPS 状态均为 `active`。
 - [ ] 尚未确认 `daofazuoye.cn` 已取得“网站服务”的 ICP 备案号；此前截图中的“小程序
   已备案”不能替代网站域名 ICP 备案。
-- [ ] 正式 DNS、自定义域和 HTTPS 已完成；尚待发布包含 PWA 与合规页面的新站版本，
-  并在中国大陆的电信、联通、移动网络分别实测。可运行 `npm run release:live:check`
-  生成只读体检报告。
-- [ ] 尚未配置微信后台服务器域名、生产 AppSecret、体验版二维码和真机矩阵。
+- [x] 正式 DNS、自定义域、HTTPS、PWA 与合规页面已部署；`/api/session` 可经正式域名访问。
+  自动探测首页和清单时会遇到站点挑战，仍需在中国大陆的电信、联通、移动网络分别实测。
+- [x] 微信后台 `request`、`uploadFile`、`downloadFile` 域名已统一替换为
+  `https://daofazuoye.cn`，生产 AppSecret 已配置，2.0.0 已于 2026-08-12 上传并提交审核。
+- [ ] 微信 2.0.0 首次审核因“作业、成长等页面网络连接失败”被退回；边缘中转代码已完成，
+  但默认 `workers.dev` 地址在大陆超时，尚未具备重新提审条件。
 - [x] 已生成不透明 1024×1024 iOS AppIcon 并接入 Xcode 资产目录。
 - [ ] 尚未完成 Mac/Xcode 签名和 TestFlight 真机验收。
 
@@ -27,7 +29,7 @@
 
 1. 在 iPhone 的 Safari 打开正式 HTTPS 网站并登录。
 2. 点“分享” → “添加到主屏幕” → 勾选“作为网页 App 打开”。
-3. 以后直接点“知师研室”图标，默认进入 `/v2/record`。
+3. 以后直接点“知师研室”图标，默认经 `/record` 进入移动记录页；会话过期时，重新登录后仍返回记录页，不会落到工作台首页。
 4. 弱网时输入会留在本机；断网重新打开会进入离线记录页，联网后自动同步。
 
 Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab2f3a7/ios>
@@ -55,6 +57,9 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 - [x] 个人低流量默认只使用一个正式地址 `https://daofazuoye.cn`；三个客户端的
   API 都位于该地址的 `/api/v2/*`，不额外维护 `api` 子域名和跨域规则。
 - [ ] 在大陆环境实测登录、上传、AI 调用、私有文件下载和弱网同步；不能只测试首页。
+- [ ] 当前东京代理线路的真实 `GET /api/session` 与 `POST /api/v2/mini/login` 能返回业务
+  JSON，但伦敦直连线路会收到 Cloudflare HTML 403 挑战；正式发布前必须以中国大陆微信
+  真机确认登录成功。`npm run release:live:check` 已把 HTML 挑战列为失败，不再误判为 API 在线。
 
 当前最低成本方案是继续使用 Cloudflare 全球网络并绑定自有域名：Workers 自定义域可
 自动创建 DNS 记录和签发证书，但这不等同于 Cloudflare 中国网络。Cloudflare 官方说明
@@ -76,21 +81,21 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 
 ### 账号和主体
 
-- [ ] 已认证的小程序主体；确认使用个人、个体工商户或企业主体。
+- [x] 已认证、已备案的个人小程序主体，名称为“来写作业吧”。
 - [x] 正式 AppID 已写入微信开发者工具工程配置。
-- [ ] 小程序管理员微信与可扫码登录的开发成员账号。
-- [ ] AppSecret：只写入 Cloudflare/托管平台 Secret，**不要再发到聊天、截图或代码库**。
-- [ ] 小程序名称、简称、简介、服务类目和客服电话/邮箱。
+- [x] 管理员已登录微信公众平台和微信开发者工具，CLI 上传权限可用。
+- [x] AppSecret 已写入托管平台 Secret，**不要再发到聊天、截图或代码库**。
+- [x] 小程序名称、简介和服务类目已在微信后台配置；审核期间不要随意变更。
 
 ### 域名和后端
 
-- [ ] 已备案的 HTTPS 正式域名。
-- [ ] 在“小程序后台 → 开发 → 开发设置 → 服务器域名”配置 `request`、`uploadFile`、
+- [x] 已使用备案的 HTTPS 正式域名 `https://daofazuoye.cn`。
+- [x] 在“小程序后台 → 开发 → 开发设置 → 服务器域名”配置 `request`、`uploadFile`、
   `downloadFile` 合法域名，三项都填网站正式地址；不要写端口或接口路径，也不要填写
   `api.weixin.qq.com`。
-- [ ] 后端环境变量：`WECHAT_APP_ID`、`WECHAT_APP_SECRET`；体验环境保持
-  `MINI_FEATURE_ENABLED=false`，通过整体验收后生产才改为 `true`。
-- [ ] R2 私有文件只能经过 `/api/v2/mini/files/*` 鉴权读取。
+- [x] 后端已配置 `WECHAT_APP_ID`、`WECHAT_APP_SECRET`，生产已设置
+  `MINI_FEATURE_ENABLED=true`，`WECHAT_TEST_MODE=false`。
+- [x] R2 私有文件只经过 `/api/v2/mini/files/*` 鉴权读取。
 
 ### 隐私和内容
 
@@ -113,11 +118,12 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 
 ### 真机与体验版
 
-- [ ] 一台能运行微信开发者工具的 Windows 或 Mac 电脑，并提供微信 CLI 路径。
+- [x] Windows 微信开发者工具已安装、登录并开启服务端口，CLI 已成功上传 2.0.0。
 - [ ] 将测试微信号加入体验成员；准备学生、单孩子家长、多孩子家长三个账号。
 - [ ] 至少 2 台 Android、2 台 iPhone、1 台平板。
 - [ ] 分别测试 Wi‑Fi、4G/5G、弱网、上传中断、重复提交、会话停用和私有文件越权。
-- [ ] 本轮只生成体验版二维码；验收记录完整后才提交正式审核。
+- [x] 2.0.0 已于 2026-08-12 13:33:03 提交正式审核，首次审核结果为不通过。
+- [ ] 修复大陆网络入口、完成作业与成长页面真机录屏后重新上传 2.0.1；审核通过后只发布修复版，不发布旧版 1.0.0。
 
 ## 需要你准备的 iOS 资料
 

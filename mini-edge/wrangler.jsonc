@@ -1,0 +1,11 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "zhishi-mini-edge",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-12",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "UPSTREAM_ORIGIN": "https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site"
+  }
+}

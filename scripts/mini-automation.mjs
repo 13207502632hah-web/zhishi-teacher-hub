@@ -15,7 +15,10 @@ const DRIZZLE_ROOT = path.join(ROOT, "drizzle");
 const D1_ROOT = path.join(ROOT, ".wrangler/state/v3/d1/miniflare-D1DatabaseObject");
 const ARTIFACT_ROOT = path.join(ROOT, ".artifacts/mini");
 const DEV_VARS = path.join(ROOT, ".dev.vars");
-const DEVTOOLS_CLI = process.env.WECHAT_DEVTOOLS_CLI || "/Applications/wechatwebdevtools.app/Contents/MacOS/cli";
+const DEFAULT_DEVTOOLS_CLI = process.platform === "win32"
+  ? path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Tencent", "微信web开发者工具", "cli.bat")
+  : "/Applications/wechatwebdevtools.app/Contents/MacOS/cli";
+const DEVTOOLS_CLI = process.env.WECHAT_DEVTOOLS_CLI || DEFAULT_DEVTOOLS_CLI;
 const BASE_URL = "http://localhost:3000";
 const E2E_PREFIX = "__e2e__";
 const command = process.argv[2] || "verify";
@@ -72,7 +75,10 @@ function stage(name, status, detail = {}) {
 }
 
 function minimalEnv(extra = {}) {
-  const allowed = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SHELL", "LANG", "LC_ALL"];
+  const allowed = [
+    "PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SHELL", "LANG", "LC_ALL",
+    "ComSpec", "SystemRoot", "WINDIR", "TEMP", "TMP", "PATHEXT",
+  ];
   const env = Object.fromEntries(allowed.filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
   return {
     ...env,
@@ -85,13 +91,79 @@ function minimalEnv(extra = {}) {
   };
 }
 
+function spawnProgram(program, args, options) {
+  if (process.platform === "win32" && program === "pnpm") {
+    return spawn(process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", "pnpm.cmd", ...args], {
+      ...options,
+      shell: false,
+    });
+  }
+  return spawn(program, args, { ...options, shell: false });
+}
+
+function devtoolsCliCommand(args) {
+  if (process.platform === "win32" && DEVTOOLS_CLI.toLowerCase().endsWith(".bat")) {
+    const devtoolsRoot = path.dirname(DEVTOOLS_CLI);
+    return {
+      program: path.join(devtoolsRoot, "node.exe"),
+      args: [path.join(devtoolsRoot, "cli.js"), ...args],
+    };
+  }
+  return { program: DEVTOOLS_CLI, args };
+}
+
+async function runDevtoolsCli(args, options = {}) {
+  const command = devtoolsCliCommand(args);
+  return runProcess(command.program, command.args, options);
+}
+
+async function availablePort(start = 9420) {
+  for (let port = start; port < start + 100; port += 1) {
+    const available = await new Promise((resolve) => {
+      const server = net.createServer();
+      server.unref();
+      server.once("error", () => resolve(false));
+      server.listen({ host: "127.0.0.1", port }, () => server.close(() => resolve(true)));
+    });
+    if (available) return port;
+  }
+  throw new Error(`没有可用的小程序自动化端口（${start}–${start + 99}）`);
+}
+
+async function connectAutomator(automator, wsEndpoint, timeout = 30000) {
+  const deadline = Date.now() + timeout;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      return await withTimeout(automator.connect({ wsEndpoint }), 5000, "连接模拟器");
+    } catch (error) {
+      lastError = error;
+      await sleep(750);
+    }
+  }
+  throw new Error(`微信开发者工具自动化端口未就绪：${sanitize(lastError instanceof Error ? lastError.message : lastError)}`);
+}
+
+async function removeDirectoryWithRetry(target) {
+  let lastError;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!/(?:EBUSY|EPERM|ENOTEMPTY|resource busy|locked)/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 async function runProcess(program, args, options = {}) {
   const output = { stdout: "", stderr: "" };
-  const executable = process.platform === "win32" && program === "pnpm" ? "pnpm.cmd" : program;
-  const child = spawn(executable, args, {
+  const child = spawnProgram(program, args, {
     cwd: options.cwd || ROOT,
     env: options.env || minimalEnv(),
-    shell: process.platform === "win32" && executable.endsWith(".cmd"),
     stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
   });
   if (!options.inherit) {
@@ -117,7 +189,13 @@ async function ensurePreflight({ requireDevtools = true } = {}) {
   for (const target of [MINI_ROOT, path.join(MINI_ROOT, "project.config.json"), path.join(ROOT, "package.json")]) {
     if (!await ensurePath(target)) throw new Error(`缺少项目文件：${target}`);
   }
-  if (requireDevtools && !await ensurePath(DEVTOOLS_CLI, fsConstants.X_OK)) throw new Error(`未找到微信开发者工具 CLI：${DEVTOOLS_CLI}`);
+  if (requireDevtools) {
+    if (!await ensurePath(DEVTOOLS_CLI, fsConstants.X_OK)) throw new Error(`未找到微信开发者工具 CLI：${DEVTOOLS_CLI}`);
+    const cliCommand = devtoolsCliCommand([]);
+    for (const target of [cliCommand.program, ...cliCommand.args]) {
+      if (!await ensurePath(target, fsConstants.X_OK)) throw new Error(`微信开发者工具 CLI 组件不可用：${target}`);
+    }
+  }
   await runProcess(process.execPath, ["--version"], { label: "Node 版本检查" });
   await runProcess("pnpm", ["--version"], { label: "pnpm 版本检查" });
   stage("环境预检", "passed", { summary: requireDevtools ? "Node、pnpm、微信开发者工具 CLI 和项目目录均可用" : "Node、pnpm 和小程序项目目录均可用；本轮不调用微信 CLI" });
@@ -149,17 +227,6 @@ async function probeHome() {
   }
 }
 
-async function isPortOpen(port) {
-  return new Promise((resolve) => {
-    const socket = net.createConnection({ host: "127.0.0.1", port });
-    const finish = (value) => { socket.destroy(); resolve(value); };
-    socket.setTimeout(800);
-    socket.once("connect", () => finish(true));
-    socket.once("timeout", () => finish(false));
-    socket.once("error", () => finish(false));
-  });
-}
-
 async function waitForHome(child, logs, timeout = 60000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -179,7 +246,7 @@ async function startServer({ stream = false } = {}) {
   }
   if (current.reachable) throw new Error("端口 3000 已被其他 HTTP 服务占用");
   const logs = { stdout: "", stderr: "" };
-  const child = spawn("pnpm", ["dev"], { cwd: ROOT, env: minimalEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnProgram("pnpm", ["dev"], { cwd: ROOT, env: minimalEnv(), stdio: ["ignore", "pipe", "pipe"] });
   for (const [name, source] of [["stdout", child.stdout], ["stderr", child.stderr]]) {
     source.on("data", (chunk) => {
       logs[name] = (logs[name] + chunk).slice(-200000);
@@ -193,6 +260,19 @@ async function startServer({ stream = false } = {}) {
 
 async function stopServer(server) {
   if (!server?.child || server.child.exitCode != null) return;
+  if (process.platform === "win32") {
+    const taskkill = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe");
+    const killer = spawn(taskkill, ["/PID", String(server.child.pid), "/T", "/F"], {
+      env: minimalEnv(),
+      stdio: "ignore",
+      shell: false,
+    });
+    await new Promise((resolve) => {
+      killer.once("error", resolve);
+      killer.once("exit", resolve);
+    });
+    return;
+  }
   server.child.kill("SIGINT");
   await Promise.race([
     new Promise((resolve) => server.child.once("exit", resolve)),
@@ -370,7 +450,18 @@ DELETE FROM classes WHERE name LIKE '${E2E_PREFIX}%';
 DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE email LIKE '${E2E_PREFIX}%');
 DELETE FROM users WHERE email LIKE '${E2E_PREFIX}%';
 COMMIT;`;
-  await sqlite(db, sql, "清理合成测试数据");
+  let lastError;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await sqlite(db, sql, "清理合成测试数据");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!/(?:disk I\/O|locked|busy)/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      await sleep(400 * (attempt + 1));
+    }
+  }
+  throw lastError;
 }
 
 async function seedFixtures(db) {
@@ -530,31 +621,43 @@ async function simulatorRegression(runDir, fixture) {
   const automator = (await import("miniprogram-automator")).default;
   let miniProgram;
   let simulatorProject;
+  let primaryError;
+  let finalizationError;
   const evidence = [];
   try {
     // 正式工程必须开启合法域名校验；本地模拟器回归使用一次性副本关闭校验，
     // 以便访问 localhost。副本位于 Git 忽略的报告目录，不会进入上传包。
-    simulatorProject = path.join(process.env.TMPDIR || "/tmp", `zhishi-mini-e2e-${timestamp()}`);
+    const tempRoot = process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
+    simulatorProject = path.join(tempRoot, `zhishi-mini-e2e-${timestamp()}`);
     await cp(MINI_ROOT, simulatorProject, { recursive: true });
     const simulatorConfigPath = path.join(simulatorProject, "project.config.json");
     const simulatorConfig = JSON.parse(await readFile(simulatorConfigPath, "utf8"));
     simulatorConfig.setting = { ...(simulatorConfig.setting || {}), urlCheck: false };
     await writeFile(simulatorConfigPath, `${JSON.stringify(simulatorConfig, null, 2)}\n`, "utf8");
-    const reuseConnection = await isPortOpen(9420);
-    miniProgram = await withTimeout(reuseConnection
-      ? automator.connect({ wsEndpoint: "ws://127.0.0.1:9420" })
-      : automator.launch({
-          cliPath: DEVTOOLS_CLI,
-          projectPath: simulatorProject,
-          timeout: 90000,
-          port: 9420,
-          args: ["--port", "9431"],
-          trustProject: true,
-        }), reuseConnection ? 30000 : 110000, "连接微信开发者工具自动化端口");
     const exceptions = [];
-    miniProgram.on("exception", (error) => exceptions.push(sanitize(JSON.stringify(error))));
-
-    await waitForAutomatorReady(miniProgram);
+    // 新路径第一次进入 auto 时，开发者工具可能先启动基础库版本未确定的模拟器，
+    // 随后才登记 AppID。首次运行时未就绪便关闭并用同一路径重启，第二次会读取正确 SDK。
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const automationPort = await availablePort();
+      const cliOutput = await runDevtoolsCli([
+        "auto", "--project", simulatorProject,
+        "--auto-port", String(automationPort), "--trust-project",
+      ], { label: "启动微信开发者工具模拟器", timeout: 90000, inherit: true });
+      try {
+        miniProgram = await connectAutomator(automator, `ws://127.0.0.1:${automationPort}`);
+        miniProgram.on("exception", (error) => exceptions.push(sanitize(JSON.stringify(error))));
+        await waitForAutomatorReady(miniProgram, attempt === 1 ? 20000 : 90000);
+        break;
+      } catch (error) {
+        if (attempt === 2) {
+          throw new Error(`${error instanceof Error ? error.message : error}\n${sanitize(cliOutput.stderr || cliOutput.stdout)}`);
+        }
+        if (miniProgram && typeof miniProgram.disconnect === "function") miniProgram.disconnect();
+        miniProgram = undefined;
+        await runDevtoolsCli(["close", "--project", simulatorProject], { label: "重启首次初始化的模拟器", timeout: 30000, inherit: true });
+        await sleep(3000);
+      }
+    }
     await resetMiniSession(miniProgram);
     let page = await miniProgram.reLaunch("/pages/home/index");
     await page.callMethod("login", { currentTarget: { dataset: { role: "student" } } });
@@ -591,6 +694,9 @@ async function simulatorRegression(runDir, fixture) {
     if (exceptions.length) throw new Error(`模拟器捕获到异常：${exceptions.join("；")}`);
     stage("开发者工具模拟器", "passed", { summary: "学生首页、离线草稿和家长门户通过；构建中不存在教师页面", evidence });
     return evidence;
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     if (miniProgram && typeof miniProgram.close === "function") {
       try { await withTimeout(miniProgram.close(), 15000, "关闭模拟器自动化会话"); } catch {
@@ -598,7 +704,20 @@ async function simulatorRegression(runDir, fixture) {
       }
       await sleep(1500);
     }
-    if (simulatorProject) await rm(simulatorProject, { recursive: true, force: true });
+    if (simulatorProject) {
+      try {
+        await runDevtoolsCli(["close", "--project", simulatorProject], { label: "关闭模拟器临时工程", timeout: 30000, inherit: true });
+      } catch (closeError) {
+        finalizationError = closeError;
+      }
+      try {
+        await removeDirectoryWithRetry(simulatorProject);
+      } catch (cleanupError) {
+        stage("模拟器临时目录清理", "failed", { summary: sanitize(cleanupError instanceof Error ? cleanupError.message : cleanupError) });
+        if (!primaryError) throw cleanupError;
+      }
+      if (finalizationError && !primaryError) throw finalizationError;
+    }
   }
 }
 
@@ -647,21 +766,30 @@ async function runE2E() {
   const runDir = path.join(ARTIFACT_ROOT, `run-${timestamp()}`);
   await mkdir(runDir, { recursive: true });
   let server;
+  let primaryError;
   try {
     const fixture = await seedFixtures(db);
     server = await startServer();
     await apiRegression(db, fixture);
     await simulatorRegression(runDir, fixture);
     return runDir;
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     await stopServer(server);
-    await cleanupFixtures(db);
-    stage("合成数据清理", "passed", { summary: "仅删除 __e2e__ 数据" });
+    try {
+      await cleanupFixtures(db);
+      stage("合成数据清理", "passed", { summary: "仅删除 __e2e__ 数据" });
+    } catch (cleanupError) {
+      stage("合成数据清理", "failed", { summary: sanitize(cleanupError instanceof Error ? cleanupError.message : cleanupError) });
+      if (!primaryError) throw cleanupError;
+    }
   }
 }
 
 async function openDevTools() {
-  await runProcess(DEVTOOLS_CLI, ["open", "--project", MINI_ROOT], { label: "打开微信开发者工具", timeout: 60000 });
+  await runDevtoolsCli(["open", "--project", MINI_ROOT], { label: "打开微信开发者工具", timeout: 60000 });
   stage("微信开发者工具", "passed", { summary: "已打开知师研室学习端本地项目" });
 }
 
@@ -705,7 +833,7 @@ async function runPreview() {
   await writeFile(releaseTargetPath, `module.exports = Object.freeze({ configured: true, rootDomain: ${JSON.stringify(stagingURL.hostname)}, webOrigin: ${JSON.stringify(stagingBase)}, apiOrigin: ${JSON.stringify(stagingBase)} });\n`);
   const qr = path.join(previewDir, "preview.png");
   const info = path.join(previewDir, "preview-info.json");
-  await runProcess(DEVTOOLS_CLI, ["preview", "--project", buildDir, "--qr-format", "image", "--qr-output", qr, "--info-output", info], { label: "生成微信预览码", timeout: 180000 });
+  await runDevtoolsCli(["preview", "--project", buildDir, "--qr-format", "image", "--qr-output", qr, "--info-output", info], { label: "生成微信预览码", timeout: 180000 });
   report.boundaries.previewGenerated = true;
   stage("微信预览码", "passed", { summary: "仅生成预览码，未执行 upload、审核或发布", qr: path.relative(ROOT, qr) });
   await rm(buildDir, { recursive: true, force: true });

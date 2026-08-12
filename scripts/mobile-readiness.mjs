@@ -30,7 +30,7 @@ const manifest = source("public/manifest.webmanifest");
 const worker = source("public/sw.js");
 const pwaRegister = source("app/components/PwaRegister.tsx");
 const webRecord = source("app/v2/record/RecordWorkspace.tsx");
-addLocal("PWA 安装入口", present("app/install/page.tsx") && /manifest\.webmanifest/.test(source("app/layout.tsx")) && /display/.test(manifest), "包含安装页、Web App 清单和独立显示模式");
+addLocal("PWA 安装入口", present("app/install/page.tsx") && present("app/record/page.tsx") && /manifest\.webmanifest/.test(source("app/layout.tsx")) && /"start_url": "\/record\?source=pwa"/.test(manifest) && /teacherAdminSignInPath\("\/v2\/record"\)/.test(source("app/record/page.tsx")), "包含安装页、Web App 清单和保持登录后返回记录页的独立入口");
 addLocal("PWA 离线恢复", present("public/offline-record.html") && /offline-record\.html/.test(worker) && /serviceWorker\.register/.test(pwaRegister), "Service Worker 提供离线记录兜底页");
 addLocal("网页移动记录闭环", /baseVersion/.test(webRecord) && /编辑/.test(webRecord) && /CONFLICTS/.test(webRecord) && /share/.test(webRecord) && /DELETE/.test(webRecord), "支持新增、编辑、删除、共享审批、离线队列与版本冲突保留");
 

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { evaluateReadiness } from "../scripts/release-live-check.mjs";
 
-const successfulProbe = { reachable: true, status: 200, location: null, body: "" };
+const successfulProbe = { reachable: true, status: 200, location: null, contentType: "application/json", body: "" };
 
 test("release live check only passes when DNS, HTTPS, PWA and API are all ready", () => {
   const result = evaluateReadiness({
@@ -14,13 +14,30 @@ test("release live check only passes when DNS, HTTPS, PWA and API are all ready"
       { type: "CNAME", ready: false },
     ],
     http: { reachable: true, status: 301, location: "https://daofazuoye.cn/" },
-    homepage: successfulProbe,
-    manifest: { ...successfulProbe, body: '{"start_url":"/","display":"standalone"}' },
+    homepage: { ...successfulProbe, contentType: "text/html" },
+    manifest: { ...successfulProbe, contentType: "application/manifest+json", body: '{"start_url":"/","display":"standalone"}' },
     session: { ...successfulProbe, status: 401 },
+    miniLogin: { ...successfulProbe, status: 401 },
   });
 
   assert.equal(result.liveReady, true);
-  assert.equal(result.checks.length, 6);
+  assert.equal(result.checks.length, 7);
+});
+
+test("an HTML 403 challenge never counts as an online session API", () => {
+  const result = evaluateReadiness({
+    dnsRecords: [{ type: "NS", ready: true }, { type: "A", ready: true }],
+    http: { reachable: true, status: 302, location: "https://daofazuoye.cn/" },
+    homepage: { reachable: true, status: 403, contentType: "text/html" },
+    manifest: { reachable: true, status: 403, contentType: "text/html", body: "<title>Attention Required!</title>" },
+    session: { reachable: true, status: 403, contentType: "text/html", body: "" },
+    miniLogin: { reachable: true, status: 403, contentType: "text/html", body: "" },
+  });
+
+  assert.equal(result.liveReady, false);
+  assert.equal(result.checks.find((item) => item.name === "会话接口").ready, false);
+  assert.match(result.checks.find((item) => item.name === "会话接口").detail, /安全挑战/);
+  assert.equal(result.checks.find((item) => item.name === "小程序登录入口").ready, false);
 });
 
 test("registered nameservers do not hide a missing website address record", () => {
@@ -35,6 +52,7 @@ test("registered nameservers do not hide a missing website address record", () =
     homepage: { reachable: false, status: null },
     manifest: { reachable: false, status: null, body: "" },
     session: { reachable: false, status: null },
+    miniLogin: { reachable: false, status: null },
   });
 
   assert.equal(result.liveReady, false);

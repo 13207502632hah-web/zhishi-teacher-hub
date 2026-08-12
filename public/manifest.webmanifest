@@ -4,7 +4,7 @@
   "short_name": "知师研室",
   "description": "课表、题库、作业、反馈和移动教学记录的一体化教师工作室。",
   "lang": "zh-CN",
-  "start_url": "/v2/record?source=pwa",
+  "start_url": "/record?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -15,7 +15,7 @@
     { "src": "/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ],
   "shortcuts": [
-    { "name": "快速记录", "short_name": "记录", "url": "/v2/record?source=shortcut" },
+    { "name": "快速记录", "short_name": "记录", "url": "/record?source=shortcut" },
     { "name": "智能课表", "short_name": "课表", "url": "/v2/schedule-imports" },
     { "name": "待确认中心", "short_name": "待确认", "url": "/v2/approvals" }
   ]

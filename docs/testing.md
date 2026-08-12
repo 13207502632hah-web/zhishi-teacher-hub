@@ -94,11 +94,11 @@ scripts/reproduce-runtime-issues.mjs` 会实际创建演示数据、删除课时
 `papers` 均为 0，请在干净的本地开发库上运行，不要在有真实教学数据的库上
 执行。
 
-## 生产环境 mini 禁用门禁
+## 生产环境 mini 默认关闭门禁
 
 `pnpm mini:production-guard` 以 `NODE_ENV=production`、
 `CF_PAGES_ENV=production` 启动本地服务，同时故意误配
-`WECHAT_TEST_MODE=true` 与 AppID/AppSecret，验证：
+`WECHAT_TEST_MODE=true` 与 AppID/AppSecret，但不设置显式启用开关，验证：
 
 - `POST /api/v2/mini/login`（测试码与正式 code）返回 503
   `MINI_FEATURE_DISABLED`。
@@ -111,5 +111,6 @@ scripts/reproduce-runtime-issues.mjs` 会实际创建演示数据、删除课时
 
 ## 小程序自动化
 
-`pnpm mini:*` 系列脚本依赖微信开发者工具与 AppID，当前小程序功能暂停，
-相关自动化仅用于保留代码回归。生产验收以网站 e2e 为准。
+`pnpm mini:*` 系列脚本依赖微信开发者工具与正式 AppID，用于静态检查、接口回归、
+开发者工具构建和模拟器验收。生产环境仅在 `MINI_FEATURE_ENABLED=true` 时开放；
+网站 e2e 与小程序真机验收均是发布证据，二者不能互相替代。
