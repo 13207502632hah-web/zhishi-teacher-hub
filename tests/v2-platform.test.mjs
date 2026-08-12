@@ -100,8 +100,8 @@ test("mobile records share one versioned D1 workflow across web iOS and mini", a
 });
 
 test("PWA supports home-screen launch and an offline teacher outbox", async () => {
-  const [layout, manifest, worker, offline, page] = await Promise.all([read("app/layout.tsx"), read("public/manifest.webmanifest"), read("public/sw.js"), read("public/offline-record.html"), read("app/v2/record/RecordWorkspace.tsx")]);
-  assert.match(layout, /manifest: "\/manifest\.webmanifest"/); assert.match(layout, /appleWebApp/); assert.match(manifest, /"display": "standalone"/); assert.match(manifest, /\/v2\/record/);
+  const [layout, manifest, entry, worker, offline, page] = await Promise.all([read("app/layout.tsx"), read("public/manifest.webmanifest"), read("app/record/page.tsx"), read("public/sw.js"), read("public/offline-record.html"), read("app/v2/record/RecordWorkspace.tsx")]);
+  assert.match(layout, /manifest: "\/manifest\.webmanifest"/); assert.match(layout, /appleWebApp/); assert.match(manifest, /"display": "standalone"/); assert.match(manifest, /"start_url": "\/record\?source=pwa"/); assert.match(entry, /teacherAdminSignInPath\("\/v2\/record"\)/);
   assert.match(worker, /offline-record\.html/); assert.match(offline, /zhishi-mobile-outbox-v1/); assert.match(page, /zhishi-mobile-outbox-v1/); assert.match(page, /提交共享确认/);
 });
 
