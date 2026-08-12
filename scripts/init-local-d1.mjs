@@ -103,7 +103,7 @@ async function applyAllMigrations(database) {
   }
 }
 
-async function waitForDatabaseFile(child, logs, timeoutMs = 90_000) {
+async function waitForDatabaseFile(child, logs, timeoutMs = 180_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -116,7 +116,7 @@ async function waitForDatabaseFile(child, logs, timeoutMs = 90_000) {
   throw new Error(`等待本地 D1 文件超时：${logs.slice(-8).join("\n")}`);
 }
 
-async function requestPublicDbRoute(child, logs, timeoutMs = 60_000) {
+async function requestPublicDbRoute(child, logs, timeoutMs = 180_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
