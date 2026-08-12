@@ -103,7 +103,7 @@ async function applyAllMigrations(database) {
   }
 }
 
-async function waitForDatabaseFile(child, logs, timeoutMs = 180_000) {
+async function waitForDatabaseFile(child, logs, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -116,7 +116,7 @@ async function waitForDatabaseFile(child, logs, timeoutMs = 180_000) {
   throw new Error(`等待本地 D1 文件超时：${logs.slice(-8).join("\n")}`);
 }
 
-async function requestPublicDbRoute(child, logs, timeoutMs = 180_000) {
+async function requestPublicDbRoute(child, logs, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -125,7 +125,9 @@ async function requestPublicDbRoute(child, logs, timeoutMs = 180_000) {
     try {
       // 日历订阅路由无需登录即读取 D1；首次真实访问会让 Miniflare 在本地落盘数据库。
       // 未迁移的库会先返回 500；只要请求真正到达路由并触达 D1 即视为成功。
-      const response = await fetch("http://127.0.0.1:3000/api/calendar/feed/d1-init-token");
+      // Vite advertises `localhost`; on Linux it may listen on IPv6 only, so
+      // forcing 127.0.0.1 can leave CI polling an address the server never bound.
+      const response = await fetch("http://localhost:3000/api/calendar/feed/d1-init-token");
       if (response.ok || response.status === 404 || response.status === 500) return;
     } catch {
       // 服务尚未就绪，继续等待。

@@ -259,8 +259,10 @@ test("every newly versioned route has an explicit contract inventory reference",
 
 test("local D1 initializer accepts the database file before a slow CI route finishes compiling", async () => {
   const initializer = await read("scripts/init-local-d1.mjs");
-  assert.match(initializer, /waitForDatabaseFile\(child, logs, timeoutMs = 180_000\)/);
-  assert.match(initializer, /requestPublicDbRoute\(child, logs, timeoutMs = 180_000\)/);
+  assert.match(initializer, /waitForDatabaseFile\(child, logs, timeoutMs = 90_000\)/);
+  assert.match(initializer, /requestPublicDbRoute\(child, logs, timeoutMs = 90_000\)/);
+  assert.match(initializer, /fetch\("http:\/\/localhost:3000\/api\/calendar\/feed\/d1-init-token"\)/);
+  assert.doesNotMatch(initializer, /fetch\("http:\/\/127\.0\.0\.1:3000/);
   assert.match(initializer, /if \(await findAnySqlite\(\)\) return/);
   assert.match(initializer, /路由可能在 D1 已经落盘后仍等待 SSR 编译/);
 });
