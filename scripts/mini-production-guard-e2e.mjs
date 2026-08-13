@@ -1,17 +1,32 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const root = process.cwd();
-const baseUrl = "http://localhost:3000";
+let baseUrl = "";
 const marker = "__mini_production_guard__";
 const devVars = path.join(root, ".dev.vars.mini-production-guard");
 const reportPath = path.join(root, "outputs", "mini-production-guard.json");
 const logs = [];
 let server;
 let sqlite;
+
+async function availablePort() {
+  const server = net.createServer();
+  server.unref();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen({ host: "127.0.0.1", port: 0 }, resolve);
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  assert.ok(port > 0, "未能分配生产门禁隔离端口");
+  return port;
+}
 
 function databaseHasTeachingTables(file) {
   const candidate = new DatabaseSync(file, { readOnly: true });
@@ -79,6 +94,8 @@ function snapshot() {
 }
 
 async function main() {
+  const port = await availablePort();
+  baseUrl = `http://localhost:${port}`;
   const database = await findDatabase(path.join(root, ".wrangler", "state", "v3", "d1"));
   assert.ok(database?.includes(`${path.sep}.wrangler${path.sep}state${path.sep}`), "只允许使用项目本地 D1");
   sqlite = new DatabaseSync(database);
@@ -98,7 +115,7 @@ async function main() {
   ].join("\n"), { mode: 0o600 });
 
   const devServerCli = path.join(root, "node_modules", "vinext", "dist", "cli.js");
-  server = spawn(process.execPath, [devServerCli, "dev"], {
+  server = spawn(process.execPath, [devServerCli, "dev", "--port", String(port), "--strictPort"], {
     cwd: root,
     env: {
       ...process.env,
@@ -114,7 +131,7 @@ async function main() {
 
   const loginTestCode = await request("/api/v2/mini/login", {
     method: "POST",
-    body: { role: "teacher", testCode: marker, displayName: "生产守卫测试" },
+    body: { role: "student", testCode: marker, displayName: "生产守卫测试" },
   });
   const loginFormalCode = await request("/api/v2/mini/login", {
     method: "POST",
