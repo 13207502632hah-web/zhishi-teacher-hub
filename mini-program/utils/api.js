@@ -26,8 +26,43 @@ function request(path, options = {}) {
   }));
 }
 
-function loginWithCode() {
-  return new Promise((resolve, reject) => wx.login({ success: ({ code }) => request("/api/v2/mini/login", { method: "POST", data: { code } }).then(saveLogin).then(resolve).catch(reject), fail: reject }));
+function wxLoginOnce(timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+    const timer = setTimeout(() => finish(reject, {
+      error: "微信登录超时，微信未返回登录凭证",
+      code: "WX_LOGIN_TIMEOUT",
+      retryable: true,
+    }), timeout);
+    wx.login({
+      timeout,
+      success: ({ code }) => code
+        ? finish(resolve, code)
+        : finish(reject, { error: "微信未返回登录凭证，请关闭小程序后重新打开", code: "WX_LOGIN_EMPTY_CODE", retryable: true }),
+      fail: (failure) => finish(reject, {
+        error: failure && failure.errMsg ? `微信登录失败：${failure.errMsg}` : "微信登录失败，请关闭小程序后重新打开",
+        code: "WX_LOGIN_FAILED",
+        retryable: true,
+      }),
+    });
+  });
+}
+
+async function loginWithCode() {
+  let code;
+  try {
+    code = await wxLoginOnce();
+  } catch (firstError) {
+    if (!firstError || !firstError.retryable) throw firstError;
+    code = await wxLoginOnce();
+  }
+  return request("/api/v2/mini/login", { method: "POST", data: { code } }).then(saveLogin);
 }
 
 function testLogin(role = "student") {

@@ -58,6 +58,7 @@ test("mini client contains only student and parent pages, session expiry and rec
   const [config, api, app, home, submit, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/submit/index.js", "mini-program/README.md"].map(read));
   assert.match(config, /develop/); assert.match(config, /trial/); assert.match(config, /release/); assert.match(config, /testLoginEnabled/);
   assert.match(api, /MINI_SESSION_EXPIRED|statusCode === 401/); assert.match(api, /onProgressUpdate/); assert.match(api, /mini-sync-cursor/);
+  assert.match(api, /WX_LOGIN_TIMEOUT/); assert.match(api, /wxLoginOnce/); assert.match(api, /code = await wxLoginOnce\(\)/);
   for (const page of ["pages/bind/index", "pages/portal/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index"]) assert.match(app, new RegExp(page));
   for (const teacherOnlyPage of ["pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.doesNotMatch(app, new RegExp(teacherOnlyPage));
   assert.match(api, /\/api\/v2\/mini/);
