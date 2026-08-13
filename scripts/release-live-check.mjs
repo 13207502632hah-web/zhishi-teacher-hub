@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 
 import { promises as dns } from "node:dns";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPORT_DIR = path.join(ROOT, ".artifacts", "release");
 const strict = process.argv.includes("--strict");
 const originArgument = process.argv.find((value) => value.startsWith("--origin="))?.slice("--origin=".length);
+const execFileAsync = promisify(execFile);
 
 function configuredOrigin() {
   if (originArgument) return originArgument;
@@ -46,6 +49,50 @@ async function resolveRecord(hostname, type) {
   }
 }
 
+async function requestWithSystemNetwork(url, options = {}) {
+  const marker = "__ZHISHI_CURL_META__";
+  const userAgent = options.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36 ZhishiReleaseReadiness/2.0";
+  const args = [
+    "--silent", "--show-error", "--max-time", "15",
+    "--request", options.method || "GET",
+    "--header", `Accept: ${options.accept || "*/*"}`,
+    "--header", `User-Agent: ${userAgent}`,
+  ];
+  if (options.redirect !== "manual") args.push("--location");
+  if (options.body) args.push("--header", "Content-Type: application/json", "--data-raw", options.body);
+  args.push("--write-out", `\n${marker}\n%{http_code}\n%{content_type}\n%{redirect_url}`, String(url));
+  try {
+    const { stdout } = await execFileAsync(process.platform === "win32" ? "curl.exe" : "curl", args, {
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const markerIndex = stdout.lastIndexOf(`\n${marker}\n`);
+    if (markerIndex < 0) throw new Error("系统网络复核未返回状态信息");
+    const body = stdout.slice(0, markerIndex);
+    const [statusText = "", contentType = "", location = ""] = stdout.slice(markerIndex + marker.length + 2).split(/\r?\n/);
+    return {
+      reachable: true,
+      status: Number(statusText),
+      location: location || null,
+      contentType: contentType || null,
+      body: options.readBody ? body : "",
+      error: null,
+      transport: "system-network-fallback",
+    };
+  } catch (error) {
+    return {
+      reachable: false,
+      status: null,
+      location: null,
+      contentType: null,
+      body: "",
+      error: error instanceof Error ? error.message : String(error),
+      transport: "system-network-fallback",
+    };
+  }
+}
+
 async function request(url, options = {}) {
   try {
     const response = await fetch(url, {
@@ -55,12 +102,12 @@ async function request(url, options = {}) {
       headers: {
         accept: options.accept || "*/*",
         ...(options.body ? { "content-type": "application/json" } : {}),
-        "user-agent": "ZhishiReleaseReadiness/2.0",
+        "user-agent": options.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36 ZhishiReleaseReadiness/2.0",
       },
       body: options.body,
     });
     const body = options.readBody ? await response.text() : "";
-    return {
+    const result = {
       reachable: true,
       status: response.status,
       location: response.headers.get("location"),
@@ -68,6 +115,13 @@ async function request(url, options = {}) {
       body,
       error: null,
     };
+    // Cloudflare can challenge Node's TLS fingerprint while allowing the same
+    // production request through the operating-system network stack. Recheck
+    // only HTML challenges; business JSON requirements remain unchanged.
+    if (result.status === 403 && /text\/html/i.test(result.contentType || "")) {
+      return requestWithSystemNetwork(url, options);
+    }
+    return result;
   } catch (error) {
     return {
       reachable: false,
@@ -142,6 +196,9 @@ async function main() {
     request(new URL("/api/v2/mini/login", origin), {
       method: "POST",
       accept: "application/json",
+      // Probe the route as the production caller does. Cloudflare may challenge
+      // non-browser automation identifiers even when real WeChat requests reach the app.
+      userAgent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125 Mobile Safari/537.36 MicroMessenger/8.0.50 ZhishiReleaseReadiness/2.0",
       body: JSON.stringify({ code: "invalid-release-readiness-probe", role: "student" }),
     }),
   ]);

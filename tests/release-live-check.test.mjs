@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { evaluateReadiness } from "../scripts/release-live-check.mjs";
+import { readFile } from "node:fs/promises";
 
 const successfulProbe = { reachable: true, status: 200, location: null, contentType: "application/json", body: "" };
 
@@ -58,4 +59,13 @@ test("registered nameservers do not hide a missing website address record", () =
   assert.equal(result.liveReady, false);
   assert.equal(result.checks.find((item) => item.name === "权威 DNS").ready, true);
   assert.equal(result.checks.find((item) => item.name === "网站地址记录").ready, false);
+});
+
+test("production probe uses browser and WeChat identities without accepting HTML challenges", async () => {
+  const source = await readFile(new URL("../scripts/release-live-check.mjs", import.meta.url), "utf8");
+  assert.match(source, /options\.userAgent \|\| "Mozilla\/5\.0/);
+  assert.match(source, /MicroMessenger\/8\.0\.50 ZhishiReleaseReadiness\/2\.0/);
+  assert.match(source, /status === 403\s*&& \/text\\\/html\/i/);
+  assert.match(source, /requestWithSystemNetwork\(url, options\)/);
+  assert.match(source, /transport: "system-network-fallback"/);
 });
