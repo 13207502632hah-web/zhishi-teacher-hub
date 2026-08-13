@@ -16,8 +16,9 @@ test("teaching loop e2e is self-contained on Windows", () => {
   );
   assert.match(
     teachingLoopSource,
-    /spawn\(process\.execPath,\s*\[devServerCli,\s*"dev"\]/,
+    /spawn\(process\.execPath,\s*\[devServerCli,\s*"dev",\s*"--port",\s*String\(e2ePort\)\]/,
   );
-  assert.match(teachingLoopSource, /Date\.now\(\) \+ 60_000/);
+  assert.match(teachingLoopSource, /TEACHING_E2E_PORT \|\| 3100/);
+  assert.match(teachingLoopSource, /Date\.now\(\) \+ 120_000/);
   assert.doesNotMatch(teachingLoopSource, /pnpm\.cmd|shell:\s*true/);
 });

@@ -7,7 +7,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const root = process.cwd();
-const baseUrl = "http://localhost:3000";
+const e2ePort = Number(process.env.TEACHING_E2E_PORT || 3100);
+const baseUrl = `http://localhost:${e2ePort}`;
 const marker = "__e2e__teaching_loop";
 const serveOnly = process.argv.includes("--serve-only");
 const e2ePassword = process.env.TEACHING_E2E_PASSWORD || randomBytes(24).toString("base64url");
@@ -369,7 +370,7 @@ async function multipartRequest(pathname, { cookie, method = "POST", form } = {}
 }
 
 async function waitForServer() {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     if (server && server.exitCode !== null) {
       throw new Error(`本地服务提前退出（code ${server.exitCode}）：${logs.slice(-8).join("\n")}`);
@@ -1551,7 +1552,7 @@ try {
   const aiMockBase = await startAiMock();
   await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\nWECHAT_TEST_MODE=true\n`, { mode: 0o600 });
   const devServerCli = path.join(root, "node_modules", "vinext", "dist", "cli.js");
-  server = spawn(process.execPath, [devServerCli, "dev"], {
+  server = spawn(process.execPath, [devServerCli, "dev", "--port", String(e2ePort)], {
     cwd: root,
     env: {
       ...process.env,
