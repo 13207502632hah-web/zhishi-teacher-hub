@@ -2,6 +2,21 @@ import { env } from "cloudflare:workers";
 import { miniDisabledResponse, miniProductionDisabled, miniTokenHash, type MiniAccess } from "../../../../lib/mini-auth";
 import { miniAccountState } from "../../../../lib/services/mini-binding-service";
 
+function wechatLoginError(data: Record<string, unknown>) {
+  const providerCode = typeof data.errcode === "number" ? data.errcode : -1;
+  const retryable = providerCode === 40029 || providerCode === 45011 || providerCode === -1;
+  const error = providerCode === 40125
+    ? "微信登录配置失效，请联系管理员更新小程序密钥"
+    : providerCode === 40013
+      ? "微信小程序 AppID 配置不一致，请联系管理员"
+      : providerCode === 40029
+        ? "微信登录凭证已失效，请关闭小程序后重新打开"
+        : providerCode === 45011
+          ? "微信登录操作过于频繁，请稍后再试"
+          : "微信登录服务暂时不可用，请稍后重试";
+  return Response.json({ error, code: "WECHAT_LOGIN_FAILED", providerCode, retryable }, { status: retryable ? 503 : 401 });
+}
+
 export async function POST(request: Request) {
   const runtime = env as unknown as Record<string, string | undefined>;
   if (miniProductionDisabled()) return miniDisabledResponse();
@@ -19,7 +34,7 @@ export async function POST(request: Request) {
     if (!body.code) return Response.json({ error: "缺少微信登录 code" }, { status: 400 });
     const response = await fetch(`https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(runtime.WECHAT_APP_ID)}&secret=${encodeURIComponent(runtime.WECHAT_APP_SECRET)}&js_code=${encodeURIComponent(body.code)}&grant_type=authorization_code`);
     const data = await response.json() as Record<string, unknown>;
-    if (!response.ok || !data.openid) return Response.json({ error: "微信登录失败，请重试" }, { status: 401 });
+    if (!response.ok || !data.openid) return wechatLoginError(data);
     openId = String(data.openid);
   }
   let account = await env.DB.prepare("SELECT id,role,status,student_id AS studentId FROM wechat_accounts WHERE open_id=?").bind(openId).first<Record<string, any>>();
