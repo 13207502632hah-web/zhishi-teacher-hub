@@ -3,7 +3,7 @@ import test from "node:test";
 
 import worker from "../mini-edge/worker.js";
 
-test("mini edge only forwards the versioned mini API and strips edge identity headers", async () => {
+test("edge forwards the versioned mini API and strips edge identity headers", async () => {
   const originalFetch = globalThis.fetch;
   let forwarded;
   globalThis.fetch = async (url, init) => {
@@ -30,7 +30,49 @@ test("mini edge only forwards the versioned mini API and strips edge identity he
   }
 });
 
-test("mini edge rejects every non-mini route without contacting upstream", async () => {
-  const response = await worker.fetch(new Request("https://edge.test/api/session"), {});
-  assert.equal(response.status, 404);
+test("edge forwards website routes, preserves cookies, and rewrites upstream redirects", async () => {
+  const originalFetch = globalThis.fetch;
+  let forwarded;
+  globalThis.fetch = async (url, init) => {
+    forwarded = { url: String(url), init };
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: "https://upstream.test/login?next=%2Frecord",
+        "set-cookie": "teacher_session=private; Path=/; Secure; HttpOnly",
+        "cache-control": "public, max-age=60",
+      },
+    });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://daofazuoye.cn/record"), {
+      UPSTREAM_ORIGIN: "https://upstream.test",
+      UPSTREAM_BYPASS_TOKEN: "secret-token",
+    });
+    assert.equal(forwarded.url, "https://upstream.test/record");
+    assert.equal(forwarded.init.headers.get("x-forwarded-host"), "daofazuoye.cn");
+    assert.equal(forwarded.init.headers.get("x-zhishi-edge"), "web-v2");
+    assert.equal(response.headers.get("location"), "https://daofazuoye.cn/login?next=%2Frecord");
+    assert.match(response.headers.get("set-cookie"), /teacher_session=private/);
+    assert.equal(response.headers.get("cache-control"), "public, max-age=60");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("edge leaves external redirects unchanged", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, {
+    status: 302,
+    headers: { location: "https://weixin.qq.com/" },
+  });
+  try {
+    const response = await worker.fetch(new Request("https://daofazuoye.cn/login"), {
+      UPSTREAM_ORIGIN: "https://upstream.test",
+      UPSTREAM_BYPASS_TOKEN: "secret-token",
+    });
+    assert.equal(response.headers.get("location"), "https://weixin.qq.com/");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
