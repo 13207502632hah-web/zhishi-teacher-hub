@@ -127,14 +127,7 @@ async function request(url, options = {}) {
     }
     return result;
   } catch (error) {
-    return {
-      reachable: false,
-      status: null,
-      location: null,
-      contentType: null,
-      body: "",
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return requestWithSystemNetwork(url, options);
   }
 }
 
