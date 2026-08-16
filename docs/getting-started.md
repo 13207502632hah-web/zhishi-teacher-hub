@@ -28,12 +28,23 @@ pnpm dev
 
 可选配置：
 
+- `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`AI_V2_ENABLED=true`：启用 V2 多模型智能路由。
+- `AI_V2_FAST_MODEL`、`AI_V2_REASONING_MODEL`、`AI_V2_VISION_MODEL`、
+  `AI_V2_RERANK_MODEL`：分别配置快速解析、深度推理、视觉识别和重排模型。
 - `DEEPSEEK_API_KEY`、`DEEPSEEK_AI_ENABLED=true`：启用 AI 草稿与建议功能。
 - `RECOGNITION_PROVIDER`、`RECOGNITION_API_KEY`：答题卡识别供应商配置。
 - `WECHAT_*`：仅本地微信开发者工具预览使用，生产必须保持关闭。
 
 `.dev.vars` 已被 Git 忽略，不要提交真实密钥。生产环境通过 Cloudflare/Sites
 Secret 注入，不写入源码或 `hosting.json`。
+
+本地开发也可以将 V2 AI 配置放入被 Git 忽略的 `.env.local`。开发服务器只桥接
+明确列入白名单的 AI 变量；生产构建不会把密钥打进客户端包。V2 内测入口为
+`/v2`，候选版范围和部署门禁见 [zhishi-v2-candidate.md](zhishi-v2-candidate.md)。
+
+手机可直接访问 `/install` 查看添加到主屏幕的步骤，教师快速记录入口为
+`/v2/record`。微信与 iOS 正式发布所需资料见
+[mobile-release-checklist.md](mobile-release-checklist.md)。
 
 ## 本地数据库
 

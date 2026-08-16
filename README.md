@@ -27,13 +27,15 @@
 | 教研与运营 | 资源中心 | `/resources`、`/resources/[id]` | 公开资源入口与匿名可读的公开详情页，私有资源按角色展示 |
 | 教研与运营 | 课时结算 | `/finance` | 结算预览、安全确认、实收登记、月度汇总与导出 |
 | 账户 | 设置 | `/settings` | 角色与账号、助教班级授权、演示数据、导出、删除与审计日志 |
-| 账户 | 微信小程序 | `/mini-settings` | 功能暂停，代码保留；AppID 仅用于本地/开发验证 |
+| 账户 | 微信小程序 | `/mini-settings` | 学生/家长端已启用；管理绑定、邀请、停用、同步和审核发布状态 |
 
 另有学生/家长只读门户 `/portal`，只展示与本人关联且已确认的内容。
 > 当前实现说明：`/portal` 页面与门户 API 的服务端入口暂按教师管理员登录保护；
 > 学生/家长角色与登录链路尚未开放，README 保留产品目标表述，实际验收以
 > `ARCHITECTURE.md` 的权限原则为准。
-微信小程序目录已暂停，导航中以“微信小程序（暂停）”标识。
+微信小程序 2.0.0 已接入正式 AppID、备案域名和生产接口；首次审核因“作业、成长等页面
+网络连接失败”被退回，修复版必须完成大陆真机连通性验收后再提交。学生/家长数据仅在
+教师确认后同步。
 
 ## 技术栈
 
@@ -61,7 +63,8 @@ pnpm dev
 会话密钥；需要试用 DeepSeek 时再填写 `DEEPSEEK_API_KEY` 并把
 `DEEPSEEK_AI_ENABLED` 设为 `true`。真实密钥只放在未纳入 Git 的
 `.dev.vars` 中，生产环境通过 Sites Secret 配置，不写入源码、`hosting.json`
-或浏览器。微信相关变量只用于本地微信开发者工具测试，生产必须关闭。
+或浏览器。微信 AppSecret 只保存在生产 Secret 中，生产通过
+`MINI_FEATURE_ENABLED=true` 显式开启，测试环境默认关闭。
 `pnpm db:init` 会确定性地应用 `drizzle/` 下全部迁移并校验必需表，首次启动
 前执行一次即可。
 
@@ -78,9 +81,9 @@ pnpm dev
 | `pnpm lint` | ESLint 全量检查 |
 | `pnpm test` | 构建后运行单元/源码校验测试 |
 | `pnpm teaching:e2e` | 本地 D1 教学闭环端到端回归 |
-| `pnpm mini:production-guard` | 模拟生产环境验证小程序接口整体禁用 |
+| `pnpm mini:production-guard` | 验证未显式开启时，生产小程序接口保持关闭且零写入 |
 | `pnpm db:generate` | 修改 `db/schema.ts` 后生成 Drizzle 迁移 |
-| `pnpm mini:verify` | 微信小程序自动化验收（功能暂停中） |
+| `pnpm mini:verify` | 微信小程序静态、接口、构建与开发者工具自动化验收 |
 
 ## 项目结构
 
@@ -91,7 +94,7 @@ pnpm dev
 - `scripts/`：本地校验、自动化与 e2e 脚本
 - `tests/`：源码与接口校验测试
 - `docs/`：架构、安全、测试与小程序集成文档
-- `mini-program/`：微信小程序（当前暂停，不参与线上发布）
+- `mini-program/`：微信学生/家长端，使用 `/api/v2/mini/*` 与网站共享 D1/R2 数据
 
 ## 安全与权限要点
 

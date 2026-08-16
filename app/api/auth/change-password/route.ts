@@ -4,6 +4,7 @@ import { changeTeacherAdminPassword, createTeacherAdminSessionCookie } from "../
 export async function POST(request: Request) {
   const access = await requirePermission("settings:write");
   if (isDenied(access)) return access;
+  if (access.authType !== "teacher_admin") return Response.json({ error: "当前会话不是主教师管理员会话" }, { status: 403 });
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const currentPassword = String(body.currentPassword || "");
   const newPassword = String(body.newPassword || "");

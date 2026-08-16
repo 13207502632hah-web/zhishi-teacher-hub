@@ -1,18 +1,17 @@
 {
   "pages": [
     "pages/home/index",
+    "pages/dictation/index",
+    "pages/class-files/index",
+    "pages/notices/index",
     "pages/assignment/index",
     "pages/submit/index",
     "pages/bind/index",
     "pages/portal/index",
-    "pages/review/index",
-    "pages/publish/index",
-    "pages/inbox/index",
-    "pages/annotate/index",
     "pages/excellent/index"
   ],
   "window": {
-    "navigationBarTitleText": "来写作业吧",
+    "navigationBarTitleText": "知师研室 · 学习端",
     "navigationBarBackgroundColor": "#315d4d",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#f7f4ea",
@@ -23,8 +22,10 @@
     "selectedColor": "#315d4d",
     "list": [
       { "pagePath": "pages/home/index", "text": "作业" },
-      { "pagePath": "pages/portal/index", "text": "学习" },
-      { "pagePath": "pages/excellent/index", "text": "优秀作业" }
+      { "pagePath": "pages/portal/index", "text": "成长" },
+      { "pagePath": "pages/class-files/index", "text": "资料" },
+      { "pagePath": "pages/excellent/index", "text": "示范" },
+      { "pagePath": "pages/notices/index", "text": "消息" }
     ]
   }
 }

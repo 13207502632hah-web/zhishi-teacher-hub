@@ -6,6 +6,8 @@ import { accessibleStudentIds, recordSyncEvent } from "./mini-sync-service";
 
 export type AssignmentInput = {
   title: string;
+  kind?: "homework" | "dictation" | "follow_reading";
+  contentItems?: string[];
   requirements?: string;
   classId?: number | null;
   studentIds?: number[];
@@ -21,6 +23,8 @@ export type AssignmentInput = {
 };
 
 type AssignmentActor = { kind: "website"; access: AccessContext } | { kind: "mini"; access: MiniAccess };
+type WebsiteAssignmentActor = { kind: "website"; access: AccessContext };
+const assignmentKinds = new Set(["homework", "dictation", "follow_reading"]);
 
 export async function listAssignments(actor: AssignmentActor, filters: URLSearchParams) {
   const where: string[] = [], bind: unknown[] = [];
@@ -29,25 +33,30 @@ export async function listAssignments(actor: AssignmentActor, filters: URLSearch
     where.push("a.class_id IS NOT NULL AND EXISTS(SELECT 1 FROM staff_class_access sca WHERE sca.class_id=a.class_id AND sca.user_id=?)");
     bind.push(actor.access.id);
   }
-  if (actor.kind === "mini" && actor.access.role !== "teacher") {
-    const ids = await accessibleStudentIds(actor.access); scopedStudentIds = ids;
-    if (!ids.length) return { assignments: [], counts: emptyCounts() };
-    const marks = ids.map(() => "?").join(",");
+  if (actor.kind === "mini") {
+    const ids = await accessibleStudentIds(actor.access), requestedStudentId = Number(filters.get("studentId") || 0);
+    if (requestedStudentId && !ids.includes(requestedStudentId)) return { assignments: [], counts: emptyCounts() };
+    scopedStudentIds = requestedStudentId ? [requestedStudentId] : ids;
+    if (!scopedStudentIds.length) return { assignments: [], counts: emptyCounts() };
+    const marks = scopedStudentIds.map(() => "?").join(",");
     where.push(`a.status!='draft' AND (EXISTS(SELECT 1 FROM assignment_targets at WHERE at.assignment_id=a.id AND at.target_type='student' AND at.target_id IN (${marks})) OR (NOT EXISTS(SELECT 1 FROM assignment_targets st WHERE st.assignment_id=a.id AND st.target_type='student') AND EXISTS(SELECT 1 FROM enrollments e WHERE e.class_id=a.class_id AND e.student_id IN (${marks}) AND e.status='active')))`);
-    bind.push(...ids, ...ids);
+    bind.push(...scopedStudentIds, ...scopedStudentIds);
   }
   const status = filters.get("status");
   const classId = Number(filters.get("classId") || 0);
   const lessonId = Number(filters.get("lessonId") || 0);
   const submissionStatus = filters.get("submissionStatus") || "";
   const query = (filters.get("q") || "").trim();
+  const kind = filters.get("kind") || "";
+  if (kind === "dictation") where.push("a.kind IN ('dictation','follow_reading')");
+  else if (assignmentKinds.has(kind)) { where.push("a.kind=?"); bind.push(kind); }
   if (status && status !== "all") { where.push("a.status=?"); bind.push(status); }
   if (classId) { where.push("a.class_id=?"); bind.push(classId); }
   if (lessonId) { where.push("a.lesson_id=?"); bind.push(lessonId); }
   if (submissionStatus === "pending") where.push("EXISTS(SELECT 1 FROM assignment_submissions fs WHERE fs.assignment_id=a.id AND fs.status NOT IN ('completed','corrected'))");
   else if (submissionStatus) { where.push("EXISTS(SELECT 1 FROM assignment_submissions fs WHERE fs.assignment_id=a.id AND fs.status=?)"); bind.push(submissionStatus); }
   if (query) { where.push("(a.title LIKE ? OR a.requirements LIKE ?)"); bind.push(`%${query}%`, `%${query}%`); }
-  const rows = await env.DB.prepare(`SELECT a.id,a.lesson_id AS lessonId,a.paper_id AS paperId,a.class_id AS classId,a.title,a.requirements,a.due_at AS dueAt,a.reminder_rule AS reminderRule,a.status,a.created_at AS createdAt,a.updated_at AS updatedAt,c.name AS className,p.title AS paperTitle,COALESCE(s.allow_parent_submit,1) AS allowParentSubmit,COALESCE(s.require_revision,1) AS requireRevision,s.published_at AS publishedAt,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id) AS recipientCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status IN ('submitted','revision_submitted')) AS pendingReviewCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status='revision') AS revisionCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status='completed') AS completedCount FROM assignments a LEFT JOIN classes c ON c.id=a.class_id LEFT JOIN papers p ON p.id=a.paper_id LEFT JOIN assignment_settings s ON s.assignment_id=a.id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY a.updated_at DESC,a.id DESC LIMIT 200`)
+  const rows = await env.DB.prepare(`SELECT a.id,a.lesson_id AS lessonId,a.paper_id AS paperId,a.class_id AS classId,a.kind,a.content_json AS contentJson,a.title,a.requirements,a.due_at AS dueAt,a.reminder_rule AS reminderRule,a.status,a.created_at AS createdAt,a.updated_at AS updatedAt,c.name AS className,p.title AS paperTitle,COALESCE(s.allow_parent_submit,1) AS allowParentSubmit,COALESCE(s.require_revision,1) AS requireRevision,s.published_at AS publishedAt,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id) AS recipientCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status IN ('submitted','revision_submitted')) AS pendingReviewCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status='revision') AS revisionCount,(SELECT COUNT(*) FROM assignment_submissions sub WHERE sub.assignment_id=a.id AND sub.status='completed') AS completedCount FROM assignments a LEFT JOIN classes c ON c.id=a.class_id LEFT JOIN papers p ON p.id=a.paper_id LEFT JOIN assignment_settings s ON s.assignment_id=a.id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY a.updated_at DESC,a.id DESC LIMIT 200`)
     .bind(...bind).all<Record<string, unknown>>();
   const assignments = [] as Record<string, unknown>[];
   for (const row of rows.results) {
@@ -61,34 +70,33 @@ export async function listAssignments(actor: AssignmentActor, filters: URLSearch
       const own = await env.DB.prepare(`SELECT COUNT(*) AS recipientCount,SUM(CASE WHEN status IN ('submitted','revision_submitted') THEN 1 ELSE 0 END) AS pendingReviewCount,SUM(CASE WHEN status='revision' THEN 1 ELSE 0 END) AS revisionCount,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completedCount FROM assignment_submissions WHERE assignment_id=? AND student_id IN (${scopedStudentIds.map(() => "?").join(",")})`).bind(row.id, ...scopedStudentIds).first<Record<string, number>>();
       scopedCounts = own || {};
     }
-    assignments.push({ ...row, ...scopedCounts, allowParentSubmit: Boolean(row.allowParentSubmit), requireRevision: Boolean(row.requireRevision), targets: targets.results, attachments: [...assets.results.map((item: any) => ({ ...item, url: `/api/mini/files/${item.id}` })), ...paperFiles.map((item: any) => ({ ...item, url: `/api/mini/paper-files/${item.id}`, wholePaper: true }))], assetCount: assets.results.length + paperFiles.length });
+    let contentItems: string[] = [];
+    try { const parsed = JSON.parse(String(row.contentJson || "[]")); if (Array.isArray(parsed)) contentItems = parsed.map(String); } catch { contentItems = []; }
+    assignments.push({ ...row, contentJson: undefined, contentItems, ...scopedCounts, allowParentSubmit: Boolean(row.allowParentSubmit), requireRevision: Boolean(row.requireRevision), targets: targets.results, attachments: [...assets.results.map((item: any) => ({ ...item, url: `/api/v2/mini/files/${item.id}` })), ...paperFiles.map((item: any) => ({ ...item, url: `/api/v2/mini/paper-files/${item.id}`, wholePaper: true }))], assetCount: assets.results.length + paperFiles.length });
   }
   return { assignments, counts: countStatuses(assignments) };
 }
 
-export async function createAssignment(actor: AssignmentActor, input: AssignmentInput) {
+export async function createAssignment(actor: WebsiteAssignmentActor, input: AssignmentInput) {
   const title = String(input.title || "").trim(), classId = Number(input.classId || 0) || null;
+  const kind = assignmentKinds.has(String(input.kind || "homework")) ? String(input.kind || "homework") : "";
+  const contentItems = (Array.isArray(input.contentItems) ? input.contentItems : []).map((item) => String(item || "").trim().slice(0, 500)).filter(Boolean).slice(0, 200);
   const studentIds = [...new Set((input.studentIds || []).map(Number).filter((id) => id > 0))];
   if (!title || (!classId && !studentIds.length)) return Response.json({ error: "请填写标题并选择班级或指定学生" }, { status: 400 });
-  if (actor.kind === "mini") {
-    if (!actor.access.userId) return Response.json({ error: "教师账号尚未关联网站用户" }, { status: 403 });
-    if (classId) {
-      const owned = await env.DB.prepare("SELECT 1 FROM classes WHERE id=? AND (owner_id IS NULL OR owner_id=?)").bind(classId, actor.access.userId).first();
-      if (!owned) return Response.json({ error: "无权向该班级布置作业" }, { status: 403 });
-    }
-  }
+  if (!kind) return Response.json({ error: "不支持的学习任务类型" }, { status: 400 });
+  if ((kind === "dictation" || kind === "follow_reading") && !contentItems.length && !(input.assetIds || []).length) return Response.json({ error: "听写或跟读任务至少需要一条内容或一个示范附件" }, { status: 400 });
   if (studentIds.length) {
     const valid = await env.DB.prepare(`SELECT COUNT(*) AS count FROM students WHERE id IN (${studentIds.map(() => "?").join(",")}) AND status='active'`).bind(...studentIds).first<{ count: number }>();
     if (Number(valid?.count || 0) !== studentIds.length) return Response.json({ error: "指定学生中包含不存在或已停用的档案" }, { status: 400 });
   }
-  const actorInfo = actor.kind === "website" ? { type: "user" as const, id: actor.access.id } : { type: "mini_account" as const, id: actor.access.accountId };
+  const actorInfo = { type: "user" as const, id: actor.access.id };
   const operation = await beginOperation(actorInfo, "assignment.create", input.operationId);
   if ("error" in operation) return operation.error;
   if (!operation.acquired) return Response.json(operation.result, { status: 200 });
   try {
     const status = input.status === "draft" ? "draft" : "published";
-    const row = await env.DB.prepare("INSERT INTO assignments(lesson_id,paper_id,class_id,title,requirements,due_at,reminder_rule,status) VALUES(?,?,?,?,?,?,?,?) RETURNING id")
-      .bind(input.lessonId || null, input.paperId || null, classId, title, input.requirements || null, input.dueAt || null, input.reminderRule ? JSON.stringify(input.reminderRule) : null, status).first<{ id: number }>();
+    const row = await env.DB.prepare("INSERT INTO assignments(lesson_id,paper_id,class_id,kind,content_json,title,requirements,due_at,reminder_rule,status) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id")
+      .bind(input.lessonId || null, input.paperId || null, classId, kind, contentItems.length ? JSON.stringify(contentItems) : null, title, input.requirements || null, input.dueAt || null, input.reminderRule ? JSON.stringify(input.reminderRule) : null, status).first<{ id: number }>();
     if (!row) throw new Error("作业创建失败");
     await env.DB.prepare("INSERT INTO assignment_settings(assignment_id,allow_parent_submit,require_revision,published_at) VALUES(?,?,?,CASE WHEN ?='published' THEN CURRENT_TIMESTAMP ELSE NULL END)")
       .bind(row.id, input.allowParentSubmit === false ? 0 : 1, input.requireRevision === false ? 0 : 1, status).run();
@@ -97,9 +105,7 @@ export async function createAssignment(actor: AssignmentActor, input: Assignment
     const recipients = studentIds.length ? studentIds : classId ? (await env.DB.prepare("SELECT student_id AS studentId FROM enrollments WHERE class_id=? AND status='active'").bind(classId).all<{ studentId: number }>()).results.map((item) => Number(item.studentId)) : [];
     for (const studentId of recipients) await env.DB.prepare("INSERT OR IGNORE INTO assignment_submissions(assignment_id,student_id,status) VALUES(?,?,'pending')").bind(row.id, studentId).run();
     for (const [position, assetId] of (input.assetIds || []).entries()) {
-      const asset = actor.kind === "website"
-        ? await env.DB.prepare("SELECT id FROM file_assets WHERE id=? AND status='active' AND ((owner_type='user' AND owner_id=?) OR created_by=?)").bind(Number(assetId), actor.access.id, actor.access.id).first()
-        : await env.DB.prepare("SELECT id FROM file_assets WHERE id=? AND status='active' AND ((owner_type='mini_account' AND owner_id=?) OR created_by=?)").bind(Number(assetId), actor.access.accountId, actor.access.userId).first();
+      const asset = await env.DB.prepare("SELECT id FROM file_assets WHERE id=? AND status='active' AND ((owner_type='user' AND owner_id=?) OR created_by=?)").bind(Number(assetId), actor.access.id, actor.access.id).first();
       if (!asset) throw new Error("附件不存在或已失效");
       await env.DB.batch([
         env.DB.prepare("INSERT INTO assignment_assets(assignment_id,asset_id,position) VALUES(?,?,?)").bind(row.id, Number(assetId), position),
@@ -114,7 +120,7 @@ export async function createAssignment(actor: AssignmentActor, input: Assignment
           .bind(String(row.id), studentId, `${input.operationId}:reminder:${studentId}`, input.dueAt || null).run();
       }
     }
-    const result = { id: row.id, status, recipientCount: recipients.length };
+    const result = { id: row.id, kind, status, recipientCount: recipients.length };
     await completeOperation(actorInfo, "assignment.create", input.operationId, result);
     return Response.json(result, { status: 201 });
   } catch (error) {

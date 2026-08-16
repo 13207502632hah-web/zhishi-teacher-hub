@@ -573,7 +573,7 @@ test("recognition blocks uncertain scores and uses four explainable mastery leve
 });
 
 test("new teacher workflows keep private files, mini binding and audit boundaries", async () => {
-  const paths = ["db/schema.ts","app/api/files/[id]/route.ts","app/api/schedule-imports/[id]/confirm/route.ts","app/lib/schedule-import-preview.ts","app/api/finance/route.ts","app/api/recognition/route.ts","app/api/mini/bind/route.ts","app/api/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
+  const paths = ["db/schema.ts","app/api/files/[id]/route.ts","app/api/schedule-imports/[id]/confirm/route.ts","app/lib/schedule-import-preview.ts","app/api/finance/route.ts","app/api/recognition/route.ts","app/api/v2/mini/bind/route.ts","app/api/v2/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
   const [schema,files,scheduleConfirm,schedulePreview,finance,recognition,bind,excellent,miniReadme,migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   const schedule = `${scheduleConfirm}\n${schedulePreview}`;
   for (const entity of ["scheduleImports","lessonFinance","packageLedger","recognitionJobs","assessmentQuestionResults","parentStudentLinks","submissionVersions","excellentSubmissions"]) assert.match(schema,new RegExp(entity));

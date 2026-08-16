@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { academicYearDates, promotionForGrade } from "../../../../lib/academic-workflow";
-import { audit, isDenied, requirePermission } from "../../../../lib/access";
+import { audit, isDenied, requirePermission, type AccessContext } from "../../../../lib/access";
 import { ensurePromotionRun } from "../../../../lib/services/grade-promotion-service";
 
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
@@ -207,15 +207,10 @@ export async function GET(_: Request, context: { params: Promise<{ year: string 
   return Response.json(await previewResponse(env.DB, run));
 }
 
-export async function POST(request: Request, context: { params: Promise<{ year: string }> }) {
-  const access = await requirePermission("academic-years:write");
-  if (isDenied(access)) return access;
-  const isTeacher = access.role === "teacher";
-  if (!isTeacher) return Response.json({ error: "只有教师可以执行学年晋升" }, { status: 403 });
-  const year = await yearFrom(context);
-  if (!academicYearDates(year)) return Response.json({ error: "学年格式应为2025-2026，且结束年份必须比开始年份大1" }, { status: 400 });
+export type PromotionConfirmation = { confirmation?: unknown; previewToken?: unknown; excludedStudentIds?: unknown };
+export type PromotionUndoConfirmation = { confirmation?: unknown; runId?: unknown; expectedConfirmedAt?: unknown; reason?: unknown };
 
-  const body = await request.json().catch(() => null) as { confirmation?: unknown; previewToken?: unknown; excludedStudentIds?: unknown } | null;
+export async function executePromotion(access: AccessContext, year: string, body: PromotionConfirmation | null) {
   const isConfirmed = body?.confirmation === "确认晋升";
   if (!isConfirmed) return Response.json({ error: "必须输入明确的确认文字“确认晋升”" }, { status: 400 });
   if (typeof body?.previewToken !== "string" || !body.previewToken.trim()) return Response.json({ error: "缺少有效的预览凭证，请重新生成预览", requiresPreview: true }, { status: 409 });
@@ -259,7 +254,7 @@ export async function POST(request: Request, context: { params: Promise<{ year: 
   }
 
   const completionGuard = `NOT EXISTS (SELECT 1 FROM grade_promotion_items i LEFT JOIN students s ON s.id=i.student_id WHERE i.run_id=? AND (i.status='pending' OR (i.status='confirmed' AND (s.id IS NULL OR s.status<>'active' OR s.grade<>i.to_grade))))`;
-  statements.push(env.DB.prepare(`UPDATE grade_promotion_runs SET status='confirmed',confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='confirming' AND ${completionGuard}`).bind(access.id, runId, runId));
+  statements.push(env.DB.prepare(`UPDATE grade_promotion_runs SET status='confirmed',confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,undo_until=datetime('now','+24 hours'),undone_by=NULL,undone_at=NULL,undo_reason=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='confirming' AND ${completionGuard}`).bind(access.id, runId, runId));
 
   const results = await env.DB.batch(statements);
   const claimed = Number(results[0]?.meta?.changes || 0) === 1;
@@ -270,5 +265,46 @@ export async function POST(request: Request, context: { params: Promise<{ year: 
   }
 
   await audit(access, "confirm", "grade_promotion_run", runId, { academicYear: year, excluded });
-  return Response.json({ ok: true, runId, confirmed: eligible.length, excluded: excluded.length });
+  return Response.json({ ok: true, runId, confirmed: eligible.length, excluded: excluded.length, undoUntil: new Date(Date.now() + 86_400_000).toISOString() });
+}
+
+export async function undoPromotion(access: AccessContext, year: string, body: PromotionUndoConfirmation | null) {
+  if (body?.confirmation !== "确认撤销晋升") return Response.json({ error: "必须输入明确的确认文字“确认撤销晋升”" }, { status: 400 });
+  const runId = Number(body.runId || 0), expectedConfirmedAt = textValue(body.expectedConfirmedAt).trim(), reason = textValue(body.reason).trim().slice(0, 500);
+  const run = await env.DB.prepare("SELECT id,status,confirmed_at AS confirmedAt,undo_until AS undoUntil,CASE WHEN datetime(undo_until)>datetime('now') THEN 1 ELSE 0 END AS undoOpen FROM grade_promotion_runs WHERE academic_year=?").bind(year).first<{ id: number; status: string; confirmedAt: string | null; undoUntil: string | null; undoOpen: number }>();
+  if (!run || run.id !== runId) return Response.json({ error: "晋升任务不存在或编号已变化" }, { status: 404 });
+  if (run.status === "undone") return Response.json({ ok: true, alreadyUndone: true, runId });
+  if (run.status !== "confirmed" || !run.undoUntil || Number(run.undoOpen) !== 1) return Response.json({ error: "晋升不在可撤销状态或 24 小时安全窗口已结束" }, { status: 409 });
+  if (!expectedConfirmedAt || expectedConfirmedAt !== String(run.confirmedAt || "")) return Response.json({ error: "晋升确认时间已变化，请刷新后重试" }, { status: 409 });
+  const rows = await env.DB.prepare("SELECT i.id,i.student_id AS studentId,i.from_grade AS fromGrade,i.to_grade AS toGrade,s.grade AS currentGrade,s.status AS studentStatus,s.updated_at AS studentUpdatedAt FROM grade_promotion_items i LEFT JOIN students s ON s.id=i.student_id WHERE i.run_id=? AND i.status='confirmed' ORDER BY i.id").bind(runId).all<Record<string, unknown>>();
+  if (!rows.results.length) return Response.json({ error: "没有可撤销的已晋升学生" }, { status: 409 });
+  const conflicts = rows.results.filter((row) => row.studentStatus !== "active" || row.currentGrade !== row.toGrade || Date.parse(String(row.studentUpdatedAt || "")) > Date.parse(String(run.confirmedAt || "")) + 2000).map((row) => ({ studentId: Number(row.studentId), expected: row.toGrade, current: row.currentGrade }));
+  if (conflicts.length) return Response.json({ error: "晋升后已有学生档案发生变化，不能自动撤销", conflicts }, { status: 409 });
+  const ids = rows.results.map((row) => Number(row.studentId)), marks = ids.map(() => "?").join(","), caseParts = rows.results.map(() => "WHEN ? THEN ?").join(" "), caseBindings = rows.results.flatMap((row) => [Number(row.studentId), String(row.fromGrade)]), currentConditions = rows.results.map(() => "(id=? AND grade=? AND status='active')").join(" OR ");
+  const statements = [
+    env.DB.prepare("UPDATE grade_promotion_runs SET status='undoing',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='confirmed' AND confirmed_at=? AND datetime(undo_until)>datetime('now')").bind(runId, expectedConfirmedAt),
+    env.DB.prepare(`UPDATE students SET grade=CASE id ${caseParts} ELSE grade END,updated_at=CURRENT_TIMESTAMP WHERE (${currentConditions}) AND EXISTS(SELECT 1 FROM grade_promotion_runs WHERE id=? AND status='undoing')`).bind(...caseBindings, ...rows.results.flatMap((row) => [Number(row.studentId), String(row.toGrade)]), runId),
+    env.DB.prepare(`UPDATE grade_promotion_items SET status='undone',reason=COALESCE(reason,'')||CASE WHEN COALESCE(reason,'')='' THEN '' ELSE '；' END||'教师在安全窗口内撤销',updated_at=CURRENT_TIMESTAMP WHERE run_id=? AND status='confirmed' AND student_id IN (${marks}) AND EXISTS(SELECT 1 FROM students s WHERE s.id=grade_promotion_items.student_id AND s.grade=grade_promotion_items.from_grade)`).bind(runId, ...ids),
+    env.DB.prepare("UPDATE grade_promotion_runs SET status='undone',undone_by=?,undone_at=CURRENT_TIMESTAMP,undo_reason=?,undo_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='undoing' AND NOT EXISTS(SELECT 1 FROM grade_promotion_items WHERE run_id=? AND status='confirmed')").bind(access.id, reason || "教师在 24 小时安全窗口内撤销", runId, runId),
+  ];
+  const results = await env.DB.batch(statements), claimed = Number(results[0]?.meta?.changes || 0) === 1, restored = Number(results[1]?.meta?.changes || 0), completed = Number(results[3]?.meta?.changes || 0) === 1;
+  if (!claimed || restored !== rows.results.length || !completed) {
+    const revertCase = rows.results.map(() => "WHEN ? THEN ?").join(" "), revertBindings = rows.results.flatMap((row) => [Number(row.studentId), String(row.toGrade)]), revertConditions = rows.results.map(() => "(id=? AND grade=?)").join(" OR ");
+    const compensation = await env.DB.batch([env.DB.prepare(`UPDATE students SET grade=CASE id ${revertCase} ELSE grade END,updated_at=CURRENT_TIMESTAMP WHERE ${revertConditions}`).bind(...revertBindings, ...rows.results.flatMap((row) => [Number(row.studentId), String(row.fromGrade)])), env.DB.prepare("UPDATE grade_promotion_items SET status='confirmed',updated_at=CURRENT_TIMESTAMP WHERE run_id=? AND status='undone'").bind(runId), env.DB.prepare("UPDATE grade_promotion_runs SET status='confirmed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('undoing','undone')").bind(runId)]);
+    const compensated = Number(compensation[0]?.meta?.changes || 0) === restored && Number(compensation[2]?.meta?.changes || 0) === 1;
+    if (!compensated) await env.DB.prepare("UPDATE grade_promotion_runs SET status='undo_conflict',undo_reason='自动撤销与补偿均未完整完成，必须人工核对',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(runId).run();
+    return Response.json({ error: compensated ? "撤销条件在执行时发生变化，已自动恢复到晋升后状态" : "撤销出现冲突，已冻结任务等待人工核对", restored, expected: rows.results.length, compensated }, { status: 409 });
+  }
+  await audit(access, "undo", "grade_promotion_run", runId, { academicYear: year, restored, reason: reason || null });
+  return Response.json({ ok: true, runId, restored, status: "undone" });
+}
+
+export async function POST(request: Request, context: { params: Promise<{ year: string }> }) {
+  const access = await requirePermission("academic-years:write");
+  if (isDenied(access)) return access;
+  if (access.role !== "teacher") return Response.json({ error: "只有教师可以执行学年晋升" }, { status: 403 });
+  const year = await yearFrom(context);
+  if (!academicYearDates(year)) return Response.json({ error: "学年格式应为2025-2026，且结束年份必须比开始年份大1" }, { status: 400 });
+  const body = await request.json().catch(() => null) as PromotionConfirmation | null;
+  return executePromotion(access, year, body);
 }

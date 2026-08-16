@@ -147,17 +147,17 @@ async function main() {
     failures.push(`demo cleanup 期望 200，实际 ${demoCleanup.response.status}`);
   }
 
-  const miniLogin = await request("/api/mini/login", { method: "POST", body: { role: "teacher", testCode: "runtime-repro" } });
+  const miniLogin = await request("/api/v2/mini/login", { method: "POST", body: { role: "student", testCode: "runtime-repro" } });
   const token = miniLogin.data?.token || "";
   record({ name: "mini login", status: miniLogin.response.status, detail: token ? `token=${token.slice(0, 8)}…` : JSON.stringify(miniLogin.data) });
   if (miniLogin.response.status !== 200) failures.push(`mini login 期望 200，实际 ${miniLogin.response.status}`);
-  const miniMe = await request("/api/mini/me", { bearer: token });
+  const miniMe = await request("/api/v2/mini/me", { bearer: token });
   record({ name: "mini me before logout", status: miniMe.response.status, body: miniMe.data });
   if (miniMe.response.status !== 200) failures.push(`mini me 期望 200，实际 ${miniMe.response.status}`);
-  const miniLogout = await request("/api/mini/logout", { bearer: token, method: "POST", body: {} });
+  const miniLogout = await request("/api/v2/mini/logout", { bearer: token, method: "POST", body: {} });
   record({ name: "mini logout", status: miniLogout.response.status, body: miniLogout.data });
   if (miniLogout.response.status !== 200) failures.push(`mini logout 期望 200，实际 ${miniLogout.response.status}`);
-  const miniMeAfter = await request("/api/mini/me", { bearer: token });
+  const miniMeAfter = await request("/api/v2/mini/me", { bearer: token });
   record({ name: "mini me after logout", status: miniMeAfter.response.status, body: miniMeAfter.data });
   if (miniMeAfter.response.status !== 401) failures.push(`mini me after logout 期望 401，实际 ${miniMeAfter.response.status}`);
 

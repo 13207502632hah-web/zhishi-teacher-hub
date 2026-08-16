@@ -513,17 +513,30 @@
 
 .publicFooter {
   display: grid;
-  gap: 0.25rem;
+  gap: 1rem;
   padding: 1.75rem 1.25rem;
   background: var(--zs-pine);
   color: var(--zs-surface);
+}
+
+.publicFooter > div {
+  display: grid;
+  gap: 0.25rem;
 }
 
 .publicFooter span {
   color: #CED7D3;
 }
 
+.publicFooter nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1rem;
+}
+
 .publicFooter a {
+  display: inline-flex;
   min-height: 44px;
   align-items: center;
   color: #F1D99D;

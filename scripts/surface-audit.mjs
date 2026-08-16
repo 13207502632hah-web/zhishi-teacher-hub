@@ -107,8 +107,8 @@ async function collectApiRoutes() {
   };
   await walk(path.join(root, "app", "api"), "/api");
   const miniOrder = (route) => {
-    if (route === "/api/mini/logout") return 2;
-    if (route.startsWith("/api/mini/")) return 1;
+    if (route === "/api/v2/mini/logout") return 2;
+    if (route.startsWith("/api/v2/mini/")) return 1;
     return 0;
   };
   return routes
@@ -187,7 +187,7 @@ const postPayloads = {
   "/api/finance": {},
   "/api/finance/packages": {},
   "/api/lessons": { date: "not-a-date" },
-  "/api/mini/login": { role: "teacher", testCode: "surface-audit" },
+  "/api/v2/mini/login": { role: "student", testCode: "surface-audit" },
   "/api/papers": {},
   "/api/papers/upload": {},
   "/api/question-sets/import": { name: "", questions: [] },
@@ -257,26 +257,21 @@ const methodPayloads = {
   "/api/students/1/recommendations": { GET: null },
   "/api/students/1/score-trends": { GET: null },
   "/api/papers/1/files/1": { GET: null },
-  "/api/mini/me/GET": null,
-  "/api/mini/portal/GET": null,
-  "/api/mini/logout/POST": {},
-  "/api/mini/accounts/GET": null,
-  "/api/mini/accounts/POST": {},
-  "/api/mini/assignments/GET": null,
-  "/api/mini/assignments/POST": {},
-  "/api/mini/bind/POST": {},
-  "/api/mini/bindings/1/POST": {},
-  "/api/mini/classes/GET": null,
-  "/api/mini/excellent/GET": null,
-  "/api/mini/excellent/POST": {},
-  "/api/mini/files/POST": {},
-  "/api/mini/files/1/GET": null,
-  "/api/mini/invites/GET": null,
-  "/api/mini/invites/POST": {},
-  "/api/mini/paper-files/1/GET": null,
-  "/api/mini/submissions/GET": null,
-  "/api/mini/submissions/POST": {},
-  "/api/mini/sync/GET": null,
+  "/api/v2/mini/me/GET": null,
+  "/api/v2/mini/portal/GET": null,
+  "/api/v2/mini/logout/POST": {},
+  "/api/v2/mini/assignments/GET": null,
+  "/api/v2/mini/bind/POST": {},
+  "/api/v2/mini/bindings/1/POST": {},
+  "/api/v2/mini/excellent/GET": null,
+  "/api/v2/mini/files/POST": {},
+  "/api/v2/mini/files/1/GET": null,
+  "/api/v2/mini/invites/GET": null,
+  "/api/v2/mini/invites/POST": {},
+  "/api/v2/mini/paper-files/1/GET": null,
+  "/api/v2/mini/submissions/GET": null,
+  "/api/v2/mini/submissions/POST": {},
+  "/api/v2/mini/sync/GET": null,
 };
 
 const skipAuthenticatedGet = new Set([
@@ -297,7 +292,7 @@ const publicRoutes = new Set([
   "/api/calendar/feed/invalid-token",
   "/api/calendar/feed/[token]",
   "/api/resources",
-  "/api/mini/login",
+  "/api/v2/mini/login",
 ]);
 
 const multipartMethods = {
@@ -318,7 +313,7 @@ async function readRouteMethods(route) {
 async function probeRoute(route, db, cookie, miniToken) {
   const resolved = await resolveRoutePath(route, db);
   const isPublic = publicRoutes.has(resolved) || publicRoutes.has(route);
-  const isMini = route.startsWith("/api/mini/");
+  const isMini = route.startsWith("/api/v2/mini/");
   const isExport = route.includes("/exports/") || route === "/api/finance/export" || route === "/api/settings/export";
   const isDemoData = route === "/api/settings/demo" || route === "/api/settings/data";
   const methods = await readRouteMethods(route);
@@ -339,8 +334,8 @@ async function probeRoute(route, db, cookie, miniToken) {
     } else if (route === "/api/resources") {
       const resource = await request(resolved);
       record({ group: "api-public", kind: "resources-anonymous", method: "GET", url: resolved, status: resource.response.status, expected: [200] });
-    } else if (route === "/api/mini/login") {
-      const mini = await request(resolved, { method: "POST", body: { role: "teacher", testCode: "surface-audit" } });
+    } else if (route === "/api/v2/mini/login") {
+      const mini = await request(resolved, { method: "POST", body: { role: "student", testCode: "surface-audit" } });
       record({ group: "api-mini", kind: "mini-login", method: "POST", url: resolved, status: mini.response.status, expected: [200], detail: mini.data?.token ? `token=${String(mini.data.token).slice(0, 8)}…` : JSON.stringify(mini.data).slice(0, 120) });
       if (mini.response.status === 200 && mini.data?.token) return mini.data.token;
     }

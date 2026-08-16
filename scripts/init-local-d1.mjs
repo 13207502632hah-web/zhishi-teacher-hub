@@ -22,6 +22,24 @@ function databaseHasRequiredTables(file) {
   }
 }
 
+function databaseHasTable(file, name) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try { return Boolean(db.prepare("SELECT 1 FROM sqlite_schema WHERE type IN ('table','view') AND name=?").get(name)); }
+  finally { db.close(); }
+}
+
+function databaseHasColumn(file, table, column) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try { return db.prepare(`SELECT 1 FROM pragma_table_info(?) WHERE name=?`).get(table, column) != null; }
+  finally { db.close(); }
+}
+
+async function applyMigrationToDatabase(database, filename) {
+  const db = new DatabaseSync(database);
+  try { db.exec("PRAGMA foreign_keys=OFF;"); await applyMigrationFile(db, path.join(drizzleRoot, filename)); db.exec("PRAGMA foreign_keys=ON;"); }
+  finally { db.close(); }
+}
+
 async function findDatabase(directory = d1Root) {
   let entries;
   try {
@@ -98,7 +116,7 @@ async function waitForDatabaseFile(child, logs, timeoutMs = 90_000) {
   throw new Error(`等待本地 D1 文件超时：${logs.slice(-8).join("\n")}`);
 }
 
-async function requestPublicDbRoute(child, logs, timeoutMs = 60_000) {
+async function requestPublicDbRoute(child, logs, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -107,11 +125,16 @@ async function requestPublicDbRoute(child, logs, timeoutMs = 60_000) {
     try {
       // 日历订阅路由无需登录即读取 D1；首次真实访问会让 Miniflare 在本地落盘数据库。
       // 未迁移的库会先返回 500；只要请求真正到达路由并触达 D1 即视为成功。
-      const response = await fetch("http://127.0.0.1:3000/api/calendar/feed/d1-init-token");
+      // Vite advertises `localhost`; on Linux it may listen on IPv6 only, so
+      // forcing 127.0.0.1 can leave CI polling an address the server never bound.
+      const response = await fetch("http://localhost:3000/api/calendar/feed/d1-init-token");
       if (response.ok || response.status === 404 || response.status === 500) return;
     } catch {
       // 服务尚未就绪，继续等待。
     }
+    // Linux CI 首次依赖优化时，路由可能在 D1 已经落盘后仍等待 SSR 编译。
+    // 初始化器只需要本地数据库文件，不应把页面编译耗时误判为 D1 创建失败。
+    if (await findAnySqlite()) return;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new Error(`触发本地 D1 创建超时：${logs.slice(-8).join("\n")}`);
@@ -154,6 +177,22 @@ async function startServerToCreateDatabase() {
 
 const existing = await findDatabase();
 if (existing) {
+  // 旧版初始化器只判断基础表是否存在；V2 是不破坏旧数据的追加迁移，
+  // 因此现有本地库也需要补跑一次。表存在后保持幂等，不会重复执行 FTS rebuild。
+  if (!databaseHasTable(existing, "v2_jobs")) {
+    const db = new DatabaseSync(existing);
+    try { db.exec("PRAGMA foreign_keys=OFF;"); await applyMigrationFile(db, path.join(drizzleRoot, "0029_zhishi_v2_platform.sql")); db.exec("PRAGMA foreign_keys=ON;"); }
+    finally { db.close(); }
+  }
+  if (!databaseHasTable(existing, "v2_mobile_records")) {
+    await applyMigrationToDatabase(existing, "0030_mobile_records_and_sync.sql");
+  }
+  if (!databaseHasTable(existing, "staff_credentials")) await applyMigrationToDatabase(existing, "0031_staff_authentication.sql");
+  if (!databaseHasColumn(existing, "grade_promotion_runs", "undo_until")) await applyMigrationToDatabase(existing, "0032_promotion_safe_undo.sql");
+  if (!databaseHasColumn(existing, "v2_jobs", "lease_owner")) await applyMigrationToDatabase(existing, "0033_v2_background_job_leases.sql");
+  if (!databaseHasColumn(existing, "assignments", "kind")) await applyMigrationToDatabase(existing, "0034_assignment_learning_modes.sql");
+  if (!databaseHasTable(existing, "class_files")) await applyMigrationToDatabase(existing, "0035_class_files.sql");
+  if (!databaseHasTable(existing, "class_notices")) await applyMigrationToDatabase(existing, "0036_class_notices.sql");
   console.log(`本地 D1 已就绪：${path.relative(root, existing)}`);
 } else {
   let database = await findAnySqlite();

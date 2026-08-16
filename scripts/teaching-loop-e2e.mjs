@@ -7,7 +7,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const root = process.cwd();
-const baseUrl = "http://localhost:3000";
+const e2ePort = Number(process.env.TEACHING_E2E_PORT || 3100);
+const baseUrl = `http://localhost:${e2ePort}`;
 const marker = "__e2e__teaching_loop";
 const serveOnly = process.argv.includes("--serve-only");
 const e2ePassword = process.env.TEACHING_E2E_PASSWORD || randomBytes(24).toString("base64url");
@@ -272,6 +273,11 @@ function cleanup() {
   const questionIds = `SELECT id FROM questions WHERE stem LIKE ${quote(`${marker}%`)}`;
   const importIds = `SELECT id FROM schedule_imports WHERE source_name LIKE ${quote(`${marker}%`)}`;
   sql(`PRAGMA foreign_keys=ON;
+    DELETE FROM audit_logs WHERE entity_type='mobile_record' AND entity_id IN (SELECT id FROM v2_mobile_records WHERE title LIKE ${quote(`${marker}%`)});
+    DELETE FROM v2_approvals WHERE entity_type='mobile_record' AND entity_id IN (SELECT id FROM v2_mobile_records WHERE title LIKE ${quote(`${marker}%`)});
+    DELETE FROM sync_events WHERE entity_type='mobile_record' AND entity_id IN (SELECT id FROM v2_mobile_records WHERE title LIKE ${quote(`${marker}%`)});
+    DELETE FROM v2_mobile_record_changes WHERE record_id IN (SELECT id FROM v2_mobile_records WHERE title LIKE ${quote(`${marker}%`)});
+    DELETE FROM v2_mobile_records WHERE title LIKE ${quote(`${marker}%`)};
     DELETE FROM audit_logs WHERE entity_type='lesson' AND CAST(entity_id AS INTEGER) IN (${lessonIds});
     DELETE FROM feedback_evidence WHERE feedback_id IN (${feedbackIds});
     DELETE FROM lesson_completion_runs WHERE lesson_id IN (${lessonIds});
@@ -364,7 +370,7 @@ async function multipartRequest(pathname, { cookie, method = "POST", form } = {}
 }
 
 async function waitForServer() {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     if (server && server.exitCode !== null) {
       throw new Error(`本地服务提前退出（code ${server.exitCode}）：${logs.slice(-8).join("\n")}`);
@@ -1243,25 +1249,124 @@ async function exerciseFinanceExceptions(cookie) {
 async function exerciseMiniBusiness(cookie) {
   const checks = [];
   const testCode = `${marker}_${randomBytes(6).toString("hex")}`;
-  const login = await request("/api/mini/login", { cookie, method: "POST", body: { testCode, role: "teacher", displayName: "e2e教师" } });
+  const teacherAttempt = await request("/api/v2/mini/login", { cookie, method: "POST", body: { testCode: `${testCode}_teacher`, role: "teacher", displayName: "e2e教师" } });
+  assert.equal(teacherAttempt.response.status, 400, JSON.stringify(teacherAttempt.data));
+  checks.push("教师小程序入口已移除");
+  const login = await request("/api/v2/mini/login", { cookie, method: "POST", body: { testCode, role: "student", displayName: "e2e学生" } });
   assert.equal(login.response.status, 200, JSON.stringify(login.data));
   const token = login.data.token;
   const accountId = Number(login.data.accountId);
   created.miniAccountIds.push(accountId);
   checks.push("小程序测试登录");
-  const me = await request("/api/mini/me", { token });
+  const me = await request("/api/v2/mini/me", { token });
   assert.equal(me.response.status, 200, JSON.stringify(me.data));
-  assert.equal(me.data.role, "teacher");
+  assert.equal(me.data.role, "student");
   assert.equal(Number(me.data.accountId), accountId);
   checks.push("小程序身份读取");
-  const portal = await request("/api/mini/portal?studentId=1", { token });
-  assert.equal(portal.response.status, 400, JSON.stringify(portal.data));
-  assert.match(String(portal.data.error || ""), /教师完整学情与财务请使用网站工作台/);
-  checks.push("教师小程序入口隔离");
-  const logout = await request("/api/mini/logout", { token, method: "POST" });
+  const portal = await request("/api/v2/mini/portal?studentId=1", { token });
+  assert.equal(portal.response.status, 403, JSON.stringify(portal.data));
+  checks.push("未绑定学生数据隔离");
+  const logout = await request("/api/v2/mini/logout", { token, method: "POST" });
   assert.equal(logout.response.status, 200, JSON.stringify(logout.data));
   checks.push("小程序退出");
   return { checks, ok: true };
+}
+
+async function exerciseMobileSyncBusiness(cookie) {
+  const checks = [];
+  const studentId = Number(rounds[1].studentIds[0]);
+  const lessonId = Number(rounds[1].lessonId);
+  const classId = Number(rows(`SELECT class_id AS classId FROM lessons WHERE id=${lessonId}`)[0]?.classId);
+  assert.ok(studentId > 0 && lessonId > 0 && classId > 0);
+
+  const suffix = randomBytes(6).toString("hex");
+  const studentCode = `${marker}_mobile_student_${suffix}`;
+  const parentCode = `${marker}_mobile_parent_${suffix}`;
+  sql(`
+    INSERT INTO wechat_accounts(student_id,open_id,role,display_name,status) VALUES(${studentId},${quote(`test:${studentCode}`)},'student','${marker}移动同步学生','active');
+    INSERT INTO wechat_accounts(open_id,role,display_name,status) VALUES(${quote(`test:${parentCode}`)},'parent','${marker}移动同步家长','active');
+    INSERT INTO mini_bindings(account_id,student_id,role,status,confirmed_by,confirmed_at)
+      SELECT wa.id,${studentId},'student','active',u.id,CURRENT_TIMESTAMP FROM wechat_accounts wa,users u WHERE wa.open_id=${quote(`test:${studentCode}`)} AND u.email=${quote(marker)};
+    INSERT INTO mini_bindings(account_id,student_id,role,status,confirmed_by,confirmed_at)
+      SELECT wa.id,${studentId},'parent','active',u.id,CURRENT_TIMESTAMP FROM wechat_accounts wa,users u WHERE wa.open_id=${quote(`test:${parentCode}`)} AND u.email=${quote(marker)};
+    INSERT INTO parent_student_links(parent_account_id,student_id,status,confirmed_by)
+      SELECT wa.id,${studentId},'active',u.id FROM wechat_accounts wa,users u WHERE wa.open_id=${quote(`test:${parentCode}`)} AND u.email=${quote(marker)};
+  `);
+  const accounts = rows(`SELECT id,role FROM wechat_accounts WHERE open_id IN (${quote(`test:${studentCode}`)},${quote(`test:${parentCode}`)}) ORDER BY role`);
+  assert.equal(accounts.length, 2);
+  created.miniAccountIds.push(...accounts.map((item) => Number(item.id)));
+
+  const studentLogin = await request("/api/v2/mini/login", { method: "POST", body: { testCode: studentCode, role: "student", displayName: `${marker}移动同步学生` } });
+  const parentLogin = await request("/api/v2/mini/login", { method: "POST", body: { testCode: parentCode, role: "parent", displayName: `${marker}移动同步家长` } });
+  assert.equal(studentLogin.response.status, 200, JSON.stringify(studentLogin.data));
+  assert.equal(parentLogin.response.status, 200, JSON.stringify(parentLogin.data));
+  checks.push("学生与家长均使用真实小程序会话");
+
+  const recordId = `e2e-mobile-${suffix}`;
+  const operationId = `${marker}-mobile-create-${suffix}`;
+  const createdRecord = await request("/api/v2/mobile/records", {
+    cookie,
+    method: "POST",
+    body: {
+      id: recordId,
+      operationId,
+      source: "ios",
+      kind: "lesson_note",
+      title: `${marker}移动端互通记录_${suffix}`,
+      content: "由 iOS 共用接口写入的本地合成记录，未批准前不得出现在小程序。",
+      occurredAt: new Date().toISOString(),
+      lessonId,
+      classId,
+      studentId,
+    },
+  });
+  assert.equal(createdRecord.response.status, 201, JSON.stringify(createdRecord.data));
+  assert.equal(createdRecord.data.record.id, recordId);
+  assert.equal(createdRecord.data.record.source, "ios");
+  assert.equal(createdRecord.data.record.status, "draft");
+
+  const webList = await request("/api/v2/mobile/records", { cookie });
+  assert.equal(webList.response.status, 200, JSON.stringify(webList.data));
+  assert.ok(webList.data.records.some((item) => item.id === recordId && item.source === "ios"));
+  checks.push("iOS 与网页读取同一记录 ID 和版本化 D1 数据");
+
+  const studentBefore = await request("/api/v2/mini/sync?cursor=0", { token: studentLogin.data.token });
+  const parentBefore = await request("/api/v2/mini/sync?cursor=0", { token: parentLogin.data.token });
+  assert.equal(studentBefore.response.status, 200, JSON.stringify(studentBefore.data));
+  assert.equal(parentBefore.response.status, 200, JSON.stringify(parentBefore.data));
+  assert.ok(!studentBefore.data.events.some((item) => item.entityId === recordId));
+  assert.ok(!parentBefore.data.events.some((item) => item.entityId === recordId));
+  const cursor = Math.max(Number(studentBefore.data.cursor || 0), Number(parentBefore.data.cursor || 0));
+  checks.push("教师草稿不会下发学生或家长");
+
+  const share = await request(`/api/v2/mobile/records/${recordId}/share`, { cookie, method: "POST", body: { audience: "student" } });
+  assert.equal(share.response.status, 201, JSON.stringify(share.data));
+  const approvalId = String(share.data.approval?.id || "");
+  assert.ok(approvalId);
+  const studentPending = await request(`/api/v2/mini/sync?cursor=${cursor}`, { token: studentLogin.data.token });
+  assert.ok(!studentPending.data.events.some((item) => item.entityId === recordId));
+  checks.push("提交待确认仍不产生正式同步事件");
+
+  const approval = await request(`/api/v2/approvals/${approvalId}`, { cookie, method: "POST", body: { decision: "approved", note: "本地三端同步验收" } });
+  assert.equal(approval.response.status, 200, JSON.stringify(approval.data));
+  assert.equal(approval.data.execution?.recipients, 1);
+  const repeated = await request(`/api/v2/approvals/${approvalId}`, { cookie, method: "POST", body: { decision: "approved", note: "重复确认" } });
+  assert.equal(repeated.response.status, 200, JSON.stringify(repeated.data));
+  assert.equal(repeated.data.repeated, true);
+
+  const studentAfter = await request(`/api/v2/mini/sync?cursor=${cursor}`, { token: studentLogin.data.token });
+  const parentAfter = await request(`/api/v2/mini/sync?cursor=${cursor}`, { token: parentLogin.data.token });
+  assert.equal(studentAfter.response.status, 200, JSON.stringify(studentAfter.data));
+  assert.equal(parentAfter.response.status, 200, JSON.stringify(parentAfter.data));
+  const studentEvents = studentAfter.data.events.filter((item) => item.eventType === "mobile_record.confirmed" && item.entityId === recordId);
+  const parentEvents = parentAfter.data.events.filter((item) => item.eventType === "mobile_record.confirmed" && item.entityId === recordId);
+  assert.equal(studentEvents.length, 1, JSON.stringify(studentAfter.data));
+  assert.equal(studentEvents[0].payload.audience, "student");
+  assert.equal(parentEvents.length, 0, JSON.stringify(parentAfter.data));
+  const stored = rows(`SELECT r.status,r.audience,r.source,r.version,(SELECT COUNT(*) FROM sync_events e WHERE e.entity_type='mobile_record' AND e.entity_id=r.id) AS eventCount,(SELECT audience_role FROM sync_events e WHERE e.entity_type='mobile_record' AND e.entity_id=r.id LIMIT 1) AS audienceRole FROM v2_mobile_records r WHERE r.id=${quote(recordId)}`)[0];
+  assert.deepEqual({ status: stored.status, audience: stored.audience, source: stored.source, version: Number(stored.version), eventCount: Number(stored.eventCount), audienceRole: stored.audienceRole }, { status: "confirmed", audience: "student", source: "ios", version: 2, eventCount: 1, audienceRole: "student" });
+  checks.push("教师批准后仅学生收到一次角色受限增量事件", "重复审批不产生重复事件");
+  return { checks, ok: true, recordId, approvalId };
 }
 
 async function exercisePaperWorkbenchPagination(cookie) {
@@ -1429,6 +1534,7 @@ async function exerciseBusinessCoverage(cookie) {
     ["financeContext", exerciseFinanceContext],
     ["financeExceptions", exerciseFinanceExceptions],
     ["mini", exerciseMiniBusiness],
+    ["mobileSync", exerciseMobileSyncBusiness],
     ["paperWorkbenchPagination", exercisePaperWorkbenchPagination],
     ["questionFacetCounts", exerciseQuestionFacetCounts],
     ["questionKnowledgeMultiKeyword", exerciseQuestionKnowledgeMultiKeyword],
@@ -1446,7 +1552,7 @@ try {
   const aiMockBase = await startAiMock();
   await writeFile(devVars, `TEACHER_ADMIN_ACCOUNT=${marker}\nTEACHER_ADMIN_PASSWORD=${e2ePassword}\nTEACHER_ADMIN_SESSION_SECRET=${e2eSessionSecret}\nDEEPSEEK_AI_ENABLED=true\nDEEPSEEK_API_KEY=local-e2e-only\nDEEPSEEK_API_BASE=${aiMockBase}\nWECHAT_TEST_MODE=true\n`, { mode: 0o600 });
   const devServerCli = path.join(root, "node_modules", "vinext", "dist", "cli.js");
-  server = spawn(process.execPath, [devServerCli, "dev"], {
+  server = spawn(process.execPath, [devServerCli, "dev", "--port", String(e2ePort)], {
     cwd: root,
     env: {
       ...process.env,

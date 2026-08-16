@@ -6,6 +6,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
+import { backup as backupDatabase, DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -14,7 +15,10 @@ const DRIZZLE_ROOT = path.join(ROOT, "drizzle");
 const D1_ROOT = path.join(ROOT, ".wrangler/state/v3/d1/miniflare-D1DatabaseObject");
 const ARTIFACT_ROOT = path.join(ROOT, ".artifacts/mini");
 const DEV_VARS = path.join(ROOT, ".dev.vars");
-const DEVTOOLS_CLI = process.env.WECHAT_DEVTOOLS_CLI || "/Applications/wechatwebdevtools.app/Contents/MacOS/cli";
+const DEFAULT_DEVTOOLS_CLI = process.platform === "win32"
+  ? path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Tencent", "微信web开发者工具", "cli.bat")
+  : "/Applications/wechatwebdevtools.app/Contents/MacOS/cli";
+const DEVTOOLS_CLI = process.env.WECHAT_DEVTOOLS_CLI || DEFAULT_DEVTOOLS_CLI;
 const BASE_URL = "http://localhost:3000";
 const E2E_PREFIX = "__e2e__";
 const command = process.argv[2] || "verify";
@@ -22,7 +26,7 @@ const command = process.argv[2] || "verify";
 const report = {
   startedAt: new Date().toISOString(),
   command,
-  brand: "来写作业吧",
+  brand: "知师研室 · 学习端",
   stages: [],
   boundaries: {
     gitPush: false,
@@ -71,7 +75,10 @@ function stage(name, status, detail = {}) {
 }
 
 function minimalEnv(extra = {}) {
-  const allowed = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SHELL", "LANG", "LC_ALL"];
+  const allowed = [
+    "PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SHELL", "LANG", "LC_ALL",
+    "ComSpec", "SystemRoot", "WINDIR", "TEMP", "TMP", "PATHEXT",
+  ];
   const env = Object.fromEntries(allowed.filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
   return {
     ...env,
@@ -84,9 +91,77 @@ function minimalEnv(extra = {}) {
   };
 }
 
+function spawnProgram(program, args, options) {
+  if (process.platform === "win32" && program === "pnpm") {
+    return spawn(process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", "pnpm.cmd", ...args], {
+      ...options,
+      shell: false,
+    });
+  }
+  return spawn(program, args, { ...options, shell: false });
+}
+
+function devtoolsCliCommand(args) {
+  if (process.platform === "win32" && DEVTOOLS_CLI.toLowerCase().endsWith(".bat")) {
+    const devtoolsRoot = path.dirname(DEVTOOLS_CLI);
+    return {
+      program: path.join(devtoolsRoot, "node.exe"),
+      args: [path.join(devtoolsRoot, "cli.js"), ...args],
+    };
+  }
+  return { program: DEVTOOLS_CLI, args };
+}
+
+async function runDevtoolsCli(args, options = {}) {
+  const command = devtoolsCliCommand(args);
+  return runProcess(command.program, command.args, options);
+}
+
+async function availablePort(start = 9420) {
+  for (let port = start; port < start + 100; port += 1) {
+    const available = await new Promise((resolve) => {
+      const server = net.createServer();
+      server.unref();
+      server.once("error", () => resolve(false));
+      server.listen({ host: "127.0.0.1", port }, () => server.close(() => resolve(true)));
+    });
+    if (available) return port;
+  }
+  throw new Error(`没有可用的小程序自动化端口（${start}–${start + 99}）`);
+}
+
+async function connectAutomator(automator, wsEndpoint, timeout = 30000) {
+  const deadline = Date.now() + timeout;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      return await withTimeout(automator.connect({ wsEndpoint }), 5000, "连接模拟器");
+    } catch (error) {
+      lastError = error;
+      await sleep(750);
+    }
+  }
+  throw new Error(`微信开发者工具自动化端口未就绪：${sanitize(lastError instanceof Error ? lastError.message : lastError)}`);
+}
+
+async function removeDirectoryWithRetry(target) {
+  let lastError;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!/(?:EBUSY|EPERM|ENOTEMPTY|resource busy|locked)/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 async function runProcess(program, args, options = {}) {
   const output = { stdout: "", stderr: "" };
-  const child = spawn(program, args, {
+  const child = spawnProgram(program, args, {
     cwd: options.cwd || ROOT,
     env: options.env || minimalEnv(),
     stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
@@ -97,11 +172,9 @@ async function runProcess(program, args, options = {}) {
   }
   const timeout = options.timeout || 180000;
   const timer = setTimeout(() => child.kill("SIGTERM"), timeout);
-  const result = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolve({ code, signal }));
-  });
-  clearTimeout(timer);
+  let result;
+  try { result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code, signal) => resolve({ code, signal })); }); }
+  finally { clearTimeout(timer); }
   if (result.code !== 0) {
     throw new Error(`${options.label || `${program} ${args.join(" ")}`}失败（${result.code ?? result.signal}）\n${sanitize(output.stderr || output.stdout)}`);
   }
@@ -112,14 +185,20 @@ async function ensurePath(target, mode = fsConstants.F_OK) {
   try { await access(target, mode); return true; } catch { return false; }
 }
 
-async function ensurePreflight() {
+async function ensurePreflight({ requireDevtools = true } = {}) {
   for (const target of [MINI_ROOT, path.join(MINI_ROOT, "project.config.json"), path.join(ROOT, "package.json")]) {
     if (!await ensurePath(target)) throw new Error(`缺少项目文件：${target}`);
   }
-  if (!await ensurePath(DEVTOOLS_CLI, fsConstants.X_OK)) throw new Error(`未找到微信开发者工具 CLI：${DEVTOOLS_CLI}`);
+  if (requireDevtools) {
+    if (!await ensurePath(DEVTOOLS_CLI, fsConstants.X_OK)) throw new Error(`未找到微信开发者工具 CLI：${DEVTOOLS_CLI}`);
+    const cliCommand = devtoolsCliCommand([]);
+    for (const target of [cliCommand.program, ...cliCommand.args]) {
+      if (!await ensurePath(target, fsConstants.X_OK)) throw new Error(`微信开发者工具 CLI 组件不可用：${target}`);
+    }
+  }
   await runProcess(process.execPath, ["--version"], { label: "Node 版本检查" });
   await runProcess("pnpm", ["--version"], { label: "pnpm 版本检查" });
-  stage("环境预检", "passed", { summary: "Node、pnpm、微信开发者工具 CLI 和项目目录均可用" });
+  stage("环境预检", "passed", { summary: requireDevtools ? "Node、pnpm、微信开发者工具 CLI 和项目目录均可用" : "Node、pnpm 和小程序项目目录均可用；本轮不调用微信 CLI" });
 }
 
 async function ensureDevVars() {
@@ -148,17 +227,6 @@ async function probeHome() {
   }
 }
 
-async function isPortOpen(port) {
-  return new Promise((resolve) => {
-    const socket = net.createConnection({ host: "127.0.0.1", port });
-    const finish = (value) => { socket.destroy(); resolve(value); };
-    socket.setTimeout(800);
-    socket.once("connect", () => finish(true));
-    socket.once("timeout", () => finish(false));
-    socket.once("error", () => finish(false));
-  });
-}
-
 async function waitForHome(child, logs, timeout = 60000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -178,7 +246,7 @@ async function startServer({ stream = false } = {}) {
   }
   if (current.reachable) throw new Error("端口 3000 已被其他 HTTP 服务占用");
   const logs = { stdout: "", stderr: "" };
-  const child = spawn("pnpm", ["dev"], { cwd: ROOT, env: minimalEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnProgram("pnpm", ["dev"], { cwd: ROOT, env: minimalEnv(), stdio: ["ignore", "pipe", "pipe"] });
   for (const [name, source] of [["stdout", child.stdout], ["stderr", child.stderr]]) {
     source.on("data", (chunk) => {
       logs[name] = (logs[name] + chunk).slice(-200000);
@@ -192,6 +260,19 @@ async function startServer({ stream = false } = {}) {
 
 async function stopServer(server) {
   if (!server?.child || server.child.exitCode != null) return;
+  if (process.platform === "win32") {
+    const taskkill = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe");
+    const killer = spawn(taskkill, ["/PID", String(server.child.pid), "/T", "/F"], {
+      env: minimalEnv(),
+      stdio: "ignore",
+      shell: false,
+    });
+    await new Promise((resolve) => {
+      killer.once("error", resolve);
+      killer.once("exit", resolve);
+    });
+    return;
+  }
   server.child.kill("SIGINT");
   await Promise.race([
     new Promise((resolve) => server.child.once("exit", resolve)),
@@ -210,13 +291,34 @@ async function findDatabase() {
   return files[0];
 }
 
-async function sqlite(db, sql, label = "本地 D1") {
-  return runProcess("sqlite3", [db, sql], { label });
+function sqlite(db, sql, label = "本地 D1") {
+  const database = new DatabaseSync(db);
+  try {
+    database.exec(sql);
+    return { stdout: "", stderr: "" };
+  } catch (error) {
+    throw new Error(`${label}失败：${sanitize(error instanceof Error ? error.message : error)}`);
+  } finally {
+    database.close();
+  }
 }
 
-async function sqliteRows(db, sql) {
-  const result = await runProcess("sqlite3", ["-json", db, sql], { label: "本地 D1 查询" });
-  return result.stdout.trim() ? JSON.parse(result.stdout) : [];
+function sqliteRows(db, sql) {
+  const database = new DatabaseSync(db, { readOnly: true });
+  try {
+    return database.prepare(sql).all();
+  } finally {
+    database.close();
+  }
+}
+
+async function backupLocalDatabase(db, target) {
+  const database = new DatabaseSync(db, { readOnly: true });
+  try {
+    await backupDatabase(database, target);
+  } finally {
+    database.close();
+  }
 }
 
 async function hasTable(db, table) {
@@ -232,7 +334,7 @@ async function hasColumn(db, table, column) {
 async function applyMigration(db, filename, applied) {
   const migration = path.join(DRIZZLE_ROOT, filename);
   if (!await ensurePath(migration)) throw new Error(`缺少迁移：${filename}`);
-  await sqlite(db, `.read '${migration}'`, `应用 ${filename}`);
+  sqlite(db, await readFile(migration, "utf8"), `应用 ${filename}`);
   applied.push(filename);
 }
 
@@ -240,7 +342,7 @@ async function verifySchema(db) {
   const tables = [
     "users", "classes", "students", "assignments", "wechat_accounts", "mini_sessions", "mini_invites",
     "parent_student_links", "mini_bindings", "assignment_targets", "assignment_settings", "idempotency_operations",
-    "sync_events", "file_leases", "submission_reviews", "reminder_tasks",
+    "sync_events", "file_leases", "submission_reviews", "reminder_tasks", "class_files", "class_notices", "notice_receipts",
   ];
   const missingTables = [];
   for (const table of tables) if (!await hasTable(db, table)) missingTables.push(table);
@@ -250,6 +352,7 @@ async function verifySchema(db) {
     ["assignments", "class_id"],
     ["assignments", "reminder_rule"],
     ["assignments", "status"],
+    ["assignments", "kind"],
   ];
   const missingColumns = [];
   for (const [table, column] of columns) if (!await hasColumn(db, table, column)) missingColumns.push(`${table}.${column}`);
@@ -275,12 +378,15 @@ async function prepareDatabase() {
     && await hasTable(db, "mini_bindings")
     && await hasTable(db, "feedback_templates")
     && await hasColumn(db, "assignments", "status")
-    && await hasColumn(db, "assignments", "paper_id");
+    && await hasColumn(db, "assignments", "paper_id")
+    && await hasColumn(db, "assignments", "kind")
+    && await hasTable(db, "class_files")
+    && await hasTable(db, "class_notices");
   if (running.valid && !schemaReady) throw new Error("本地服务正在使用缺少迁移的 D1；请先停止服务后再运行 mini:prepare");
 
   await mkdir(path.join(ARTIFACT_ROOT, "backups"), { recursive: true });
   const backup = path.join(ARTIFACT_ROOT, "backups", `local-d1-${timestamp()}.sqlite`);
-  await sqlite(db, `.backup '${backup}'`, "备份本地 D1");
+  await backupLocalDatabase(db, backup);
 
   if (!await hasTable(db, "users")) {
     const migrations = (await readdir(DRIZZLE_ROOT)).filter((name) => /^00(?:0\d|1[0-4])_.*\.sql$/.test(name)).sort();
@@ -307,6 +413,9 @@ async function prepareDatabase() {
   let needs0020 = false;
   for (const table of newTables) if (!await hasTable(db, table)) needs0020 = true;
   if (needs0020) await applyMigration(db, "0020_mini_integration.sql", applied);
+  if (!await hasColumn(db, "assignments", "kind")) await applyMigration(db, "0034_assignment_learning_modes.sql", applied);
+  if (!await hasTable(db, "class_files")) await applyMigration(db, "0035_class_files.sql", applied);
+  if (!await hasTable(db, "class_notices")) await applyMigration(db, "0036_class_notices.sql", applied);
 
   await verifySchema(db);
   stage("本地 D1", "passed", { summary: applied.length ? `已备份并应用 ${applied.join("、")}` : "已备份，0015–0020 均已就绪", backup: path.relative(ROOT, backup) });
@@ -341,7 +450,18 @@ DELETE FROM classes WHERE name LIKE '${E2E_PREFIX}%';
 DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE email LIKE '${E2E_PREFIX}%');
 DELETE FROM users WHERE email LIKE '${E2E_PREFIX}%';
 COMMIT;`;
-  await sqlite(db, sql, "清理合成测试数据");
+  let lastError;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await sqlite(db, sql, "清理合成测试数据");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!/(?:disk I\/O|locked|busy)/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      await sleep(400 * (attempt + 1));
+    }
+  }
+  throw lastError;
 }
 
 async function seedFixtures(db) {
@@ -361,7 +481,6 @@ INSERT INTO assignment_targets(assignment_id,target_type,target_id) SELECT a.id,
 INSERT INTO assignment_submissions(assignment_id,student_id,status) SELECT a.id,s.id,'pending' FROM assignments a,students s WHERE a.title='${E2E_PREFIX}自动化作业' AND s.name='${E2E_PREFIX}学生';
 INSERT INTO wechat_accounts(user_id,student_id,open_id,role,display_name,status) SELECT NULL,s.id,'test:student-preview','student','${E2E_PREFIX}学生账号','active' FROM students s WHERE s.name='${E2E_PREFIX}学生';
 INSERT INTO wechat_accounts(user_id,student_id,open_id,role,display_name,status) SELECT NULL,NULL,'test:parent-preview','parent','${E2E_PREFIX}家长账号','active';
-INSERT INTO wechat_accounts(user_id,student_id,open_id,role,display_name,status) SELECT u.id,NULL,'test:teacher-preview','teacher','${E2E_PREFIX}教师账号','active' FROM users u WHERE u.email='${E2E_PREFIX}teacher@local.invalid';
 INSERT INTO mini_bindings(account_id,student_id,role,status,confirmed_by,confirmed_at) SELECT wa.id,s.id,'student','active',u.id,CURRENT_TIMESTAMP FROM wechat_accounts wa,students s,users u WHERE wa.open_id='test:student-preview' AND s.name='${E2E_PREFIX}学生' AND u.email='${E2E_PREFIX}teacher@local.invalid';
 INSERT INTO mini_bindings(account_id,student_id,role,status,confirmed_by,confirmed_at) SELECT wa.id,s.id,'parent','active',u.id,CURRENT_TIMESTAMP FROM wechat_accounts wa,students s,users u WHERE wa.open_id='test:parent-preview' AND s.name='${E2E_PREFIX}学生' AND u.email='${E2E_PREFIX}teacher@local.invalid';
 INSERT INTO parent_student_links(parent_account_id,student_id,status,confirmed_by) SELECT wa.id,s.id,'active',u.id FROM wechat_accounts wa,students s,users u WHERE wa.open_id='test:parent-preview' AND s.name='${E2E_PREFIX}学生' AND u.email='${E2E_PREFIX}teacher@local.invalid';
@@ -390,7 +509,7 @@ async function jsonRequest(pathname, options = {}) {
 }
 
 async function login(role, testCode = `${role}-preview`) {
-  const response = await jsonRequest("/api/mini/login", { method: "POST", body: JSON.stringify({ testCode, role, displayName: `${E2E_PREFIX}${role}` }) });
+  const response = await jsonRequest("/api/v2/mini/login", { method: "POST", body: JSON.stringify({ testCode, role, displayName: `${E2E_PREFIX}${role}` }) });
   assert.equal(response.status, 200, `${role} 测试登录失败：${response.data.error || response.status}`);
   assert.equal(typeof response.data.token, "string");
   return { ...response.data, headers: { authorization: `Bearer ${response.data.token}` } };
@@ -398,9 +517,13 @@ async function login(role, testCode = `${role}-preview`) {
 
 async function apiRegression(db, fixture) {
   const results = [];
-  const unauthorized = await jsonRequest("/api/mini/me");
+  const unauthorized = await jsonRequest("/api/v2/mini/me");
   assert.equal(unauthorized.status, 401);
   results.push({ case: "无令牌身份接口", status: 401 });
+
+  const teacherRole = await jsonRequest("/api/v2/mini/login", { method: "POST", body: JSON.stringify({ testCode: `${E2E_PREFIX}teacher`, role: "teacher" }) });
+  assert.equal(teacherRole.status, 400);
+  results.push({ case: "教师身份入口已移除", status: 400 });
 
   const unbound = await login("student", `${E2E_PREFIX}unbound`);
   assert.equal(unbound.bindingRequired, true);
@@ -409,70 +532,52 @@ async function apiRegression(db, fixture) {
   const student = await login("student");
   const studentAgain = await login("student");
   assert.equal(student.accountId, studentAgain.accountId, "重复登录不应创建重复账号");
-  const me = await jsonRequest("/api/mini/me", { headers: student.headers });
+  const me = await jsonRequest("/api/v2/mini/me", { headers: student.headers });
   assert.equal(me.status, 200);
   assert.equal(me.data.bindingRequired, false);
-  const sync = await jsonRequest("/api/mini/sync?cursor=0", { headers: student.headers });
+  const sync = await jsonRequest("/api/v2/mini/sync?cursor=0", { headers: student.headers });
   assert.equal(sync.status, 200);
   assert.equal(sync.data.full, true);
   assert.ok(sync.data.snapshot.assignments.some((item) => item.title === `${E2E_PREFIX}自动化作业`));
   results.push({ case: "学生登录、身份与完整同步", status: 200 });
 
-  const forbiddenCreate = await jsonRequest("/api/mini/assignments", {
+  const forbiddenCreate = await jsonRequest("/api/v2/mini/assignments", {
     method: "POST", headers: student.headers,
     body: JSON.stringify({ title: `${E2E_PREFIX}越权作业`, studentIds: [fixture.studentId], operationId: `${E2E_PREFIX}forbidden` }),
   });
-  assert.equal(forbiddenCreate.status, 403);
-  results.push({ case: "学生越权布置作业", status: 403 });
+  assert.equal(forbiddenCreate.status, 405);
+  results.push({ case: "小程序无发布作业方法", status: 405 });
 
   const submitBody = { action: "submit", assignmentId: fixture.assignmentId, textContent: "__e2e__首次提交", assetIds: [], operationId: `${E2E_PREFIX}submission-v1` };
-  const firstSubmit = await jsonRequest("/api/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(submitBody) });
-  const repeatedSubmit = await jsonRequest("/api/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(submitBody) });
+  const firstSubmit = await jsonRequest("/api/v2/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(submitBody) });
+  const repeatedSubmit = await jsonRequest("/api/v2/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(submitBody) });
   assert.equal(firstSubmit.status, 201);
   assert.equal(repeatedSubmit.status, 200);
   assert.deepEqual({ id: repeatedSubmit.data.id, version: repeatedSubmit.data.version }, { id: firstSubmit.data.id, version: firstSubmit.data.version });
   results.push({ case: "学生提交幂等", first: 201, replay: 200, version: firstSubmit.data.version });
 
-  const teacher = await login("teacher");
-  assert.equal(teacher.teacherLinked, true);
-  const teacherAssignments = await jsonRequest("/api/mini/assignments", { headers: teacher.headers });
-  assert.equal(teacherAssignments.status, 200);
-  const submissions = await jsonRequest(`/api/mini/submissions?assignmentId=${fixture.assignmentId}`, { headers: teacher.headers });
-  assert.equal(submissions.status, 200);
-  const submission = submissions.data.submissions.find((item) => Number(item.studentId) === Number(fixture.studentId));
-  assert.ok(submission);
-  const draftReview = await jsonRequest("/api/mini/submissions", { method: "POST", headers: teacher.headers, body: JSON.stringify({ action: "save-review", submissionId: submission.id, outcome: "revision", reviewTags: ["政治术语不规范"], teacherNote: "__e2e__批改草稿", revisionRequirements: "补充规范表述", operationId: `${E2E_PREFIX}review-draft` }) });
-  assert.equal(draftReview.status, 201);
-  const confirmBody = { action: "confirm-review", submissionId: submission.id, outcome: "revision", reviewTags: ["政治术语不规范"], teacherNote: "__e2e__请订正", revisionRequirements: "补充规范表述", operationId: `${E2E_PREFIX}review-confirm` };
-  const confirmed = await jsonRequest("/api/mini/submissions", { method: "POST", headers: teacher.headers, body: JSON.stringify(confirmBody) });
-  const confirmedAgain = await jsonRequest("/api/mini/submissions", { method: "POST", headers: teacher.headers, body: JSON.stringify(confirmBody) });
-  assert.equal(confirmed.status, 200);
-  assert.equal(confirmedAgain.status, 200);
-  assert.equal(confirmed.data.id, confirmedAgain.data.id);
-  results.push({ case: "教师批改草稿与确认回传", draft: 201, confirm: 200, replay: 200 });
+  await sqlite(db, `UPDATE assignment_submissions SET status='revision',updated_at=CURRENT_TIMESTAMP WHERE assignment_id=${Number(fixture.assignmentId)} AND student_id=${Number(fixture.studentId)};`, "模拟教师网站确认订正");
+  results.push({ case: "教师确认留在网站端", miniTeacherEntry: false });
 
   const revisionBody = { ...submitBody, textContent: "__e2e__订正版", operationId: `${E2E_PREFIX}submission-v2` };
-  const revision = await jsonRequest("/api/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(revisionBody) });
-  const revisionAgain = await jsonRequest("/api/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(revisionBody) });
+  const revision = await jsonRequest("/api/v2/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(revisionBody) });
+  const revisionAgain = await jsonRequest("/api/v2/mini/submissions", { method: "POST", headers: student.headers, body: JSON.stringify(revisionBody) });
   assert.equal(revision.status, 201);
   assert.equal(revisionAgain.status, 200);
   assert.equal(revision.data.version, 2);
   results.push({ case: "学生订正版本与幂等重放", first: 201, replay: 200, version: 2 });
 
   const parent = await login("parent");
-  const parentMe = await jsonRequest("/api/mini/me", { headers: parent.headers });
+  const parentMe = await jsonRequest("/api/v2/mini/me", { headers: parent.headers });
   assert.equal(parentMe.status, 200);
   assert.equal(parentMe.data.bindingRequired, false);
-  const portal = await jsonRequest(`/api/mini/portal?studentId=${fixture.studentId}`, { headers: parent.headers });
+  const portal = await jsonRequest(`/api/v2/mini/portal?studentId=${fixture.studentId}`, { headers: parent.headers });
   assert.equal(portal.status, 200);
-  const teacherPortal = await jsonRequest(`/api/mini/portal?studentId=${fixture.studentId}`, { headers: teacher.headers });
-  assert.equal(teacherPortal.status, 400);
-  results.push({ case: "家长门户与教师端权限隔离", parent: 200, teacher: 400 });
+  results.push({ case: "家长门户", parent: 200 });
 
-  const counts = await sqliteRows(db, `SELECT (SELECT COUNT(*) FROM submission_versions sv JOIN assignment_submissions s ON s.id=sv.submission_id WHERE s.assignment_id=${Number(fixture.assignmentId)}) AS versions,(SELECT COUNT(*) FROM submission_reviews r JOIN assignment_submissions s ON s.id=r.submission_id WHERE s.assignment_id=${Number(fixture.assignmentId)} AND r.status='confirmed') AS confirmedReviews,(SELECT COUNT(*) FROM wechat_accounts WHERE open_id IN ('test:student-preview','test:parent-preview','test:teacher-preview')) AS accounts;`);
+  const counts = await sqliteRows(db, `SELECT (SELECT COUNT(*) FROM submission_versions sv JOIN assignment_submissions s ON s.id=sv.submission_id WHERE s.assignment_id=${Number(fixture.assignmentId)}) AS versions,(SELECT COUNT(*) FROM wechat_accounts WHERE open_id IN ('test:student-preview','test:parent-preview')) AS accounts;`);
   assert.equal(Number(counts[0].versions), 2);
-  assert.equal(Number(counts[0].confirmedReviews), 1);
-  assert.equal(Number(counts[0].accounts), 3);
+  assert.equal(Number(counts[0].accounts), 2);
   stage("小程序接口回归", "passed", { summary: `${results.length} 组登录、同步、幂等、订正和权限场景通过`, results });
   return results;
 }
@@ -516,31 +621,43 @@ async function simulatorRegression(runDir, fixture) {
   const automator = (await import("miniprogram-automator")).default;
   let miniProgram;
   let simulatorProject;
+  let primaryError;
+  let finalizationError;
   const evidence = [];
   try {
     // 正式工程必须开启合法域名校验；本地模拟器回归使用一次性副本关闭校验，
     // 以便访问 localhost。副本位于 Git 忽略的报告目录，不会进入上传包。
-    simulatorProject = path.join(process.env.TMPDIR || "/tmp", `zhishi-mini-e2e-${timestamp()}`);
+    const tempRoot = process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
+    simulatorProject = path.join(tempRoot, `zhishi-mini-e2e-${timestamp()}`);
     await cp(MINI_ROOT, simulatorProject, { recursive: true });
     const simulatorConfigPath = path.join(simulatorProject, "project.config.json");
     const simulatorConfig = JSON.parse(await readFile(simulatorConfigPath, "utf8"));
     simulatorConfig.setting = { ...(simulatorConfig.setting || {}), urlCheck: false };
     await writeFile(simulatorConfigPath, `${JSON.stringify(simulatorConfig, null, 2)}\n`, "utf8");
-    const reuseConnection = await isPortOpen(9420);
-    miniProgram = await withTimeout(reuseConnection
-      ? automator.connect({ wsEndpoint: "ws://127.0.0.1:9420" })
-      : automator.launch({
-          cliPath: DEVTOOLS_CLI,
-          projectPath: simulatorProject,
-          timeout: 90000,
-          port: 9420,
-          args: ["--port", "9431"],
-          trustProject: true,
-        }), reuseConnection ? 30000 : 110000, "连接微信开发者工具自动化端口");
     const exceptions = [];
-    miniProgram.on("exception", (error) => exceptions.push(sanitize(JSON.stringify(error))));
-
-    await waitForAutomatorReady(miniProgram);
+    // 新路径第一次进入 auto 时，开发者工具可能先启动基础库版本未确定的模拟器，
+    // 随后才登记 AppID。首次运行时未就绪便关闭并用同一路径重启，第二次会读取正确 SDK。
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const automationPort = await availablePort();
+      const cliOutput = await runDevtoolsCli([
+        "auto", "--project", simulatorProject,
+        "--auto-port", String(automationPort), "--trust-project",
+      ], { label: "启动微信开发者工具模拟器", timeout: 90000, inherit: true });
+      try {
+        miniProgram = await connectAutomator(automator, `ws://127.0.0.1:${automationPort}`);
+        miniProgram.on("exception", (error) => exceptions.push(sanitize(JSON.stringify(error))));
+        await waitForAutomatorReady(miniProgram, attempt === 1 ? 20000 : 90000);
+        break;
+      } catch (error) {
+        if (attempt === 2) {
+          throw new Error(`${error instanceof Error ? error.message : error}\n${sanitize(cliOutput.stderr || cliOutput.stdout)}`);
+        }
+        if (miniProgram && typeof miniProgram.disconnect === "function") miniProgram.disconnect();
+        miniProgram = undefined;
+        await runDevtoolsCli(["close", "--project", simulatorProject], { label: "重启首次初始化的模拟器", timeout: 30000, inherit: true });
+        await sleep(3000);
+      }
+    }
     await resetMiniSession(miniProgram);
     let page = await miniProgram.reLaunch("/pages/home/index");
     await page.callMethod("login", { currentTarget: { dataset: { role: "student" } } });
@@ -574,30 +691,12 @@ async function simulatorRegression(runDir, fixture) {
     await miniProgram.screenshot({ path: parentShot });
     evidence.push(path.basename(parentShot));
 
-    await resetMiniSession(miniProgram);
-    page = await miniProgram.reLaunch("/pages/home/index");
-    await page.callMethod("login", { currentTarget: { dataset: { role: "teacher" } } });
-    await waitForPageData(page, (data) => data.me?.role === "teacher" && data.me?.teacherLinked === true && !data.loading, "教师端模拟器登录超时");
-    const publishPage = await miniProgram.reLaunch("/pages/publish/index");
-    const publishData = await waitForPageData(publishPage, (data) => Array.isArray(data.classes) && data.classes.length > 0, "布置作业页班级加载超时");
-    assert.ok(publishData.classes.some((item) => Number(item.id) === Number(fixture.classId)));
-    const publishShot = path.join(runDir, "teacher-publish.png");
-    await miniProgram.screenshot({ path: publishShot }); evidence.push(path.basename(publishShot));
-    const inboxPage = await miniProgram.reLaunch("/pages/inbox/index");
-    const inboxData = await waitForPageData(inboxPage, (data) => !data.loading && Array.isArray(data.assignments), "作业收件箱加载超时");
-    assert.ok(inboxData.assignments.some((item) => item.title === `${E2E_PREFIX}自动化作业`));
-    const inboxShot = path.join(runDir, "teacher-inbox.png");
-    await miniProgram.screenshot({ path: inboxShot }); evidence.push(path.basename(inboxShot));
-    const reviewPage = await miniProgram.reLaunch("/pages/review/index");
-    const reviewData = await waitForPageData(reviewPage, (data) => !data.loading, "教师批改页加载超时");
-    assert.ok(reviewData.assignments.some((item) => item.title === `${E2E_PREFIX}自动化作业`));
-    const teacherShot = path.join(runDir, "teacher-review.png");
-    await miniProgram.screenshot({ path: teacherShot });
-    evidence.push(path.basename(teacherShot));
-
     if (exceptions.length) throw new Error(`模拟器捕获到异常：${exceptions.join("；")}`);
-    stage("开发者工具模拟器", "passed", { summary: "学生、离线草稿、家长门户、教师布置、收件箱和连续批改页通过", evidence });
+    stage("开发者工具模拟器", "passed", { summary: "学生首页、离线草稿和家长门户通过；构建中不存在教师页面", evidence });
     return evidence;
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     if (miniProgram && typeof miniProgram.close === "function") {
       try { await withTimeout(miniProgram.close(), 15000, "关闭模拟器自动化会话"); } catch {
@@ -605,7 +704,20 @@ async function simulatorRegression(runDir, fixture) {
       }
       await sleep(1500);
     }
-    if (simulatorProject) await rm(simulatorProject, { recursive: true, force: true });
+    if (simulatorProject) {
+      try {
+        await runDevtoolsCli(["close", "--project", simulatorProject], { label: "关闭模拟器临时工程", timeout: 30000, inherit: true });
+      } catch (closeError) {
+        finalizationError = closeError;
+      }
+      try {
+        await removeDirectoryWithRetry(simulatorProject);
+      } catch (cleanupError) {
+        stage("模拟器临时目录清理", "failed", { summary: sanitize(cleanupError instanceof Error ? cleanupError.message : cleanupError) });
+        if (!primaryError) throw cleanupError;
+      }
+      if (finalizationError && !primaryError) throw finalizationError;
+    }
   }
 }
 
@@ -624,9 +736,9 @@ async function staticSecurityCheck() {
   const project = JSON.parse(await readFile(path.join(MINI_ROOT, "project.config.json"), "utf8"));
   if (project.appid !== "touristappid" && !/^wx[a-zA-Z0-9]{16}$/.test(project.appid)) violations.push("project.config.json 必须使用 touristappid 或格式正确的正式 AppID");
   if (project.appid !== "touristappid" && project.setting?.urlCheck !== true) violations.push("正式 AppID 必须开启服务器域名校验");
-  if (project.projectname !== "来写作业吧") violations.push("开发者工具工程名未统一为来写作业吧");
+  if (project.projectname !== "知师研室学习端") violations.push("开发者工具工程名未统一为知师研室学习端");
   const app = JSON.parse(await readFile(path.join(MINI_ROOT, "app.json"), "utf8"));
-  if (app.window?.navigationBarTitleText !== "来写作业吧") violations.push("导航栏品牌未统一为来写作业吧");
+  if (app.window?.navigationBarTitleText !== "知师研室 · 学习端") violations.push("导航栏品牌未统一为知师研室 · 学习端");
   const ignored = await runProcess("git", ["check-ignore", ".dev.vars", ".artifacts/mini/report.json", "private.wx-appid.key"], { label: "Git 忽略规则检查" });
   if (ignored.stdout.trim().split(/\r?\n/).length !== 3) violations.push("本地变量、报告或上传密钥未被完整忽略");
   if (violations.length) throw new Error(`静态安全检查失败：${violations.join("；")}`);
@@ -634,7 +746,7 @@ async function staticSecurityCheck() {
 }
 
 async function runChecks() {
-  await ensurePreflight();
+  await ensurePreflight({ requireDevtools: false });
   await staticSecurityCheck();
   const checks = [
     ["TypeScript", "pnpm", ["typecheck"]],
@@ -654,22 +766,31 @@ async function runE2E() {
   const runDir = path.join(ARTIFACT_ROOT, `run-${timestamp()}`);
   await mkdir(runDir, { recursive: true });
   let server;
+  let primaryError;
   try {
     const fixture = await seedFixtures(db);
     server = await startServer();
     await apiRegression(db, fixture);
     await simulatorRegression(runDir, fixture);
     return runDir;
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     await stopServer(server);
-    await cleanupFixtures(db);
-    stage("合成数据清理", "passed", { summary: "仅删除 __e2e__ 数据" });
+    try {
+      await cleanupFixtures(db);
+      stage("合成数据清理", "passed", { summary: "仅删除 __e2e__ 数据" });
+    } catch (cleanupError) {
+      stage("合成数据清理", "failed", { summary: sanitize(cleanupError instanceof Error ? cleanupError.message : cleanupError) });
+      if (!primaryError) throw cleanupError;
+    }
   }
 }
 
 async function openDevTools() {
-  await runProcess(DEVTOOLS_CLI, ["open", "--project", MINI_ROOT], { label: "打开微信开发者工具", timeout: 60000 });
-  stage("微信开发者工具", "passed", { summary: "已打开来写作业吧本地项目" });
+  await runDevtoolsCli(["open", "--project", MINI_ROOT], { label: "打开微信开发者工具", timeout: 60000 });
+  stage("微信开发者工具", "passed", { summary: "已打开知师研室学习端本地项目" });
 }
 
 async function runDev() {
@@ -678,7 +799,7 @@ async function runDev() {
   const server = await startServer({ stream: true });
   await openDevTools();
   if (!server.child) return;
-  console.log("来写作业吧本地联调正在运行；按 Ctrl+C 停止。不会上传或发布。");
+  console.log("知师研室学习端本地联调正在运行；按 Ctrl+C 停止。不会上传或发布。");
   for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => server.child.kill(signal));
   await new Promise((resolve) => server.child.once("exit", resolve));
 }
@@ -688,7 +809,9 @@ async function runPreview() {
   const stagingBase = String(process.env.MINI_STAGING_API_BASE || "").trim().replace(/\/$/, "");
   const confirmed = process.env.MINI_PREVIEW_CONFIRMED === "YES_I_CONFIRMED";
   if (!/^wx[a-zA-Z0-9]{16}$/.test(appId) || appId === "touristappid") throw new Error("缺少正式 MINI_APP_ID；当前只能运行模拟器自动化");
-  if (!/^https:\/\//.test(stagingBase) || /localhost|127\.0\.0\.1/.test(stagingBase)) throw new Error("MINI_STAGING_API_BASE 必须是独立 HTTPS 测试域名");
+  let stagingURL;
+  try { stagingURL = new URL(stagingBase); } catch { throw new Error("MINI_STAGING_API_BASE 必须是独立 HTTPS 测试域名"); }
+  if (stagingURL.protocol !== "https:" || !stagingURL.hostname || /^(localhost|127\.0\.0\.1)$/.test(stagingURL.hostname) || stagingURL.username || stagingURL.password || stagingURL.search || stagingURL.hash) throw new Error("MINI_STAGING_API_BASE 必须是无账号、查询参数和片段的独立 HTTPS 测试域名");
   if (!confirmed) throw new Error("生成预览码会把预览包发送到微信；请在获得莫老师当次确认后设置 MINI_PREVIEW_CONFIRMED=YES_I_CONFIRMED");
 
   await runChecks();
@@ -703,12 +826,14 @@ async function runPreview() {
   await writeFile(projectPath, `${JSON.stringify(project, null, 2)}\n`);
   const configPath = path.join(buildDir, "config.js");
   const config = await readFile(configPath, "utf8");
-  const replaced = config.replace('develop: "http://localhost:3000"', `develop: ${JSON.stringify(stagingBase)}`);
-  if (replaced === config) throw new Error("无法在临时预览副本中注入测试 API 地址");
+  const replaced = config.replace(/develop:\s*"[^"]+"/, `develop: ${JSON.stringify(stagingBase)}`);
+  if (replaced === config) throw new Error("无法在临时预览副本中注入开发环境 API 地址");
   await writeFile(configPath, replaced);
+  const releaseTargetPath = path.join(buildDir, "release-target.js");
+  await writeFile(releaseTargetPath, `module.exports = Object.freeze({ configured: true, rootDomain: ${JSON.stringify(stagingURL.hostname)}, webOrigin: ${JSON.stringify(stagingBase)}, apiOrigin: ${JSON.stringify(stagingBase)} });\n`);
   const qr = path.join(previewDir, "preview.png");
   const info = path.join(previewDir, "preview-info.json");
-  await runProcess(DEVTOOLS_CLI, ["preview", "--project", buildDir, "--qr-format", "image", "--qr-output", qr, "--info-output", info], { label: "生成微信预览码", timeout: 180000 });
+  await runDevtoolsCli(["preview", "--project", buildDir, "--qr-format", "image", "--qr-output", qr, "--info-output", info], { label: "生成微信预览码", timeout: 180000 });
   report.boundaries.previewGenerated = true;
   stage("微信预览码", "passed", { summary: "仅生成预览码，未执行 upload、审核或发布", qr: path.relative(ROOT, qr) });
   await rm(buildDir, { recursive: true, force: true });
@@ -724,7 +849,7 @@ async function writeReport(status, artifactDir = ARTIFACT_ROOT, error = null) {
   const markdownPath = path.join(artifactDir, "report.md");
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
   const lines = [
-    "# 来写作业吧小程序自动化报告",
+    "# 知师研室学习端自动化报告",
     "",
     `- 状态：${status === "passed" ? "通过" : "失败"}`,
     `- 开始：${report.startedAt}`,
@@ -747,7 +872,7 @@ async function writeReport(status, artifactDir = ARTIFACT_ROOT, error = null) {
 let artifactDir = ARTIFACT_ROOT;
 try {
   if (command === "prepare") {
-    await ensurePreflight();
+    await ensurePreflight({ requireDevtools: false });
     await prepareDatabase();
   } else if (command === "dev") {
     await runDev();

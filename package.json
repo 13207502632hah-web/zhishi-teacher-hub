@@ -26,7 +26,12 @@
     "mini:production-guard": "node scripts/mini-production-guard-e2e.mjs",
     "teaching:e2e": "node scripts/teaching-loop-e2e.mjs",
     "api:inventory": "node scripts/api-inventory.mjs",
-    "benchmark:scale": "node scripts/scale-benchmark.mjs"
+    "benchmark:scale": "node scripts/scale-benchmark.mjs && node scripts/schedule-scale-benchmark.mjs",
+    "benchmark:schedule": "node scripts/schedule-scale-benchmark.mjs",
+    "mobile:check": "node scripts/mobile-readiness.mjs",
+    "release:domain": "node scripts/configure-release-domain.mjs",
+    "release:domain:check": "node scripts/configure-release-domain.mjs --check",
+    "release:live:check": "node scripts/release-live-check.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/chi_sim": "1.0.0",

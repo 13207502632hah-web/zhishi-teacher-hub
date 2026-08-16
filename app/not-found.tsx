@@ -7,7 +7,7 @@ import { BRAND_NAME } from "./lib/brand";
 
 export default function NotFound() {
   const pathname = usePathname();
-  const publicContext = pathname === "/" || pathname === "/resources" || pathname?.startsWith("/resources/") || pathname === "/teacher-login";
+  const publicContext = ["/", "/resources", "/teacher-login", "/privacy", "/terms", "/account-deletion", "/support"].includes(pathname) || pathname?.startsWith("/resources/");
 
   return (
     <main className={styles.routeState}>

@@ -1,6 +1,7 @@
 /** Cloudflare Worker entry point for zhishi-teacher-hub. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { drainV2BackgroundJobs } from "../app/lib/v2/background-dispatch";
 
 interface Env {
   ASSETS: Fetcher;
@@ -41,6 +42,9 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+  async scheduled(_controller: unknown, _env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(drainV2BackgroundJobs(8));
   },
 };
 

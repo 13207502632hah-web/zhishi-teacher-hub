@@ -140,7 +140,7 @@ test("question-bank-first workflow exposes queue, saved views, indexed search an
   assert.match(questionApi, /use_count_desc/); assert.match(questionApi, /params\.get\("ids"\)/); assert.match(facetsApi, /textbook_version/);
   assert.match(viewsApi, /ownerId/); assert.match(viewsApi, /allowedKeys/); assert.match(schema, /savedQuestionViews/);
   for (const index of ["question_search_textbook_index", "question_search_knowledge_index", "question_search_sort_index"]) assert.match(migration, new RegExp(index));
-  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(navigation, /label:\s*"题库"/); assert.match(navigation, /微信小程序（暂停）/); assert.match(dashboard, /今日教学工作台/); assert.match(dashboard, /题库与组卷/);
+  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(navigation, /label:\s*"题库"/); assert.match(navigation, /微信小程序（体验版准备中）/); assert.match(navigation, /2\.0 内测工作台/); assert.match(dashboard, /今日教学工作台/); assert.match(dashboard, /题库与组卷/);
 });
 
 test("question facet counts drive combined-filter feedback", async () => {
@@ -214,9 +214,9 @@ test("daily cockpit milestones stay connected to durable, evidence-backed APIs",
   for (const field of ["feedback_evidence", "pricing_rule_id", "calculation_snapshot"]) assert.match(migration23, new RegExp(field));
 });
 
-test("comprehensive repairs connect lazy answers, imports, exams, promotion and mini review", async () => {
-  const [questions, contentApi, reviewApi, paperImport, lessonDisplay, feedbackImport, feedbackPage, recognition, examPage, trends, promotion, dashboard, migration24, migration25, miniHome, miniReview] = await Promise.all([
-    "app/questions/page.tsx", "app/api/questions/[id]/content/route.ts", "app/api/questions/[id]/review/route.ts", "app/api/question-sets/import/route.ts", "app/lib/lesson-display.ts", "app/lib/feedback-import.ts", "app/feedback-imports/page.tsx", "app/recognition/page.tsx", "app/exam-projects/page.tsx", "app/api/students/[id]/score-trends/route.ts", "app/lib/services/grade-promotion-service.ts", "app/api/dashboard/route.ts", "drizzle/0024_paper_feedback_workflow.sql", "drizzle/0025_academic_exam_analytics.sql", "mini-program/pages/home/index.wxml", "mini-program/pages/review/index.wxml",
+test("comprehensive repairs connect lazy answers, imports, exams, promotion and student mini home", async () => {
+  const [questions, contentApi, reviewApi, paperImport, lessonDisplay, feedbackImport, feedbackPage, recognition, examPage, trends, promotion, dashboard, migration24, migration25, miniHome] = await Promise.all([
+    "app/questions/page.tsx", "app/api/questions/[id]/content/route.ts", "app/api/questions/[id]/review/route.ts", "app/api/question-sets/import/route.ts", "app/lib/lesson-display.ts", "app/lib/feedback-import.ts", "app/feedback-imports/page.tsx", "app/recognition/page.tsx", "app/exam-projects/page.tsx", "app/api/students/[id]/score-trends/route.ts", "app/lib/services/grade-promotion-service.ts", "app/api/dashboard/route.ts", "drizzle/0024_paper_feedback_workflow.sql", "drizzle/0025_academic_exam_analytics.sql", "mini-program/pages/home/index.wxml",
   ].map(read));
   for (const state of ["加载中", "读取失败", "待补充", "重试题目"]) assert.match(questions, new RegExp(state));
   assert.match(questions, /questionContentRef/); assert.match(questions, /cache:\s*"no-store"/); assert.match(questions, /answer:\s*state\.answer/);
@@ -226,8 +226,8 @@ test("comprehensive repairs connect lazy answers, imports, exams, promotion and 
   assert.match(promotion, /INSERT OR IGNORE/); assert.match(dashboard, /today\.slice\(5, 7\) === "09"/); assert.match(dashboard, /核对新学年年级晋升/);
   for (const field of ["feedback_imports", "academic_year", "exam_category", "district"]) assert.match(migration24, new RegExp(field));
   for (const table of ["academic_years", "exam_projects", "exam_project_students", "grade_promotion_runs", "review_assets"]) assert.match(migration25, new RegExp(table));
-  for (const label of ["布置作业", "作业收件箱", "连续批改"]) assert.match(miniHome, new RegExp(label));
-  assert.match(miniReview, /圈画/); assert.match(miniReview, /语音评语/); assert.match(miniReview, /确认并回传/);
+  assert.match(miniHome, /只展示教师已经确认并发布的学习内容/);
+  for (const teacherAction of ["布置作业", "作业收件箱", "连续批改"]) assert.doesNotMatch(miniHome, new RegExp(teacherAction));
 });
 
 test("stage two covers political question review, paper drafting and lesson links", async () => {

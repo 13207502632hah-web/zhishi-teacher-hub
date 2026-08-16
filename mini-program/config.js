@@ -1,7 +1,10 @@
+const releaseTarget = require("./release-target");
+
 const apiBases = {
   develop: "http://localhost:3000",
-  trial: "https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site",
-  release: "https://zhishi-teacher-hub.jz4hbwctq7.chatgpt.site",
+  // 未执行 release:domain 时保持不可解析占位域名，避免误连旧站。
+  trial: releaseTarget.apiOrigin,
+  release: releaseTarget.apiOrigin,
 };
 
 function environment() {
@@ -9,8 +12,9 @@ function environment() {
 }
 
 function apiBase() {
-  const override = wx.getStorageSync("mini-api-base");
-  return override || apiBases[environment()] || apiBases.develop;
+  const current = environment();
+  const override = current === "develop" ? wx.getStorageSync("mini-api-base") : "";
+  return override || apiBases[current] || apiBases.develop;
 }
 
 function testLoginEnabled() {

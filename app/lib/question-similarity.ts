@@ -7,14 +7,28 @@ export function bigrams(value: string) {
   return Array.from({ length: value.length - 1 }, (_, index) => value.slice(index, index + 2));
 }
 
+export type QuestionTextProfile = {
+  normalized: string;
+  counts: Map<string, number>;
+  denominator: number;
+};
+
+export function questionTextProfile(value: unknown): QuestionTextProfile {
+  const normalized = normalize(value), counts = new Map<string, number>();
+  for (const item of bigrams(normalized)) counts.set(item, (counts.get(item) || 0) + 1);
+  return { normalized, counts, denominator: Math.max(1, normalized.length - 1) };
+}
+
+export function profiledQuestionTextSimilarity(left: QuestionTextProfile, right: QuestionTextProfile) {
+  if (!left.normalized || !right.normalized) return 0;
+  if (left.normalized === right.normalized) return 1;
+  const [smaller, larger] = left.counts.size <= right.counts.size ? [left.counts, right.counts] : [right.counts, left.counts];
+  let overlap = 0;
+  for (const [gram, amount] of smaller) overlap += Math.min(amount, larger.get(gram) || 0);
+  return Number((2 * overlap / (left.denominator + right.denominator)).toFixed(3));
+}
+
 /** 仅用于提示人工并排核对，不据此删除或合并题目。 */
 export function questionTextSimilarity(left: unknown, right: unknown) {
-  const a = normalize(left), b = normalize(right);
-  if (!a || !b) return 0;
-  if (a === b) return 1;
-  const counts = new Map<string, number>();
-  for (const item of bigrams(a)) counts.set(item, (counts.get(item) || 0) + 1);
-  let overlap = 0;
-  for (const item of bigrams(b)) { const count = counts.get(item) || 0; if (count > 0) { overlap += 1; counts.set(item, count - 1); } }
-  return Number((2 * overlap / (Math.max(1, a.length - 1) + Math.max(1, b.length - 1))).toFixed(3));
+  return profiledQuestionTextSimilarity(questionTextProfile(left), questionTextProfile(right));
 }
