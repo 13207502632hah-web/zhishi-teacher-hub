@@ -78,6 +78,7 @@ test("formal login fails safely and production gate rejects all mini entry point
   assert.match(auth, /MINI_FEATURE_DISABLED/);
   assert.match(login, /WECHAT_LOGIN_FAILED/);
   assert.match(login, /providerCode/);
+  assert.match(login, /providerCode === 40029 \? 400/);
   assert.doesNotMatch(login, /errmsg/);
   assert.doesNotMatch(login, /console\.log|AppSecret/);
   assert.match(login, /小程序一期只支持学生和家长/); assert.match(auth, /role: "student" \| "parent"/);

@@ -14,7 +14,8 @@ function wechatLoginError(data: Record<string, unknown>) {
         : providerCode === 45011
           ? "微信登录操作过于频繁，请稍后再试"
           : "微信登录服务暂时不可用，请稍后重试";
-  return Response.json({ error, code: "WECHAT_LOGIN_FAILED", providerCode, retryable }, { status: retryable ? 503 : 401 });
+  const status = providerCode === 40029 ? 400 : retryable ? 503 : 401;
+  return Response.json({ error, code: "WECHAT_LOGIN_FAILED", providerCode, retryable }, { status });
 }
 
 export async function POST(request: Request) {
