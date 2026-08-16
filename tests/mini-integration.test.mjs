@@ -55,15 +55,16 @@ test("private assignment and paper files enforce target-aware access and no-stor
 });
 
 test("mini client contains only student and parent pages, session expiry and recoverable drafts", async () => {
-  const [config, api, app, home, submit, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/submit/index.js", "mini-program/README.md"].map(read));
+  const [config, api, app, home, homeLogic, submit, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/home/index.js", "mini-program/pages/submit/index.js", "mini-program/README.md"].map(read));
   assert.match(config, /develop/); assert.match(config, /trial/); assert.match(config, /release/); assert.match(config, /testLoginEnabled/);
   assert.match(api, /MINI_SESSION_EXPIRED|statusCode === 401/); assert.match(api, /onProgressUpdate/); assert.match(api, /mini-sync-cursor/);
   assert.match(api, /WX_LOGIN_TIMEOUT/); assert.match(api, /wxLoginOnce/); assert.match(api, /code = await wxLoginOnce\(\)/);
+  for (const marker of ["wx.login", "wx.request", "MINI_NETWORK_FAILED", "stage", "detail"]) assert.match(api, new RegExp(marker.replace(".", "\\.")));
   for (const page of ["pages/bind/index", "pages/portal/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index"]) assert.match(app, new RegExp(page));
   for (const teacherOnlyPage of ["pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.doesNotMatch(app, new RegExp(teacherOnlyPage));
   assert.match(api, /\/api\/v2\/mini/);
   assert.doesNotMatch(api, /v2Path|\/api\/mini/);
-  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
+  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(home, /诊断信息/); assert.match(homeLogic, /2\.0\.3/); assert.match(homeLogic, /diagnosticText/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
   assert.doesNotMatch(home, /教师端|测试教师/);
   for (const page of ["review", "publish", "inbox", "annotate"]) await assert.rejects(read(`mini-program/pages/${page}/index.js`), { code: "ENOENT" });
   assert.match(readme, /不是已经提交审核或正式发布/);

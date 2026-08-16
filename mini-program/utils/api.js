@@ -20,10 +20,35 @@ function request(path, options = {}) {
     success(response) {
       if (response.statusCode === 401) sessionExpired();
       if (response.statusCode < 400) resolve(response.data);
-      else reject(response.data || { error: readableError(response.statusCode) });
+      else {
+        const payload = response.data && typeof response.data === "object" ? response.data : {};
+        reject({
+          ...payload,
+          error: payload.error || readableError(response.statusCode),
+          code: payload.code || `HTTP_${response.statusCode}`,
+          stage: payload.stage || "api",
+          statusCode: response.statusCode,
+        });
+      }
     },
-    fail(error) { reject({ error: error.errMsg && error.errMsg.includes("timeout") ? "请求超时，请重试" : "网络连接失败，请重试", retryable: true }); },
+    fail(error) {
+      const detail = sanitizeDetail(error && error.errMsg);
+      reject({
+        error: detail.includes("timeout") ? "请求超时，请重试" : "网络连接失败，请重试",
+        code: detail.includes("timeout") ? "MINI_NETWORK_TIMEOUT" : "MINI_NETWORK_FAILED",
+        stage: "wx.request",
+        detail,
+        retryable: true,
+      });
+    },
   }));
+}
+
+function sanitizeDetail(value) {
+  return String(value || "微信未返回详细错误")
+    .replace(/([?&](?:code|token|authorization)=)[^&\s]+/gi, "$1[已隐藏]")
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
 }
 
 function wxLoginOnce(timeout = 8000) {
@@ -38,16 +63,20 @@ function wxLoginOnce(timeout = 8000) {
     const timer = setTimeout(() => finish(reject, {
       error: "微信登录超时，微信未返回登录凭证",
       code: "WX_LOGIN_TIMEOUT",
+      stage: "wx.login",
+      detail: "wx.login timeout",
       retryable: true,
     }), timeout);
     wx.login({
       timeout,
       success: ({ code }) => code
         ? finish(resolve, code)
-        : finish(reject, { error: "微信未返回登录凭证，请关闭小程序后重新打开", code: "WX_LOGIN_EMPTY_CODE", retryable: true }),
+        : finish(reject, { error: "微信未返回登录凭证，请关闭小程序后重新打开", code: "WX_LOGIN_EMPTY_CODE", stage: "wx.login", detail: "wx.login success without code", retryable: true }),
       fail: (failure) => finish(reject, {
         error: failure && failure.errMsg ? `微信登录失败：${failure.errMsg}` : "微信登录失败，请关闭小程序后重新打开",
         code: "WX_LOGIN_FAILED",
+        stage: "wx.login",
+        detail: sanitizeDetail(failure && failure.errMsg),
         retryable: true,
       }),
     });
