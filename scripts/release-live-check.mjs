@@ -126,7 +126,7 @@ async function request(url, options = {}) {
       return requestWithSystemNetwork(url, options);
     }
     return result;
-  } catch (error) {
+  } catch {
     return requestWithSystemNetwork(url, options);
   }
 }

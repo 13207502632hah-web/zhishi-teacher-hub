@@ -58,6 +58,23 @@ test("mini API edge rejects non-mini routes and unsupported methods without cont
   }
 });
 
+test("client API edge also serves the configured iOS mobile API without opening website routes", async () => {
+  const originalFetch = globalThis.fetch;
+  let forwarded;
+  globalThis.fetch = async (url, init) => {
+    forwarded = { url: String(url), init };
+    return Response.json({ records: [] });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.daofazuoye.cn/api/v2/mobile/records"), env);
+    assert.equal(response.status, 200);
+    assert.equal(forwarded.url, "https://upstream.test/api/v2/mobile/records");
+    assert.equal(forwarded.init.headers.get("x-zhishi-edge"), "mobile-api-v2");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("mini API edge converts upstream HTML challenges and redirects into stable JSON errors", async () => {
   const originalFetch = globalThis.fetch;
   try {

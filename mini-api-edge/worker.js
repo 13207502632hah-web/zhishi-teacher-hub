@@ -1,4 +1,4 @@
-const MINI_API_PREFIX = "/api/v2/mini/";
+const CLIENT_API_PREFIXES = ["/api/v2/mini/", "/api/v2/mobile/"];
 const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
 
 function jsonError(status, error, code) {
@@ -17,7 +17,7 @@ function upstreamTarget(incoming, configuredOrigin) {
   return new URL(`${incoming.pathname}${incoming.search}`, origin);
 }
 
-function upstreamHeaders(request, bypassToken) {
+function upstreamHeaders(request, bypassToken, path) {
   const headers = new Headers(request.headers);
   for (const name of [
     "host",
@@ -31,7 +31,7 @@ function upstreamHeaders(request, bypassToken) {
   ]) headers.delete(name);
   headers.set("accept", "application/json");
   headers.set("oai-sites-authorization", `Bearer ${bypassToken}`);
-  headers.set("x-zhishi-edge", "mini-api-v2");
+  headers.set("x-zhishi-edge", path.startsWith("/api/v2/mini/") ? "mini-api-v2" : "mobile-api-v2");
   return headers;
 }
 
@@ -46,7 +46,7 @@ function responseHeaders(response) {
 const worker = {
   async fetch(request, env) {
     const incoming = new URL(request.url);
-    if (!incoming.pathname.startsWith(MINI_API_PREFIX)) {
+    if (!CLIENT_API_PREFIXES.some((prefix) => incoming.pathname.startsWith(prefix))) {
       return jsonError(404, "Not found", "MINI_EDGE_NOT_FOUND");
     }
     if (!ALLOWED_METHODS.has(request.method)) {
@@ -67,7 +67,7 @@ const worker = {
     try {
       response = await fetch(target, {
         method: request.method,
-        headers: upstreamHeaders(request, env.UPSTREAM_BYPASS_TOKEN),
+        headers: upstreamHeaders(request, env.UPSTREAM_BYPASS_TOKEN, incoming.pathname),
         body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
         redirect: "manual",
       });

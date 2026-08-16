@@ -69,6 +69,6 @@ test("production probe uses browser and WeChat identities without accepting HTML
   assert.match(source, /new URL\("\/api\/v2\/mini\/login", apiOrigin\)/);
   assert.match(source, /status === 403\s*&& \/text\\\/html\/i/);
   assert.match(source, /requestWithSystemNetwork\(url, options\)/);
-  assert.match(source, /catch \(error\) \{\s*return requestWithSystemNetwork\(url, options\);\s*\}/);
+  assert.match(source, /catch \{\s*return requestWithSystemNetwork\(url, options\);\s*\}/);
   assert.match(source, /transport: "system-network-fallback"/);
 });

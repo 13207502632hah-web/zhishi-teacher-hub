@@ -60,7 +60,8 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 - [x] 可信 HTTPS 证书、HTTP→HTTPS、首页、PWA 清单、会话接口和小程序登录入口已通过
   `release:live:check --strict`；尚待增加至少两个地区的持续可用性监测。
 - [x] 网站继续使用 `https://daofazuoye.cn`；无浏览器挑战能力的小程序和 iOS 通过
-  `https://api.daofazuoye.cn` 访问 API。该入口只转发 `/api/v2/mini/*`，不承载网页。
+  `https://api.daofazuoye.cn` 访问 API。该入口只转发 `/api/v2/mini/*` 和
+  `/api/v2/mobile/*`，不承载网页或教师后台接口。
 - [ ] 在大陆环境实测登录、上传、AI 调用、私有文件下载和弱网同步；不能只测试首页。
 - [x] 正式域名门禁会先使用真实浏览器/微信请求身份，并在 Node TLS 指纹被挑战时通过
   操作系统网络栈复核；只有业务 JSON 才能通过，HTML 403 始终失败。正式发布前仍须以
