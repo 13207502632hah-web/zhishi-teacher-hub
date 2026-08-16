@@ -751,7 +751,7 @@ async function runChecks() {
   const checks = [
     ["TypeScript", "pnpm", ["typecheck"]],
     ["ESLint", "pnpm", ["lint"]],
-    ["自动测试", process.execPath, ["--test", "tests/rendered-html.test.mjs", "tests/core-logic.test.mjs", "tests/mini-integration.test.mjs", "tests/mini-automation.test.mjs"]],
+    ["自动测试", process.execPath, ["--test", "tests/rendered-html.test.mjs", "tests/core-logic.test.mjs", "tests/mini-integration.test.mjs", "tests/mini-automation.test.mjs", "tests/mini-api-edge.test.mjs"]],
     ["生产构建", "pnpm", ["build"]],
   ];
   for (const [name, program, args] of checks) {

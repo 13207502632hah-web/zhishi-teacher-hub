@@ -75,7 +75,7 @@ try {
   const liveReport = JSON.parse(source(".artifacts/release/live-readiness.json") || "{}");
   liveDomainReady = liveReport.origin === configuredOrigin && liveReport.liveReady === true;
 } catch { liveDomainReady = false; }
-addExternal("三端自有域名配置", mainlandDomainReady || envHttps("MINI_STAGING_API_BASE"), "网站、小程序与 iOS 已统一使用自有 HTTPS 地址");
+addExternal("三端自有域名配置", mainlandDomainReady || envHttps("MINI_STAGING_API_BASE"), "网站使用备案根域名，小程序与 iOS 使用同一根域名下的独立 HTTPS API 子域名");
 addExternal("正式域名可访问", liveDomainReady, "先运行 npm run release:live:check，再完成中国大陆多网络实测");
 addExternal("微信正式账号与密钥", /^wx[a-f0-9]{16}$/i.test(process.env.MINI_APP_ID || miniProject.appid || "") && Boolean(process.env.WECHAT_APP_SECRET), "AppID 可在工程配置，AppSecret 必须仅保存在托管平台 Secret");
 addExternal("微信开发者工具 CLI", Boolean(process.env.WECHAT_DEVTOOLS_CLI) && existsSync(process.env.WECHAT_DEVTOOLS_CLI), "用于生成体验版二维码和自动化模拟器验收");

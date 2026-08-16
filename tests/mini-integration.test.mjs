@@ -64,7 +64,7 @@ test("mini client contains only student and parent pages, session expiry and rec
   for (const teacherOnlyPage of ["pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.doesNotMatch(app, new RegExp(teacherOnlyPage));
   assert.match(api, /\/api\/v2\/mini/);
   assert.doesNotMatch(api, /v2Path|\/api\/mini/);
-  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(home, /诊断信息/); assert.match(homeLogic, /2\.0\.3/); assert.match(homeLogic, /diagnosticText/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
+  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(home, /诊断信息/); assert.match(homeLogic, /2\.0\.4/); assert.match(homeLogic, /diagnosticText/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
   assert.doesNotMatch(home, /教师端|测试教师/);
   for (const page of ["review", "publish", "inbox", "annotate"]) await assert.rejects(read(`mini-program/pages/${page}/index.js`), { code: "ENOENT" });
   assert.match(readme, /不是已经提交审核或正式发布/);

@@ -1,12 +1,12 @@
 # 微信小程序、iOS 与中国大陆访问清单
 
-更新日期：2026-08-13
+更新日期：2026-08-16
 
 ## 当前实际状态
 
 - [x] 已购买 `daofazuoye.cn`，用户已确认腾讯云域名命名/实名审核通过；注册期至 2027-08-11。
-- [x] 仓库已统一配置 `https://daofazuoye.cn`，网站、小程序和 iOS 不再引用旧
-  `chatgpt.site` 地址。
+- [x] 网站配置为 `https://daofazuoye.cn`；小程序和 iOS API 配置为
+  `https://api.daofazuoye.cn`，由专用入口访问同一套 D1/R2 业务服务。
 - [x] PWA、iOS SwiftUI 工程、小程序学生/家长边界和三端共享 API 已完成本地实现；PWA 主屏幕入口已验证未登录跳转仍保留 `/v2/record` 返回地址。
 - [x] 2026-08-13 再次以 390×844 手机窄屏手动验收 `/install` 与 `/record`：无横向溢出、
   安装步骤单列显示、未登录正确携带 `/v2/record` 返回地址，浏览器控制台无错误。
@@ -18,11 +18,9 @@
   `daofazuoye.cn` 的网站服务备案状态保持一致。
 - [x] 正式 DNS、自定义域、HTTPS、PWA 与合规页面已部署；`/api/session` 可经正式域名访问。
   自动探测首页和清单时会遇到站点挑战，仍需在中国大陆的电信、联通、移动网络分别实测。
-- [x] 微信后台 `request`、`uploadFile`、`downloadFile` 域名已统一替换为
-  `https://daofazuoye.cn`。生产 AppID 正确且 AppSecret 已配置，但 2026-08-13 微信接口返回
-  `40125`，确认当前 AppSecret 已失效或与 AppID 不匹配。2.0.0 已于 2026-08-12 提交审核并被退回；
-  修复版 2.0.1 已于 2026-08-13 上传；真机反馈微信登录失败后继续修复，2.0.2 已上传并生成
-  指向正式域名的体验二维码，当前等待重置 AppSecret 后完成真机登录验证，不提交 2.0.1 审核。
+- [ ] 微信后台 `request`、`uploadFile`、`downloadFile` 域名需统一替换为
+  `https://api.daofazuoye.cn`。2.0.3 真机诊断已确认 `wx.login` 成功，但原根域名入口返回
+  `HTTP 403` 且 Sites Worker 无请求；专用 API 入口用于绕过浏览器挑战层，不改变业务权限。
 - [x] 微信 2.0.0 首次审核因“作业、成长等页面网络连接失败”被退回；2026-08-13 已用
   微信 Android、微信 iPhone 和系统网络栈分别真实 POST 正式登录入口，均返回
   `401 application/json`，确认请求进入业务层而非 Cloudflare HTML 挑战。
@@ -52,8 +50,8 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 ### 正式长期使用
 
 - [x] 已购买简短自有域名 `daofazuoye.cn`，不再依赖平台二级域名。
-- [x] 已执行 `npm run release:domain -- daofazuoye.cn`；网站、小程序和 iOS 已同步为
-  `https://daofazuoye.cn`。
+- [x] 已执行 `npm run release:domain -- daofazuoye.cn`；网站使用根域名，小程序和 iOS
+  API 使用 `https://api.daofazuoye.cn`。
 - [x] 域名无 `ServerHold`；DNS、Sites 自定义域和自动 HTTPS 证书均已生效。
 - [x] 已增加 `npm run release:live:check`，检查 NS、A/AAAA/CNAME、HTTP 跳转、HTTPS、
   PWA 清单和会话接口；报告写入 `.artifacts/release/live-readiness.md`。
@@ -61,8 +59,8 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
   接入备案，并保持备案主体、域名和实际接入服务一致。
 - [x] 可信 HTTPS 证书、HTTP→HTTPS、首页、PWA 清单、会话接口和小程序登录入口已通过
   `release:live:check --strict`；尚待增加至少两个地区的持续可用性监测。
-- [x] 个人低流量默认只使用一个正式地址 `https://daofazuoye.cn`；三个客户端的
-  API 都位于该地址的 `/api/v2/*`，不额外维护 `api` 子域名和跨域规则。
+- [x] 网站继续使用 `https://daofazuoye.cn`；无浏览器挑战能力的小程序和 iOS 通过
+  `https://api.daofazuoye.cn` 访问 API。该入口只转发 `/api/v2/mini/*`，不承载网页。
 - [ ] 在大陆环境实测登录、上传、AI 调用、私有文件下载和弱网同步；不能只测试首页。
 - [x] 正式域名门禁会先使用真实浏览器/微信请求身份，并在 Node TLS 指纹被挑战时通过
   操作系统网络栈复核；只有业务 JSON 才能通过，HTML 403 始终失败。正式发布前仍须以
@@ -91,15 +89,16 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 - [x] 已认证、已备案的个人小程序主体，名称为“来写作业吧”。
 - [x] 正式 AppID 已写入微信开发者工具工程配置。
 - [x] 管理员已登录微信公众平台和微信开发者工具，CLI 上传权限可用。
-- [ ] AppSecret 已写入托管平台 Secret，但微信接口返回 `40125`；需经莫老师确认后在微信公众
-  平台重置，并将新值仅更新到托管平台。**不要发到聊天、截图或代码库**。
+- [x] AppSecret 已重置并仅写入托管平台 Secret；开发者工具真实 `wx.login` 已验证成功。
+  **不要再把 AppSecret 发到聊天、截图或代码库**。
 - [x] 小程序名称、简介和服务类目已在微信后台配置；审核期间不要随意变更。
 
 ### 域名和后端
 
-- [x] 已使用备案的 HTTPS 正式域名 `https://daofazuoye.cn`。
-- [x] 在“小程序后台 → 开发 → 开发设置 → 服务器域名”配置 `request`、`uploadFile`、
-  `downloadFile` 合法域名，三项都填网站正式地址；不要写端口或接口路径，也不要填写
+- [x] 网站使用备案的 HTTPS 正式域名 `https://daofazuoye.cn`；小程序 API 使用同一根域名下的
+  `https://api.daofazuoye.cn`。
+- [ ] 在“小程序后台 → 开发 → 开发设置 → 服务器域名”配置 `request`、`uploadFile`、
+  `downloadFile` 合法域名，三项都填 API 正式地址；不要写端口或接口路径，也不要填写
   `api.weixin.qq.com`。
 - [x] 后端已配置 `WECHAT_APP_ID`、`WECHAT_APP_SECRET`，生产已设置
   `MINI_FEATURE_ENABLED=true`，`WECHAT_TEST_MODE=false`。
@@ -126,21 +125,19 @@ Apple 官方操作说明：<https://support.apple.com/zh-cn/guide/iphone/iph42ab
 
 ### 真机与体验版
 
-- [x] Windows 微信开发者工具已安装、登录并开启服务端口；CLI 已成功上传修复版 2.0.2
-  （包体 56,880 字节）。
+- [x] Windows 微信开发者工具已安装、登录并开启服务端口；CLI 已成功上传诊断版 2.0.3
+  （包体 58,582 字节）。
 - [x] 2026-08-13 已使用正式 AppID 和正式域名生成新的体验二维码；正式域名严格门禁、
   小程序完整构建与自动测试均通过。
 - [ ] 将测试微信号加入体验成员；准备学生、单孩子家长、多孩子家长三个账号。
 - [ ] 至少 2 台 Android、2 台 iPhone、1 台平板。
 - [ ] 分别测试 Wi‑Fi、4G/5G、弱网、上传中断、重复提交、会话停用和私有文件越权。
 - [x] 2.0.0 已于 2026-08-12 13:33:03 提交正式审核，首次审核结果为不通过。
-- [x] 2.0.2 已增加 `wx.login` 超时、一次安全重试和可读错误提示，并生成锁定
-  `https://daofazuoye.cn` 的体验二维码；正式 AppID、Lint、测试和生产构建门禁通过。
-- [x] 真机点击微信登录已确认请求到达正式后端；正式接口安全返回 `WECHAT_LOGIN_FAILED`、
-  `providerCode: 40125`，已排除合法域名、HTTPS、站点挑战和功能开关问题。
-- [ ] 经莫老师确认后重置 AppSecret、更新托管环境，再使用 2.0.2 体验二维码完成真实微信登录；
-  成功后才在微信公众平台提交 2.0.2 审核。
-- [ ] 审核通过后只发布 2.0.2 或明确的后续修复版，绝不发布旧版 1.0.0、2.0.0 或 2.0.1。
+- [x] 2.0.3 已增加登录失败阶段、错误码与脱敏详情；真机结果为
+  `api · HTTP_403 · HTTP 403`，同时生产 Worker 无请求，确认原入口在业务层之前被拦截。
+- [ ] 部署 `https://api.daofazuoye.cn`、更新微信合法域名并重新上传后完成真实微信登录；
+  成功后才提交后续修复版审核。
+- [ ] 审核通过后只发布明确通过真机验收的后续修复版，绝不发布旧版 1.0.0、2.0.0、2.0.1、2.0.2 或诊断版 2.0.3。
 - [ ] 补齐作业与成长页面的中国大陆微信真机录屏，并记录学生、单孩子家长、多孩子家长
   三种身份的同步结果。
 

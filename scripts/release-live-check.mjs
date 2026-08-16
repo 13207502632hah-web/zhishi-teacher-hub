@@ -12,13 +12,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPORT_DIR = path.join(ROOT, ".artifacts", "release");
 const strict = process.argv.includes("--strict");
 const originArgument = process.argv.find((value) => value.startsWith("--origin="))?.slice("--origin=".length);
+const apiOriginArgument = process.argv.find((value) => value.startsWith("--api-origin="))?.slice("--api-origin=".length);
 const execFileAsync = promisify(execFile);
 
-function configuredOrigin() {
-  if (originArgument) return originArgument;
+function configuredTargets() {
   const targetPath = path.join(ROOT, "release-target.json");
   if (!existsSync(targetPath)) throw new Error("缺少 release-target.json，请先运行 npm run release:domain -- your-domain.cn");
-  return JSON.parse(readFileSync(targetPath, "utf8")).webOrigin;
+  const target = JSON.parse(readFileSync(targetPath, "utf8"));
+  return {
+    webOrigin: originArgument || target.webOrigin,
+    apiOrigin: apiOriginArgument || target.apiOrigin,
+  };
 }
 
 function normalizedOrigin(input) {
@@ -185,7 +189,9 @@ export function evaluateReadiness({ dnsRecords, http, homepage, manifest, sessio
 }
 
 async function main() {
-  const origin = normalizedOrigin(configuredOrigin());
+  const targets = configuredTargets();
+  const origin = normalizedOrigin(targets.webOrigin);
+  const apiOrigin = normalizedOrigin(targets.apiOrigin);
   const hostname = origin.hostname;
   const dnsRecords = await Promise.all(["NS", "A", "AAAA", "CNAME"].map((type) => resolveRecord(hostname, type)));
   const [http, homepage, manifest, session, miniLogin] = await Promise.all([
@@ -193,7 +199,7 @@ async function main() {
     request(origin.href, { accept: "text/html,application/xhtml+xml" }),
     request(new URL("/manifest.webmanifest", origin), { readBody: true, accept: "application/manifest+json,application/json" }),
     request(new URL("/api/session", origin), { accept: "application/json" }),
-    request(new URL("/api/v2/mini/login", origin), {
+    request(new URL("/api/v2/mini/login", apiOrigin), {
       method: "POST",
       accept: "application/json",
       // Probe the route as the production caller does. Cloudflare may challenge
@@ -206,6 +212,7 @@ async function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     origin: origin.origin,
+    apiOrigin: apiOrigin.origin,
     strict,
     ...evaluation,
     probes: { dns: dnsRecords, http, homepage, manifest: { ...manifest, body: manifest.body.slice(0, 1_000) }, session, miniLogin },
@@ -220,6 +227,7 @@ async function main() {
     "",
     `生成时间：${report.generatedAt}`,
     `入口：\`${report.origin}\``,
+    `小程序 API：\`${report.apiOrigin}\``,
     `结论：${report.liveReady ? "已具备三端联调条件" : "尚未具备三端联调条件"}`,
     "",
     ...report.checks.map((item) => `- ${mark(item.ready)} ${item.name}：${item.detail}`),

@@ -7,9 +7,10 @@ const read = (relative) => readFile(new URL(`../${relative}`, import.meta.url), 
 
 test("one root domain deterministically configures website mini and iOS", async () => {
   const target = releaseTarget("Example.CN");
-  assert.deepEqual(target, { rootDomain: "example.cn", webOrigin: "https://example.cn", apiOrigin: "https://example.cn" });
+  assert.deepEqual(target, { rootDomain: "example.cn", webOrigin: "https://example.cn", apiOrigin: "https://api.example.cn" });
   const generated = generatedSources(target);
   assert.match(generated.manifest, /https:\/\/example\.cn/);
+  assert.match(generated.manifest, /https:\/\/api\.example\.cn/);
   assert.match(generated.mini, /configured: true/);
   assert.match(generated.ios, /static let configured = true/);
 

@@ -5,7 +5,7 @@ enum ReleaseTarget {
     static let configured = true
     static let rootDomain = "daofazuoye.cn"
     static let webOrigin = "https://daofazuoye.cn"
-    static let apiOrigin = "https://daofazuoye.cn"
+    static let apiOrigin = "https://api.daofazuoye.cn"
 
     static var apiBaseURL: URL? {
         configured ? URL(string: apiOrigin) : nil
