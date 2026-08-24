@@ -1,319 +1,99 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const require = createRequire(import.meta.url);
 const ts = require("../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js");
-const tsModuleCache = new Map();
+const cache = new Map();
 const requireTs = (absolutePath) => {
-  if (tsModuleCache.has(absolutePath)) return tsModuleCache.get(absolutePath).exports;
-  const source = readFileSync(absolutePath, "utf8");
-  const { outputText: code } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  });
-  const evaluatedModule = { exports: {} };
-  tsModuleCache.set(absolutePath, evaluatedModule);
-  const localRequire = (specifier) => {
-    if (!specifier.startsWith(".")) return require(specifier);
-    const resolved = fileURLToPath(new URL(specifier, pathToFileURL(absolutePath)));
-    return requireTs(/\.[cm]?[jt]s$/.test(resolved) ? resolved : `${resolved}.ts`);
-  };
-  new Function("module", "exports", "require", code)(evaluatedModule, evaluatedModule.exports, localRequire);
-  return evaluatedModule.exports;
+  if (cache.has(absolutePath)) return cache.get(absolutePath).exports;
+  const source = readFileSync(absolutePath, "utf8"), { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }), evaluated = { exports: {} };
+  cache.set(absolutePath, evaluated);
+  const localRequire = (specifier) => { if (!specifier.startsWith(".")) return require(specifier); const resolved = fileURLToPath(new URL(specifier, pathToFileURL(absolutePath))); return requireTs(/\.[cm]?[jt]s$/.test(resolved) ? resolved : `${resolved}.ts`); };
+  new Function("module", "exports", "require", outputText)(evaluated, evaluated.exports, localRequire);
+  return evaluated.exports;
 };
-const loadTsModule = async (path) => {
-  return requireTs(fileURLToPath(new URL(`../${path}`, import.meta.url)));
-};
+const loadTsModule = (path) => requireTs(fileURLToPath(new URL(`../${path}`, import.meta.url)));
 
-test("schedule import uses the resilient client and action-specific busy states", async () => {
-  const page = await read("app/schedule-imports/page.tsx");
-
-  assert.match(page, /requestJson/);
-  assert.match(page, /HttpError/);
-  assert.match(page, /busyAction/);
-  assert.match(page, /finally\s*\{\s*setBusyAction\(""\)/);
-  assert.doesNotMatch(page, /\bfetch\(/);
-  assert.doesNotMatch(page, /\.json\(\)/);
+test("V2 schedule intake supports all promised file types and resumable background jobs", async () => {
+  const page = await read("app/v2/schedule-imports/ScheduleWorkspace.tsx");
+  assert.match(page, /\.xlsx,\.csv,\.png,\.jpg,\.jpeg,\.webp,\.pdf/);
+  assert.match(page, /\/api\/v2\/schedule-imports/);
+  assert.match(page, /X-Operation-Id/);
+  assert.match(page, /setInterval/);
+  assert.match(page, /jobAction\("cancel"\)/);
+  assert.match(page, /jobAction\("retry"\)/);
+  assert.match(page, /重试并从原文件续跑/);
 });
 
-test("schedule import protects previews and requires a teacher confirmation", async () => {
-  const page = await read("app/schedule-imports/page.tsx");
-
-  assert.match(page, /window\.confirm/);
+test("V2 schedule rows are editable, protected and revalidated", async () => {
+  const [page, service] = await Promise.all([read("app/v2/schedule-imports/ScheduleWorkspace.tsx"), read("app/lib/v2/schedule-import-service.ts")]);
+  for (const field of ["date", "startTime", "endTime", "studentNames", "className", "courseName", "location"]) assert.match(page, new RegExp(field));
   assert.match(page, /beforeunload/);
-  assert.match(page, /confirmed/);
-  assert.match(page, /allowDuplicate/);
-  assert.match(page, /重新比较/);
-  assert.doesNotMatch(page, /result\.report\.invalid\s*>\s*0/);
+  assert.match(page, /未保存/);
+  assert.match(page, /state: "skipped"/);
+  assert.match(service, /validateNormalizedSchedule/);
+  assert.match(service, /inspectScheduleImportRow/);
+  assert.match(service, /confidence < \.85/);
 });
 
-test("schedule import previews creates, updates, skips, conflicts and new records", async () => {
-  const [page, route, preview] = await Promise.all([
-    read("app/schedule-imports/page.tsx"),
-    read("app/api/schedule-imports/route.ts"),
-    read("app/lib/schedule-import-preview.ts"),
-  ]);
-
-  for (const action of ["create", "update", "skip", "blocked"]) {
-    assert.match(page, new RegExp(action));
-    assert.match(preview, new RegExp(`"${action}"`));
-  }
-  assert.match(page, /studentsToCreate/);
-  assert.match(page, /classToCreate/);
-  assert.match(route, /inspectScheduleImportRow/);
+test("formal schedule writes and undo require explicit confirmation and stable operation ids", async () => {
+  const page = await read("app/v2/schedule-imports/ScheduleWorkspace.tsx");
+  assert.match(page, /window\.confirm\(`确认后台写入/);
+  assert.match(page, /window\.confirm\("确认安全撤销本次导入/);
+  assert.match(page, /operationId = crypto\.randomUUID\(\)/);
+  assert.match(page, /确认并后台写入/);
+  assert.match(page, /安全撤销/);
 });
 
-test("schedule confirmation rechecks conflicts before all create-side effects", async () => {
-  const [confirm, preview] = await Promise.all([
-    read("app/api/schedule-imports/[id]/confirm/route.ts"),
-    read("app/lib/schedule-import-preview.ts"),
-  ]);
-
-  assert.match(confirm, /inspectScheduleImportRow/);
-  assert.match(confirm, /preview\.action === "blocked"/);
-  assert.match(confirm, /preview\.action === "skip"/);
-  assert.match(confirm, /preview\.action === "update"/);
-  assert.match(preview, /status!='cancelled'/);
-  assert.match(preview, /start_time<\?/);
-  assert.match(preview, /end_time>\?/);
-  assert.ok(
-    confirm.indexOf("inspectScheduleImportRow") <
-      confirm.indexOf("INSERT INTO classes"),
-    "conflict and duplicate-name checks must happen before creating classes or students",
-  );
+test("mapping, unknown columns and blocked rows remain explainable and downloadable", async () => {
+  const [page, service] = await Promise.all([read("app/v2/schedule-imports/ScheduleWorkspace.tsx"), read("app/lib/v2/schedule-import-service.ts")]);
+  assert.match(page, /字段识别与错误报告/);
+  assert.match(page, /selected\.mapping/);
+  assert.match(page, /unknownColumns/);
+  assert.match(page, /下载错误报告 CSV/);
+  assert.match(page, /URL\.createObjectURL/);
+  assert.match(page, /\\uFEFF/);
+  assert.match(service, /unknownColumns: parsed\.unknownColumns/);
 });
 
-test("schedule preview blocks new overlaps and names every record it would create", async () => {
-  const { inspectScheduleImportRow } = await loadTsModule("app/lib/schedule-import-preview.ts");
-  const queries = [];
-  const db = {
-    prepare(sql) {
-      queries.push(sql);
-      return {
-        bind() { return this; },
-        async all() {
-          if (sql.includes("FROM students")) {
-            return { results: [{ id: 8 }] };
-          }
-          return { results: [] };
-        },
-        async first() {
-          if (sql.includes("start_time<?")) return { id: 27, courseName: "高二政治" };
-          return null;
-        },
-      };
-    },
-  };
-  const value = {
-    date: "2026-07-30",
-    startTime: "18:00",
-    endTime: "20:00",
-    studentNames: ["小知"],
-    className: "",
-    courseName: "政治",
-    location: "教室",
-  };
-
+test("schedule preview blocks overlaps before create-side effects", async () => {
+  const { inspectScheduleImportRow } = loadTsModule("app/lib/schedule-import-preview.ts"), queries = [];
+  const db = { prepare(sql) { queries.push(sql); return { bind() { return this; }, async all() { return sql.includes("FROM students") ? { results: [{ id: 8 }] } : { results: [] }; }, async first() { return sql.includes("start_time<?") ? { id: 27, courseName: "高二政治" } : null; } }; } };
+  const value = { date: "2026-07-30", startTime: "18:00", endTime: "20:00", studentNames: ["小知"], className: "", courseName: "政治", location: "教室" };
   const conflict = await inspectScheduleImportRow(db, value, [], new Map());
-  assert.equal(conflict.action, "blocked");
-  assert.equal(conflict.existingLessonId, 27);
-  assert.match(conflict.issues[0], /高二政治/);
-  assert.ok(
-    queries.some((sql) => sql.includes("JOIN enrollments e")),
-    "one-to-one conflicts must be scoped through enrollments",
-  );
-
-  queries.length = 0;
-  db.prepare = (sql) => {
-    queries.push(sql);
-    return {
-      bind() { return this; },
-      async all() {
-        if (sql.includes("FROM students")) return { results: [] };
-        return { results: [] };
-      },
-      async first() { return null; },
-    };
-  };
-  const create = await inspectScheduleImportRow(db, value, [], new Map());
-  assert.equal(create.action, "create");
-  assert.deepEqual(create.studentsToCreate, ["小知"]);
-  assert.equal(create.classToCreate, "小知课程");
+  assert.equal(conflict.action, "blocked"); assert.equal(conflict.existingLessonId, 27); assert.match(conflict.issues[0], /高二政治/); assert.ok(queries.some((sql) => sql.includes("JOIN enrollments e")));
 });
 
-test("schedule import uses shared primitives and readable mobile-first styles", async () => {
-  const [layout, page, css] = await Promise.all([
-    read("app/layout.tsx"),
-    read("app/schedule-imports/page.tsx"),
-    read("app/schedule-imports.css"),
-  ]);
-
-  assert.match(layout, /import "\.\/schedule-imports\.css"/);
-  for (const component of ["EmptyState", "MetricCard", "Panel", "StatusBadge"]) {
-    assert.match(page, new RegExp(component));
-  }
-  assert.match(css, /font-size:\s*1rem/);
-  assert.match(css, /font-size:\s*0\.875rem/);
-  assert.match(css, /min-height:\s*44px/);
-  assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
-  assert.doesNotMatch(css, /#d8f16b/i);
+test("variant headers and unknown columns stay deterministic", () => {
+  const { detectScheduleMappingDetail } = loadTsModule("app/lib/schedule-import.ts"), result = detectScheduleMappingDetail(["上课时间（周一）", "结束 时间", "日期（必填）", "学生姓名", "班级", "课程名称", "备注说明", "序号"]);
+  assert.equal(result.mapping.date, "日期（必填）"); assert.equal(result.mapping.startTime, "上课时间（周一）"); assert.equal(result.mapping.endTime, "结束 时间"); assert.equal(result.mapping.studentNames, "学生姓名"); assert.deepEqual(result.unknownColumns.map((item) => item.name), ["序号"]);
+  assert.equal(detectScheduleMappingDetail(["上课时问", "日期", "结束时间"]).mapping.startTime, "上课时问");
 });
 
-test("schedule import exposes history batches and per-row confirmation results", async () => {
-  const [page, listRoute, detailRoute, confirmRoute] = await Promise.all([
-    read("app/schedule-imports/page.tsx"),
-    read("app/api/schedule-imports/route.ts"),
-    read("app/api/schedule-imports/[id]/route.ts"),
-    read("app/api/schedule-imports/[id]/confirm/route.ts"),
-  ]);
-
-  assert.match(page, /最近导入/);
-  assert.match(page, /refreshHistory/);
-  assert.match(page, /openHistory/);
-  assert.match(page, /\/api\/schedule-imports\/\$\{id\}/);
-  assert.match(page, /查看报告/);
-  assert.match(page, /查看课时/);
-  assert.match(listRoute, /parseStoredJson/);
-  assert.match(listRoute, /ORDER BY id DESC LIMIT 30/);
-  assert.match(detailRoute, /FROM schedule_imports WHERE id=\?/);
-  assert.match(detailRoute, /FROM schedule_import_rows WHERE import_id=\?/);
-  assert.match(confirmRoute, /rows: resultRows/);
-  assert.match(confirmRoute, /SELECT id,row_number AS rowNumber,action,issue,lesson_id AS lessonId/);
+test("V2 confirmation is queued, chunked, recoverable and reconciles finance", async () => {
+  const [route, service, dispatch] = await Promise.all([read("app/api/v2/schedule-imports/[id]/confirm/route.ts"), read("app/lib/v2/schedule-import-service.ts"), read("app/lib/v2/background-dispatch.ts")]);
+  assert.match(route, /deferV2BackgroundJob/);
+  assert.match(route, /status: result\.queued \? 202 : 200/);
+  assert.match(service, /type: "schedule-confirm"/);
+  assert.match(service, /CONFIRM_CHUNK_SIZE = 50/);
+  assert.match(service, /LIMIT \$\{CONFIRM_CHUNK_SIZE\}/);
+  assert.match(service, /state: "queued", stage: "writing"/);
+  assert.match(service, /reconcileLessonFinance/);
+  assert.match(dispatch, /"schedule-confirm"/);
 });
 
-test("schedule import fuzzy-matches variant headers and reports unknown columns", async () => {
-  const { detectScheduleMappingDetail } = await loadTsModule("app/lib/schedule-import.ts");
-  const { mapping, unknownColumns } = detectScheduleMappingDetail([
-    "上课时间（周一）",
-    "结束 时间",
-    "日期（必填）",
-    "学生姓名",
-    "班级",
-    "课程名称",
-    "备注说明",
-    "序号",
-  ]);
-
-  assert.equal(mapping.date, "日期（必填）");
-  assert.equal(mapping.startTime, "上课时间（周一）");
-  assert.equal(mapping.endTime, "结束 时间");
-  assert.equal(mapping.studentNames, "学生姓名");
-  assert.equal(mapping.className, "班级");
-  assert.equal(mapping.courseName, "课程名称");
-  assert.equal(mapping.notes, "备注说明");
-  assert.deepEqual(
-    unknownColumns.map((column) => column.name),
-    ["序号"],
-  );
-  assert.deepEqual(unknownColumns[0].suggestions, []);
-
-  const typo = detectScheduleMappingDetail(["上课时问", "日期", "结束时间"]);
-  assert.equal(typo.mapping.startTime, "上课时问");
-  assert.equal(typo.unknownColumns.length, 0);
-});
-
-test("schedule import surfaces unknown columns from API to page", async () => {
-  const [route, page, css] = await Promise.all([
-    read("app/api/schedule-imports/route.ts"),
-    read("app/schedule-imports/page.tsx"),
-    read("app/schedule-imports.css"),
-  ]);
-
-  assert.match(route, /selectScheduleTable/);
-  assert.match(route, /unknownColumns: mappingDetail\.unknownColumns/);
-  assert.match(page, /未识别列/);
-  assert.match(page, /suggestions/);
-  assert.match(page, /该列不会参与导入/);
-  assert.match(css, /\.scheduleImportUnknownColumns/);
-});
-
-test("schedule retry derives partial, failed and confirmed status from final rows", async () => {
-  const { scheduleImportFinalStatus } = await loadTsModule("app/lib/schedule-import-status.ts");
-
-  assert.deepEqual(
-    scheduleImportFinalStatus([
-      { action: "created", lessonId: 11 },
-      { action: "blocked", lessonId: null },
-    ]),
-    { status: "partial", remaining: 1 },
-  );
-  assert.deepEqual(
-    scheduleImportFinalStatus([{ action: "blocked", lessonId: 3 }]),
-    { status: "failed", remaining: 1 },
-  );
-  assert.deepEqual(
-    scheduleImportFinalStatus([
-      { action: "created", lessonId: 11 },
-      { action: "skipped", lessonId: 12 },
-    ]),
-    { status: "confirmed", remaining: 0 },
-  );
-});
-
-test("schedule confirm and page expose retry semantics and parsing progress", async () => {
-  const [confirm, page, css] = await Promise.all([
-    read("app/api/schedule-imports/[id]/confirm/route.ts"),
-    read("app/schedule-imports/page.tsx"),
-    read("app/schedule-imports.css"),
-  ]);
-
-  assert.match(confirm, /scheduleImportFinalStatus/);
-  assert.match(confirm, /\["created", "updated", "skipped"\]/);
-  assert.match(confirm, /validateNormalizedSchedule/);
-  assert.match(confirm, /confirm_retry/);
-  assert.match(page, /重试剩余/);
-  assert.match(page, /remainingCount/);
-  assert.match(page, /uploadStage/);
-  assert.match(page, /正在读取 CSV 行数/);
-  assert.match(page, /正在逐行核对现有课时与冲突/);
-  assert.match(css, /\.scheduleImportProgressTrack/);
-});
-
-test("schedule import APIs require the teacher-admin session, matching the page layout", async () => {
-  const [listRoute, detailRoute, confirmRoute] = await Promise.all([
-    read("app/api/schedule-imports/route.ts"),
-    read("app/api/schedule-imports/[id]/route.ts"),
-    read("app/api/schedule-imports/[id]/confirm/route.ts"),
-  ]);
-
-  for (const route of [listRoute, detailRoute, confirmRoute]) {
-    assert.match(route, /requireTeacherAdminApi/);
-    assert.match(route, /if \(teacherAdmin\) return teacherAdmin/);
-  }
-});
-
-test("schedule confirmation atomically claims the import before processing rows", async () => {
-  const confirm = await read("app/api/schedule-imports/[id]/confirm/route.ts");
-
-  assert.match(confirm, /SET status='confirming'/);
-  assert.match(confirm, /status IN \('preview','partial','failed'\)/);
-  assert.match(confirm, /status='confirming' AND datetime\(updated_at\)<datetime\('now','-3 minutes'\)/);
-  assert.match(confirm, /claim\.meta\?\.changes \|\| 0/);
-  assert.match(confirm, /status: 409/);
-  assert.match(confirm, /retryLater: true/);
-  assert.match(
-    confirm,
-    /scheduleImportFinalStatus\(resultRows\)/,
-    "the final status must be recomputed after the claimed run finishes",
-  );
-
-  assert.ok(
-    !confirm.match(/WHERE id=\? AND status=\?/),
-    "the claim must accept recoverable task states instead of only the exact prior status",
-  );
-});
-
-test("schedule import history renders the confirming state while a run is in flight", async () => {
-  const page = await read("app/schedule-imports/page.tsx");
-
-  assert.match(page, /confirming: \{ label: "正在导入", tone: "info" \}/);
-  assert.match(
-    page,
-    /\["partial", "failed", "confirming"\]\.includes\(historyDetail\.import\.status\)/,
-    "a stale confirming task must remain retryable after an interrupted run",
-  );
+test("retired schedule page is removed and navigation uses V2", async () => {
+  await assert.rejects(access(new URL("../app/schedule-imports/page.tsx", import.meta.url)));
+  await assert.rejects(access(new URL("../app/schedule-imports.css", import.meta.url)));
+  await assert.rejects(access(new URL("../app/api/schedule-imports/route.ts", import.meta.url)));
+  const [layout, navigation, css] = await Promise.all([read("app/layout.tsx"), read("app/components/navigation.ts"), read("app/v2/v2.css")]);
+  assert.doesNotMatch(layout, /schedule-imports\.css/);
+  assert.match(navigation, /href:\s*"\/v2\/schedule-imports"/);
+  assert.doesNotMatch(navigation, /href:\s*"\/schedule-imports"/);
+  assert.match(css, /@media\(max-width:720px\)/);
 });

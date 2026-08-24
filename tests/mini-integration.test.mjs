@@ -20,15 +20,15 @@ test("migration adds binding, targets, idempotency, sync, leases and confirmed r
 });
 
 test("website creates assignments while mini only reads the shared assignment service", async () => {
-  const [website, mini, service, page, navigation] = await Promise.all(["app/api/assignments/route.ts", "app/api/v2/mini/assignments/route.ts", "app/lib/services/assignment-service.ts", "app/assignments/page.tsx", "app/components/navigation.ts"].map(read));
+  const [website, mini, service, page, navigation] = await Promise.all(["app/api/v2/assignments/route.ts", "app/api/v2/mini/assignments/route.ts", "app/lib/services/assignment-service.ts", "app/v2/modules/[slug]/ModuleWorkspace.tsx", "app/components/navigation.ts"].map(read));
   assert.match(website, /createAssignment/); assert.match(mini, /listAssignments/); assert.doesNotMatch(mini, /createAssignment|export async function POST/);
   assert.match(service, /assignment_targets/); assert.match(service, /studentIds/); assert.match(service, /idempotency/);
-  for (const label of ["作业中心", "指定学生", "保存批改草稿", "确认批改并回传"]) assert.match(page, new RegExp(label));
-  assert.match(navigation, /href: "\/assignments"/);
+  for (const label of ["作业教学闭环", "指定学生", "保存批改草稿", "提交到待确认中心"]) assert.match(page, new RegExp(label));
+  assert.match(navigation, /href: "\/v2\/modules\/assignments"/);
 });
 
 test("binding is two-step and disabled links are rechecked server-side", async () => {
-  const [binding, settings, me, auth] = await Promise.all(["app/lib/services/mini-binding-service.ts", "app/mini-settings/page.tsx", "app/api/v2/mini/me/route.ts", "app/lib/mini-auth.ts"].map(read));
+  const [binding, settings, me, auth] = await Promise.all(["app/lib/services/mini-binding-service.ts", "app/v2/settings/SettingsWorkspace.tsx", "app/api/v2/mini/me/route.ts", "app/lib/mini-auth.ts"].map(read));
   assert.match(binding, /status='pending'/); assert.match(binding, /decision === "confirm"/); assert.match(binding, /status='disabled'/);
   assert.match(settings, /一期仅服务学生与家长/); assert.match(settings, /教师确认学生或家长绑定/); assert.match(settings, /停用后旧会话/); assert.match(me, /miniAccountState/);
   assert.doesNotMatch(settings + auth, /关联小程序教师端|linkTeacher|教师小程序账号/);
@@ -64,7 +64,7 @@ test("mini client contains only student and parent pages, session expiry and rec
   for (const teacherOnlyPage of ["pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.doesNotMatch(app, new RegExp(teacherOnlyPage));
   assert.match(api, /\/api\/v2\/mini/);
   assert.doesNotMatch(api, /v2Path|\/api\/mini/);
-  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(home, /诊断信息/); assert.match(homeLogic, /2\.0\.4/); assert.match(homeLogic, /diagnosticText/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
+  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(home, /诊断信息/); assert.match(homeLogic, /2\.0\.5/); assert.match(homeLogic, /diagnosticText/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
   assert.doesNotMatch(home, /教师端|测试教师/);
   for (const page of ["review", "publish", "inbox", "annotate"]) await assert.rejects(read(`mini-program/pages/${page}/index.js`), { code: "ENOENT" });
   assert.match(readme, /不是已经提交审核或正式发布/);

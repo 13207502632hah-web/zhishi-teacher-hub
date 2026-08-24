@@ -24,7 +24,7 @@ export async function fingerprint(value: unknown) {
 
 async function readiness(access: AccessContext) {
   await env.DB.prepare("INSERT OR IGNORE INTO ai_settings(user_id) VALUES(?)").bind(access.id).run();
-  const setting = await env.DB.prepare("SELECT enabled,privacy_ack_at AS privacyAckAt,daily_limit AS dailyLimit,emergency_disabled AS emergencyDisabled,fast_model AS fastModel,deep_model AS deepModel FROM ai_settings WHERE user_id=?").bind(access.id).first<Record<string, any>>();
+  const setting = await env.DB.prepare("SELECT enabled,privacy_ack_at AS privacyAckAt,emergency_disabled AS emergencyDisabled,fast_model AS fastModel,deep_model AS deepModel FROM ai_settings WHERE user_id=?").bind(access.id).first<Record<string, any>>();
   if (env.DEEPSEEK_AI_ENABLED !== "true" || !env.DEEPSEEK_API_KEY) throw new AiServiceError("DeepSeek 尚未在服务器安全配置中启用", 503, "AI_NOT_CONFIGURED");
   if (!setting?.enabled || setting?.emergencyDisabled) throw new AiServiceError("DeepSeek 辅助当前已关闭", 409, "AI_DISABLED");
   if (!setting?.privacyAckAt) throw new AiServiceError("首次使用前请在设置页确认隐私说明", 409, "PRIVACY_ACK_REQUIRED");
@@ -39,9 +39,8 @@ function estimatedCost(model: string, usage: Usage) {
 
 export async function callDeepSeekJson<T>({ access, feature, entityType, entityId, system, payload, thinking = false, useProModel = false, maxTokens = 2400, validate }: { access: AccessContext; feature: AiFeature; entityType: string; entityId?: string | number; system: string; payload: unknown; thinking?: boolean; useProModel?: boolean; maxTokens?: number; validate?: (value: unknown) => T }): Promise<{ data: T; runId: number; model: string }> {
   const setting = await readiness(access), model = String(useProModel ? setting.deepModel : setting.fastModel), request = buildDeepSeekRequest({ model, system, payload, thinking, maxTokens }), inputFingerprint = await fingerprint(request.safePayload);
-  const dailyLimit = Math.max(1, Number(setting.dailyLimit || 50));
-  const created = await env.DB.prepare("INSERT INTO ai_runs(user_id,feature,entity_type,entity_id,model,prompt_version,input_fingerprint,status) SELECT ?,?,?,?,?,?,?,'running' WHERE (SELECT COUNT(*) FROM ai_runs WHERE user_id=? AND date(datetime(created_at,'+8 hours'))=date(datetime('now','+8 hours')))<? RETURNING id").bind(access.id, feature, entityType, entityId == null ? null : String(entityId), model, "2026-07-16.1", inputFingerprint, access.id, dailyLimit).first<{ id: number }>();
-  if (!created) throw new AiServiceError("今日 AI 调用已达到教师设置的上限", 429, "DAILY_LIMIT");
+  const created = await env.DB.prepare("INSERT INTO ai_runs(user_id,feature,entity_type,entity_id,model,prompt_version,input_fingerprint,status) SELECT ?,?,?,?,?,?,?,'running' WHERE (SELECT COUNT(*) FROM ai_runs WHERE user_id=? AND created_at>=datetime('now','-60 seconds'))<30 RETURNING id").bind(access.id, feature, entityType, entityId == null ? null : String(entityId), model, "2026-08-24.1", inputFingerprint, access.id).first<{ id: number }>();
+  if (!created) throw new AiServiceError("短时间请求过多，系统已阻止可能的重复循环，请稍后再试", 429, "AI_BURST_GUARD");
   const url = `${String(env.DEEPSEEK_API_BASE || "https://api.deepseek.com").replace(/\/$/, "")}/chat/completions`;
   try {
     const { parsed, usage } = await executeDeepSeekRequest({ url, apiKey: String(env.DEEPSEEK_API_KEY), body: request.body });

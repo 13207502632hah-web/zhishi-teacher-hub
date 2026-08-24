@@ -29,7 +29,7 @@ export default function NotFound() {
             </>
           ) : (
             <>
-              <Link className={styles.routeStateButton} href="/workspace">返回工作台</Link>
+              <Link className={styles.routeStateButton} href="/v2">返回工作台</Link>
               <Link className={styles.routeStateButtonSecondary} href="/">返回公开首页</Link>
               <Link className={styles.routeStateButtonQuiet} href="/resources">浏览公开资源</Link>
             </>

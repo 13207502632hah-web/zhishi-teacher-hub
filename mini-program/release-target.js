@@ -3,5 +3,5 @@ module.exports = Object.freeze({
   configured: true,
   rootDomain: "daofazuoye.cn",
   webOrigin: "https://daofazuoye.cn",
-  apiOrigin: "https://api.daofazuoye.cn",
+  apiOrigin: "https://daofazuoye.cn",
 });

@@ -1,5 +1,10 @@
 import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
+import { getDb } from "../../../db";
+import { questions } from "../../../db/schema";
 import type { AccessContext } from "../access";
+import { questionValues } from "../services/question-values";
+import { reviewQuestions } from "../services/question-review-service";
 import { recordSyncEvent } from "../services/mini-sync-service";
 import { confirmFinanceSettlement } from "../finance-confirm";
 import { calculateLessonFinance, settlementStatus } from "../finance";
@@ -7,11 +12,12 @@ import { previewFingerprint } from "../finance-preview";
 import { resolvePricingContext } from "../finance-rules";
 import type { V2Approval } from "./contracts";
 import { confirmMobileRecordShare } from "./mobile-record-service";
-import { confirmRecognition } from "../../api/recognition/route";
-import { executePromotion, undoPromotion } from "../../api/academic-years/[year]/promotion/route";
-import { confirmFeedbackImport } from "../../api/feedback-imports/[id]/confirm/route";
+import { confirmRecognition } from "../services/recognition-confirmation";
+import { executePromotion, undoPromotion } from "../../api/v2/academic-years/[year]/promotion/route";
+import { confirmFeedbackImport } from "../services/feedback-import-confirmation";
 
 const idOf = (approval: V2Approval) => { const id = Number(approval.entityId || approval.payload.id || 0); if (!Number.isInteger(id) || id < 1) throw new Error("建议缺少有效业务编号，未执行"); return id; };
+const idsOf = (approval: V2Approval) => { const values = Array.isArray(approval.payload.ids) ? approval.payload.ids : [approval.entityId || approval.payload.id]; const ids = [...new Set(values.map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 300); if (!ids.length) throw new Error("建议缺少有效业务编号，未执行"); return ids; };
 const text = (value: unknown, max = 5000) => String(value || "").trim().slice(0, max);
 
 export async function executeApprovedAction(access: AccessContext, approval: V2Approval) {
@@ -27,9 +33,45 @@ export async function executeApprovedAction(access: AccessContext, approval: V2A
     return { executed: true, entityType: "mobile_record", entityId: id, status: "confirmed", recipients: result.recipients };
   }
   if (approval.actionType === "question.promote") {
-    const id = idOf(approval), item = await env.DB.prepare("SELECT stem,answer,knowledge_points AS knowledgePoints FROM questions WHERE id=?").bind(id).first<Record<string, unknown>>();
-    if (!item) throw new Error("题目不存在"); if (!text(item.stem) || !text(item.answer) || !text(item.knowledgePoints)) throw new Error("题干、答案或知识点不完整，不能进入正式题库");
-    await env.DB.prepare("UPDATE questions SET status='active',reviewed=1,review_status='confirmed',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run(); return { executed: true, entityType: "question", entityId: id, status: "active" };
+    const ids = idsOf(approval), result = await reviewQuestions(ids, "confirm");
+    if (!result.updated) throw new Error("所选题目均未满足正式入库条件，请先补齐题干、答案、知识点、选项或解析");
+    return { executed: true, entityType: "question", entityId: ids.length === 1 ? ids[0] : ids.join(","), status: result.blocked.length ? "partial" : "active", promoted: result.updated, blocked: result.blocked };
+  }
+  if (approval.actionType === "question.update") {
+    const sharedChanges = approval.payload.changes && typeof approval.payload.changes === "object" && !Array.isArray(approval.payload.changes) ? approval.payload.changes as Record<string, unknown> : {};
+    const proposedItems = Array.isArray(approval.payload.items) ? approval.payload.items.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)).slice(0, 100) : idsOf(approval).map((id) => ({ id, changes: sharedChanges, expectedUpdatedAt: approval.payload.expectedUpdatedAt }));
+    const ids = [...new Set(proposedItems.map((item) => Number(item.id)).filter((id) => Number.isInteger(id) && id > 0))];
+    if (!ids.length || proposedItems.some((item) => !item.changes || typeof item.changes !== "object" || Array.isArray(item.changes) || !Object.keys(item.changes as Record<string, unknown>).length)) throw new Error("题目修改建议没有可应用字段");
+    let updated = 0;
+    for (const proposal of proposedItems) {
+      const id = Number(proposal.id), changes = proposal.changes as Record<string, unknown>;
+      const [current] = await getDb().select().from(questions).where(eq(questions.id, id)).limit(1);
+      if (!current) throw new Error(`题目 #${id} 不存在`);
+      if (proposal.expectedUpdatedAt && String(current.updatedAt || "") !== String(proposal.expectedUpdatedAt)) throw new Error(`题目 #${id} 已在建议创建后被修改，请重新核对后提交`);
+      const normalized = questionValues({ ...current, ...changes, status: current.status, reviewed: current.reviewed, reviewStatus: current.reviewStatus, recordedBy: access.name });
+      if (!normalized.stem) throw new Error(`题目 #${id} 的题干不能为空`);
+      const duplicate = await env.DB.prepare("SELECT id FROM questions WHERE fingerprint=? AND id!=? LIMIT 1").bind(normalized.fingerprint, id).first<{ id: number }>();
+      if (duplicate) throw new Error(`题目 #${id} 修改后与题目 #${duplicate.id} 高度重复`);
+      await getDb().update(questions).set({ ...normalized, status: current.status, reviewed: current.reviewed, reviewStatus: current.reviewStatus, updatedAt: new Date().toISOString() }).where(eq(questions.id, id));
+      updated += 1;
+    }
+    return { executed: true, entityType: "question", entityId: ids.length === 1 ? ids[0] : ids.join(","), status: "updated", updated };
+  }
+  if (approval.actionType === "question.delete") {
+    const ids = idsOf(approval), marks = ids.map(() => "?").join(","), references = await env.DB.prepare(`SELECT q.id,MAX(CASE WHEN pq.id IS NOT NULL THEN 1 ELSE 0 END) AS paperRef,MAX(CASE WHEN lq.id IS NOT NULL THEN 1 ELSE 0 END) AS lessonRef FROM questions q LEFT JOIN paper_questions pq ON pq.question_id=q.id LEFT JOIN lesson_questions lq ON lq.question_id=q.id WHERE q.id IN (${marks}) GROUP BY q.id HAVING paperRef=1 OR lessonRef=1`).bind(...ids).all<{ id: number }>();
+    if (references.results.length) throw new Error(`有 ${references.results.length} 道题已被试卷或课时引用，不能删除`);
+    await env.DB.batch([env.DB.prepare(`DELETE FROM ai_question_reviews WHERE question_id IN (${marks})`).bind(...ids), env.DB.prepare(`DELETE FROM questions WHERE id IN (${marks})`).bind(...ids)]);
+    return { executed: true, entityType: "question", entityId: ids.length === 1 ? ids[0] : ids.join(","), status: "deleted", deleted: ids.length };
+  }
+  if (approval.actionType === "resource.publish") {
+    const id = idOf(approval);
+    const resource = await env.DB.prepare("SELECT id,owner_id AS ownerId,title,visibility,url,content FROM resources WHERE id=?").bind(id).first<Record<string, unknown>>();
+    if (!resource) throw new Error("资源不存在");
+    if (access.authType !== "teacher_admin" && Number(resource.ownerId || 0) !== access.id) throw new Error("当前教师只能公开本人创建的资源");
+    if (resource.visibility === "public") return { executed: true, entityType: "resource", entityId: id, status: "public", repeated: true };
+    if (!text(resource.title, 200) || (!text(resource.content, 20_000) && !text(resource.url, 2_000))) throw new Error("资源标题与内容均未完善，不能公开");
+    await env.DB.prepare("UPDATE resources SET visibility='public',updated_at=CURRENT_TIMESTAMP WHERE id=? AND visibility='private'").bind(id).run();
+    return { executed: true, entityType: "resource", entityId: id, status: "public" };
   }
   if (approval.actionType === "schedule.adjust") {
     const id = idOf(approval), changes = payload.changes && typeof payload.changes === "object" ? payload.changes as Record<string, unknown> : payload, lesson = await env.DB.prepare("SELECT date,start_time AS startTime,end_time AS endTime,location,status FROM lessons WHERE id=?").bind(id).first<Record<string, unknown>>();
@@ -110,8 +152,7 @@ export async function executeApprovedAction(access: AccessContext, approval: V2A
     return { executed: true, entityType: "assessment", entityId: id, status: "completed", resultCount: Number(summary?.count || 0) };
   }
   if (approval.actionType === "recognition.confirm") {
-    const id = idOf(approval), response = await confirmRecognition(access, id), result = await response.json() as Record<string, unknown>;
-    if (!response.ok) throw new Error(String(result.error || "答题卡确认失败"));
+    const id = idOf(approval), result = await confirmRecognition(access, id);
     return { executed: true, entityType: "recognition_job", entityId: id, status: "confirmed", ...result };
   }
   if (approval.actionType === "academic_year.promote") {
@@ -129,8 +170,7 @@ export async function executeApprovedAction(access: AccessContext, approval: V2A
     return { executed: true, entityType: "academic_year", entityId: year, status: "undone", ...result };
   }
   if (approval.actionType === "feedback_import.confirm") {
-    const id = idOf(approval), response = await confirmFeedbackImport(access, id, { mode: text(payload.mode, 20) || "create", lessonId: Number(payload.lessonId || 0) || undefined }), result = await response.json() as Record<string, unknown>;
-    if (!response.ok) throw new Error(String(result.error || "反馈解析确认失败"));
+    const id = idOf(approval), result = await confirmFeedbackImport(access, id, { mode: text(payload.mode, 20) || "create", lessonId: Number(payload.lessonId || 0) || undefined });
     return { executed: true, entityType: "feedback_import", entityId: id, status: "confirmed", ...result };
   }
   if (approval.actionType === "feedback.send") {

@@ -41,10 +41,6 @@ export function sanitizeForAi(value: unknown, names: string[] = []): unknown {
     .map(([key, item]) => [key, sanitizeForAi(item, names)]));
 }
 
-export function dailyLimitReached(calls: number, limit: number) {
-  return Number(calls || 0) >= Math.max(1, Number(limit || 50));
-}
-
 export function shouldRetryDeepSeek(attempt: number, status?: number, networkFailure = false) {
   return attempt === 0 && (networkFailure || status === 429 || Number(status || 0) >= 500);
 }

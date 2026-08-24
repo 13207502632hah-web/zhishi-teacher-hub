@@ -1,6 +1,6 @@
 const api = require("../../utils/api");
 const config = require("../../config");
-const CLIENT_VERSION = "2.0.4";
+const CLIENT_VERSION = "2.0.5";
 
 function diagnosticText(error) {
   const parts = [CLIENT_VERSION, error && error.stage, error && error.code];

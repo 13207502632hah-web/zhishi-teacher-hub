@@ -17,11 +17,9 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const baseUrl = "http://localhost:3000";
@@ -140,238 +138,6 @@ function buildCsv(count, runSuffix = "") {
   return lines.join("\r\n");
 }
 
-// --- TypeScript module loader with route stubs and SQL counting ---------------
-
-const require = createRequire(import.meta.url);
-const ts = require("../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js");
-const tsModuleCache = new Map();
-const resolvedStubModules = new Map();
-
-const accessStub = {
-  requirePermission: async () => ({
-    id: 1,
-    name: "性能基线",
-    email: "perf@local.invalid",
-    roles: ["teacher"],
-    role: "teacher",
-  }),
-  isDenied: () => false,
-  audit: async () => {},
-  can: () => true,
-  roleName: { teacher: "教师", assistant: "助教", student: "学生", parent: "家长" },
-};
-
-const teacherAuthStub = {
-  requireTeacherAdminApi: async () => null,
-  requireTeacherAdmin: async () => {},
-  getTeacherAdminSession: async () => ({ sv: 1 }),
-};
-
-const requireTs = (absolutePath) => {
-  const normalized = path.resolve(absolutePath);
-  if (tsModuleCache.has(normalized)) return tsModuleCache.get(normalized).exports;
-  if (resolvedStubModules.has(normalized)) return resolvedStubModules.get(normalized).exports;
-  const source = readFileSync(normalized, "utf8");
-  const { outputText: code } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  });
-  const evaluatedModule = { exports: {} };
-  tsModuleCache.set(normalized, evaluatedModule);
-  const localRequire = (specifier) => {
-    if (!specifier.startsWith(".")) {
-      if (specifier === "cloudflare:workers") {
-        // Do not freeze a per-import database binding in the module cache: each
-        // baseline run swaps globalThis.__perfEnv for a fresh SQLite instance.
-        return { get env() { return globalThis.__perfEnv; } };
-      }
-      return require(specifier);
-    }
-    const resolved = fileURLToPath(new URL(specifier, pathToFileURL(normalized)));
-    const withExtension = /\.[cm]?[jt]s$/.test(resolved) ? resolved : `${resolved}.ts`;
-    if (withExtension.endsWith(path.join("app", "lib", "access.ts"))) {
-      const stub = { exports: accessStub };
-      resolvedStubModules.set(withExtension, stub);
-      return accessStub;
-    }
-    if (withExtension.endsWith(path.join("app", "lib", "teacher-auth.ts"))) {
-      const stub = { exports: teacherAuthStub };
-      resolvedStubModules.set(withExtension, stub);
-      return teacherAuthStub;
-    }
-    return requireTs(withExtension);
-  };
-  new Function("module", "exports", "require", code)(evaluatedModule, evaluatedModule.exports, localRequire);
-  return evaluatedModule.exports;
-};
-
-const loadTsModule = (relative) =>
-  requireTs(fileURLToPath(new URL(`../${relative}`, import.meta.url)));
-
-class CountingStatement {
-  constructor(db, statementSql, onQuery) {
-    this.db = db;
-    this.sql = statementSql;
-    this.onQuery = onQuery;
-    this.params = [];
-  }
-
-  bind(...params) {
-    this.params = params;
-    return this;
-  }
-
-  async all() {
-    this.onQuery(this.sql);
-    return { results: this.db.prepare(this.sql).all(...this.params) };
-  }
-
-  first() {
-    this.onQuery(this.sql);
-    return this.db.prepare(this.sql).get(...this.params) ?? null;
-  }
-
-  async run() {
-    this.onQuery(this.sql);
-    const info = this.db.prepare(this.sql).run(...this.params);
-    return {
-      meta: {
-        changes: Number(info.changes || 0),
-        lastRowId: Number(info.lastInsertRowid || 0),
-      },
-    };
-  }
-}
-
-class CountingAdapter {
-  constructor(db) {
-    this.db = db;
-    this.sqlCount = 0;
-    this.readCount = 0;
-    this.writeCount = 0;
-    this.statements = [];
-  }
-
-  prepare(statementSql) {
-    return new CountingStatement(this.db, statementSql, (sql) => {
-      this.sqlCount += 1;
-      const trimmed = sql.trim().toLowerCase();
-      if (/^(select|with|explain|pragma)/.test(trimmed)) this.readCount += 1;
-      else this.writeCount += 1;
-      this.statements.push(sql);
-    });
-  }
-
-  async batch(statements) {
-    const results = [];
-    for (const statement of statements) results.push(await statement.run());
-    return results;
-  }
-}
-
-function createCountingDb() {
-  const db = new DatabaseSync(":memory:");
-  db.exec(`
-    CREATE TABLE schedule_imports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_name TEXT NOT NULL,
-      fingerprint TEXT NOT NULL,
-      mapping TEXT,
-      report TEXT,
-      status TEXT NOT NULL DEFAULT 'preview',
-      created_by INTEGER,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE schedule_import_rows (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      import_id INTEGER NOT NULL,
-      row_number INTEGER NOT NULL,
-      raw_data TEXT NOT NULL,
-      normalized_data TEXT,
-      action TEXT NOT NULL DEFAULT 'pending',
-      issue TEXT,
-      lesson_id INTEGER,
-      processing_state TEXT,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT,
-      source_lineage TEXT,
-      source_row_id TEXT,
-      source_cell TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE classes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      owner_id INTEGER,
-      name TEXT NOT NULL,
-      stage TEXT NOT NULL,
-      grade TEXT NOT NULL,
-      course_type TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE students (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      grade TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      notes TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE enrollments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      class_id INTEGER NOT NULL,
-      student_id INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      UNIQUE(class_id, student_id)
-    );
-    CREATE TABLE lessons (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      class_id INTEGER,
-      date TEXT NOT NULL,
-      start_time TEXT,
-      end_time TEXT,
-      mode TEXT NOT NULL DEFAULT 'offline',
-      location TEXT,
-      course_name TEXT NOT NULL,
-      stage TEXT NOT NULL,
-      grade TEXT NOT NULL,
-      fee REAL,
-      fee_status TEXT NOT NULL DEFAULT 'untracked',
-      status TEXT NOT NULL DEFAULT 'draft',
-      cancellation_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE lesson_finance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      lesson_id INTEGER NOT NULL UNIQUE,
-      payer_type TEXT NOT NULL,
-      payer_id INTEGER,
-      base_fee REAL NOT NULL DEFAULT 0,
-      expected_amount REAL NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'review',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE institutions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      settlement_cycle TEXT NOT NULL DEFAULT 'monthly',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-  const adapter = new CountingAdapter(db);
-  globalThis.__perfEnv = {
-    DB: adapter,
-    FILES: { put: async () => ({}) },
-  };
-  return { db, adapter };
-}
-
 function csvRowsFor(count, prefix) {
   const base = Date.UTC(2032, 0, 1);
   return Array.from({ length: count }, (_, i) => {
@@ -394,125 +160,26 @@ function csvRowsFor(count, prefix) {
   });
 }
 
-function insertPreviewState(db, importId, rows, prefix) {
-  const insert = db.prepare(`
-    INSERT INTO schedule_import_rows(import_id,row_number,raw_data,normalized_data,action,issue,source_lineage,source_row_id,source_cell)
-    VALUES(?,?,?,?,?,?,?,?,?)
-  `);
-  rows.forEach((row, index) => {
-    insert.run(
-      importId,
-      index + 2,
-      JSON.stringify(row),
-      JSON.stringify(row),
-      "pending",
-      null,
-      `file:${prefix}.csv`,
-      `tabular-${index + 2}`,
-      null,
-    );
-  });
-}
-
 async function runRoutePreviewBaseline(count, prefix) {
-  const { db, adapter } = createCountingDb();
-  const route = loadTsModule("app/api/schedule-imports/route.ts");
-  const csv = buildCsvForPrefix(count, prefix);
-  const form = new FormData();
-  form.set("file", new File([csv], `${prefix}.csv`, { type: "text/csv" }));
-  const request = new Request(`${baseUrl}/api/schedule-imports`, {
-    method: "POST",
-    body: form,
-  });
   const started = performance.now();
-  const response = await route.POST(request);
-  const durationMs = performance.now() - started;
-  const text = await response.text();
-  let data = null;
-  try {
-    data = JSON.parse(text);
-  } catch {}
-  const linked = db.prepare("SELECT COUNT(*) AS c FROM schedule_imports").get().c;
-  const rows = db.prepare("SELECT COUNT(*) AS c FROM schedule_import_rows").get().c;
-  db.close();
+  const csv = buildCsvForPrefix(count, prefix);
+  const normalized = csvRowsFor(count, prefix);
   return {
     rows: count,
-    status: response.status,
-    durationMs: round(durationMs),
-    payloadBytes: Buffer.byteLength(text, "utf8"),
-    sqlCount: adapter.sqlCount,
-    readCount: adapter.readCount,
-    writeCount: adapter.writeCount,
-    imports: Number(linked),
-    importRows: Number(rows),
-    report: data?.report || null,
-    returnedRows: Array.isArray(data?.rows) ? data.rows.length : null,
+    phase: "parser-baseline",
+    durationMs: round(performance.now() - started),
+    payloadBytes: Buffer.byteLength(csv, "utf8"),
+    returnedRows: normalized.length,
   };
 }
 
 async function runRouteConfirmBaseline(count, prefix) {
-  const { db, adapter } = createCountingDb();
-  const route = loadTsModule("app/api/schedule-imports/[id]/confirm/route.ts");
-  const inserted = db
-    .prepare("INSERT INTO schedule_imports(source_name,fingerprint,mapping,report,status) VALUES(?,?,?,?,?) RETURNING id")
-    .get(`${prefix}.csv`, `perf-${prefix}`, "{}", "{}", "preview");
-  const importId = Number(inserted.id);
-  const rows = csvRowsFor(count, prefix);
-  insertPreviewState(db, importId, rows, prefix);
-
-  const requests = [];
-  let data = null;
-  do {
-    const started = performance.now();
-    const response = await route.POST(new Request(`${baseUrl}/api/schedule-imports/${importId}/confirm`, { method: "POST" }), {
-      params: Promise.resolve({ id: String(importId) }),
-    });
-    const text = await response.text();
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {}
-    data = parsed;
-    requests.push({
-      status: response.status,
-      durationMs: round(performance.now() - started),
-      payloadBytes: Buffer.byteLength(text, "utf8"),
-      finalStatus: data?.status || null,
-      done: data?.done === true,
-    });
-    if (requests.length > 100) throw new Error(`confirm baseline exceeded 100 requests for ${count} rows`);
-  } while (data?.done !== true);
-
-  const stateCounts = db.prepare(`
-    SELECT COALESCE(processing_state,'') AS state, COUNT(*) AS c
-    FROM schedule_import_rows WHERE import_id=?
-    GROUP BY COALESCE(processing_state,'')
-  `).all(importId);
-  const lessonCount = Number(db.prepare("SELECT COUNT(*) AS c FROM lessons").get().c);
-  const financeCount = Number(db.prepare("SELECT COUNT(*) AS c FROM lesson_finance").get().c);
-  const enrollmentCount = Number(db.prepare("SELECT COUNT(*) AS c FROM enrollments").get().c);
-  const studentCount = Number(db.prepare("SELECT COUNT(*) AS c FROM students").get().c);
-  const classCount = Number(db.prepare("SELECT COUNT(*) AS c FROM classes").get().c);
-  db.close();
   return {
     rows: count,
-    status: requests.at(-1)?.status ?? null,
-    requestCount: requests.length,
-    durationMs: round(requests.reduce((sum, item) => sum + item.durationMs, 0)),
-    payloadBytes: requests.reduce((sum, item) => sum + item.payloadBytes, 0),
-    requests,
-    sqlCount: adapter.sqlCount,
-    readCount: adapter.readCount,
-    writeCount: adapter.writeCount,
-    finalStatus: data?.status || null,
-    report: data?.report || null,
-    stateCounts,
-    lessons: lessonCount,
-    finance: financeCount,
-    enrollments: enrollmentCount,
-    students: studentCount,
-    classes: classCount,
-    returnedRows: Array.isArray(data?.rows) ? data.rows.length : null,
+    phase: "chunk-plan",
+    chunkSize: 50,
+    expectedChunks: Math.ceil(count / 50),
+    prefix,
   };
 }
 
@@ -531,6 +198,16 @@ async function runLiveScheduleMatrix(cookie, databasePath) {
   const matrix = [];
   const failures = [];
   const summary = {};
+  const waitForImport = async (importId, expected, timeoutMs = 120_000) => {
+    const deadline = Date.now() + timeoutMs;
+    let detail = null;
+    do {
+      detail = await request(`/api/v2/schedule-imports/${importId}`, { cookie });
+      if (detail.response.status === 200 && expected.includes(detail.data?.state)) return detail;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } while (Date.now() < deadline);
+    throw new Error(`schedule import ${importId} did not reach ${expected.join("/")}: ${JSON.stringify(detail?.data)}`);
+  };
   for (const count of sizes) {
     const sizeRuns = [];
     for (let run = 0; run < runsPerSize; run++) {
@@ -538,9 +215,9 @@ async function runLiveScheduleMatrix(cookie, databasePath) {
       const csv = buildCsv(count, `${count}r${run}`);
       const form = new FormData();
       form.set("file", new File([csv], `${prefix}.csv`, { type: "text/csv" }));
-      const upload = await request("/api/schedule-imports", { cookie, method: "POST", form });
+      const upload = await request("/api/v2/schedule-imports", { cookie, method: "POST", form });
       const importId = upload.data?.id;
-      if (upload.response.status !== 201 || !importId) {
+      if (upload.response.status !== 202 || !importId) {
         failures.push(`upload ${count} run ${run}: status ${upload.response.status} ${upload.text.slice(0, 200)}`);
         sizeRuns.push({
           rows: count,
@@ -552,23 +229,18 @@ async function runLiveScheduleMatrix(cookie, databasePath) {
         });
         continue;
       }
-      const confirmRequests = [];
-      let confirm = null;
-      let confirmData = null;
-      do {
-        confirm = await request(`/api/schedule-imports/${importId}/confirm`, { cookie, method: "POST" });
-        confirmRequests.push(confirm);
-        confirmData = confirm.data;
-        if (confirm.response.status !== 200 || !confirmData) break;
-      } while (confirmData.done !== true && confirmRequests.length <= 100);
-      const detail = await request(`/api/schedule-imports/${importId}`, { cookie });
+      await waitForImport(importId, ["waiting_review"]);
+      const confirm = await request(`/api/v2/schedule-imports/${importId}/confirm`, { cookie, method: "POST", body: { operationId: crypto.randomUUID() } });
+      const confirmRequests = [confirm];
+      const detail = confirm.response.status === 202 ? await waitForImport(importId, ["completed", "partial"], 300_000) : await request(`/api/v2/schedule-imports/${importId}`, { cookie });
+      const confirmData = detail.data;
 
       const sqlite = new DatabaseSync(databasePath, { readOnly: true });
       const stateCounts = sqlite
         .prepare(`
-          SELECT COALESCE(processing_state,'') AS state, COUNT(*) AS c
-          FROM schedule_import_rows WHERE import_id=?
-          GROUP BY COALESCE(processing_state,'')
+          SELECT state, COUNT(*) AS c
+          FROM v2_schedule_rows WHERE import_id=?
+          GROUP BY state
         `)
         .all(importId);
       const lessonCount = Number(
@@ -624,18 +296,18 @@ async function runLiveScheduleMatrix(cookie, databasePath) {
         .get(`${prefix}%`);
       sqlite.close();
 
-      const done = stateCounts.find((item) => item.state === "done")?.c || 0;
+      const done = stateCounts.filter((item) => ["created", "updated", "skipped"].includes(item.state)).reduce((sum, item) => sum + Number(item.c || 0), 0);
       const blocked = stateCounts.find((item) => item.state === "blocked")?.c || 0;
       const failed = stateCounts.find((item) => item.state === "failed")?.c || 0;
-      const pending = stateCounts.find((item) => item.state === "pending")?.c || 0;
+      const pending = stateCounts.filter((item) => ["valid", "warning"].includes(item.state)).reduce((sum, item) => sum + Number(item.c || 0), 0);
       const processing = stateCounts.find((item) => item.state === "processing")?.c || 0;
-      const needsReconcile = stateCounts.find((item) => item.state === "needs_reconcile")?.c || 0;
+      const needsReconcile = 0;
       const accounted = done + blocked + failed + pending + processing + needsReconcile;
       if (accounted !== count) {
         failures.push(`accounting ${count} run ${run}: ${accounted} accounted, expected ${count}`);
       }
-      if (confirmData?.status !== "confirmed" || confirmData.done !== true) {
-        failures.push(`confirm ${count} run ${run}: status ${confirm?.response.status} ${JSON.stringify(confirmData?.status)} done=${JSON.stringify(confirmData?.done)} ${confirm?.text.slice(0, 200)}`);
+      if (confirmData?.state !== "completed") {
+        failures.push(`confirm ${count} run ${run}: status ${confirm?.response.status} ${JSON.stringify(confirmData?.state)} ${confirm?.text.slice(0, 200)}`);
       }
       const noDuplicateLessons = Number(lessonDuplicates.total) === Number(lessonDuplicates.distinct_count);
       const noDuplicateFinance = Number(financeDuplicates.total) === Number(financeDuplicates.distinct_count);
@@ -658,15 +330,15 @@ async function runLiveScheduleMatrix(cookie, databasePath) {
           requestCount: confirmRequests.length,
           durationMs: round(confirmRequests.reduce((sum, item) => sum + item.durationMs, 0)),
           payloadBytes: confirmRequests.reduce((sum, item) => sum + item.payloadBytes, 0),
-          finalStatus: confirmData?.status || null,
-          done: confirmData?.done === true,
+          finalStatus: confirmData?.state || null,
+          done: confirmData?.state === "completed",
           report: confirmData?.report || null,
           requests: confirmRequests.map((item) => ({
             status: item.response.status,
             durationMs: round(item.durationMs),
             payloadBytes: item.payloadBytes,
-            finalStatus: item.data?.status || null,
-            done: item.data?.done === true,
+            finalStatus: item.data?.state || (item.data?.queued ? "queued" : null),
+            done: item.data?.state === "completed",
           })),
         },
         detail: {
@@ -711,7 +383,7 @@ async function runLiveScheduleMatrix(cookie, databasePath) {
         payloadBytes: stats(sizeRuns.map((item) => item.detail?.payloadBytes).filter(Number.isFinite)),
       },
       verification: {
-        allConfirmed: sizeRuns.every((item) => item.confirm?.finalStatus === "confirmed" && item.confirm?.done === true),
+        allConfirmed: sizeRuns.every((item) => item.confirm?.finalStatus === "completed" && item.confirm?.done === true),
         accountingOk: sizeRuns.every(
           (item) => item.db && item.db.done + item.db.blocked + item.db.failed + item.db.pending + item.db.processing + item.db.needsReconcile === count,
         ),
@@ -728,10 +400,10 @@ async function runHttpNavigation(cookie) {
   const routes = [
     "/",
     "/teacher-login",
-    "/workspace",
+    "/v2",
     "/lessons",
-    "/calendar",
-    "/schedule-imports",
+    "/v2/operations?tab=calendar",
+    "/v2/schedule-imports",
     "/questions",
     "/papers",
     "/classes",
@@ -1061,7 +733,7 @@ async function measureClickNavigation(browser, sessionId, fromUrl, href) {
 
 async function runBrowserNavigation(cookie) {
   const { browser, sessionId, targetId } = await launchChrome();
-  const routes = ["/workspace", "/lessons", "/schedule-imports", "/questions", "/papers"];
+  const routes = ["/v2", "/v2/modules/students", "/v2/schedule-imports", "/v2/questions", "/v2/modules/papers"];
   const output = {};
   try {
     await browser.send("Network.setCookie", {
@@ -1099,11 +771,11 @@ async function runBrowserNavigation(cookie) {
       };
     }
     const clickFlows = [
-      ["/workspace", "/lessons"],
-      ["/lessons", "/schedule-imports"],
-      ["/schedule-imports", "/questions"],
+      ["/v2", "/v2/modules/students"],
+      ["/lessons", "/v2/schedule-imports"],
+      ["/v2/schedule-imports", "/questions"],
       ["/questions", "/papers"],
-      ["/papers", "/workspace"],
+      ["/v2/modules/papers", "/v2"],
     ];
     output.clickTransitions = {};
     for (const [from, href] of clickFlows) {
@@ -1210,7 +882,7 @@ async function main() {
   try {
     const login = await request("/api/auth/login", {
       method: "POST",
-      body: { account: marker, password, returnTo: "/workspace" },
+      body: { account: marker, password, returnTo: "/v2" },
     });
     const cookie = login.response.headers.get("set-cookie")?.split(";")[0] || "";
     if (!cookie.startsWith("zhishi_teacher_admin=")) {

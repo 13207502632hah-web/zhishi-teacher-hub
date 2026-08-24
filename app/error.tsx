@@ -29,7 +29,7 @@ export default function ErrorPage({ reset }: { error: RouteError; reset: () => v
           <button className={styles.routeStateButton} type="button" onClick={retry} disabled={retrying}>
             {retrying ? "正在重新加载…" : "重新加载本页"}
           </button>
-          <Link className={styles.routeStateButtonSecondary} href="/workspace">返回工作台</Link>
+          <Link className={styles.routeStateButtonSecondary} href="/v2">返回工作台</Link>
           <Link className={styles.routeStateButtonQuiet} href="/">返回公开首页</Link>
         </div>
         <p className={styles.routeStateHint} role="status">{retrying ? "正在尝试恢复，请稍候。" : "如果问题持续，请从安全入口重新开始。"}</p>

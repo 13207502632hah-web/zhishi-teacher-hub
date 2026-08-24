@@ -3,7 +3,7 @@ import { audit, isDenied, requireLessonAccess, requirePermission } from "../../.
 import { createApproval } from "../../../../lib/v2/approval-service";
 
 export async function POST(request: Request) {
-  const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
+  const access = await requirePermission("analytics:write"); if (isDenied(access)) return access;
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   const lessonId = Number(body?.lessonId || 0), receivedAmount = Number(body?.receivedAmount);
   if (!Number.isInteger(lessonId) || lessonId < 1) return Response.json({ error: "课时编号无效" }, { status: 400 });

@@ -14,16 +14,19 @@ test("workspace navigation follows the approved desktop information architecture
     assert.match(config, new RegExp(`group:\\s*"${group}"`));
   }
   for (const [href, label] of [
-    ["/workspace", "今日"],
-    ["/lessons", "课时"],
-    ["/questions", "题库"],
-    ["/classes", "学生"],
+    ["/v2", "今日"],
+    ["/v2/modules/students?view=lessons", "课时"],
+    ["/v2/questions", "题库"],
+    ["/v2/modules/students", "学生"],
+    ["/v2/modules/resources", "资源中心"],
   ]) {
-    assert.match(config, new RegExp(`href:\\s*"${href}"[^\\n]+label:\\s*"${label}"`));
+    const escapedHref = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(config, new RegExp(`href:\\s*"${escapedHref}"[^\\n]+label:\\s*"${label}"`));
   }
   assert.match(config, /utilityNavigation/);
-  assert.match(config, /href:\s*"\/settings"/);
-  assert.match(config, /href:\s*"\/mini-settings"/);
+  assert.match(config, /href:\s*"\/v2\/settings"/);
+  assert.doesNotMatch(config, /href:\s*"\/settings"/);
+  assert.doesNotMatch(config, /href:\s*"\/mini-settings"/);
   assert.match(shell, /<WorkspaceNavigation/);
   assert.doesNotMatch(shell, /className="sideNav"/);
 });
@@ -64,15 +67,18 @@ test("assistant navigation hides routes whose APIs require analytics or academic
   );
   assert.ok(assistantBlock, "assistant navigation filter must exist");
   for (const href of [
-    "/reflections",
-    "/analytics",
-    "/assessments",
-    "/exam-projects",
-    "/recognition",
-    "/academic-years",
-    "/finance",
+    "/v2/modules/learning?view=reflections",
+    "/v2/modules/learning?view=analytics",
+    "/v2/operations?tab=imports",
+    "/v2/operations?tab=calendar",
+    "/v2/operations?tab=assessments",
+    "/v2/operations?tab=exams",
+    "/v2/operations?tab=recognition",
+    "/v2/operations?tab=academic",
+    "/v2/modules/finance",
   ]) {
-    assert.match(assistantBlock[0], new RegExp(`"${href}"`));
+    const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(assistantBlock[0], new RegExp(`"${escaped}"`));
   }
   assert.match(assistantBlock[0], /!\[[\s\S]*\]\.includes\(item\.href\)/);
 });

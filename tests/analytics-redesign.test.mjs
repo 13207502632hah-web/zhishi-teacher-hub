@@ -1,90 +1,77 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("analytics loading uses requestJson, explicit filters, timeout, and abort", async () => {
-  const page = await read("app/analytics/page.tsx");
-
-  assert.match(page, /requestJson/);
-  assert.match(page, /HttpError/);
-  assert.match(page, /AbortController/);
-  assert.match(page, /loadRequest\.current\?\.abort\(\)/);
-  assert.match(page, /timeoutMs:\s*15_000/);
-  assert.match(page, /draftRange/);
-  assert.match(page, /appliedRange/);
-  assert.match(page, /applyFilters/);
-  assert.match(page, /应用筛选/);
-  assert.match(page, /重置筛选/);
-  assert.doesNotMatch(page, /\bfetch\(/);
-  assert.doesNotMatch(page, /response\.json\(\)/);
-});
-
-test("analytics distinguishes loading, empty, permission, server, and retry states", async () => {
-  const page = await read("app/analytics/page.tsx");
-
-  for (const state of ["loading", "empty", "permission", "server-error"]) {
-    assert.match(page, new RegExp(`['\"]${state}['\"]`));
-  }
-  assert.match(page, /reason\.status\s*===\s*401/);
-  assert.match(page, /reason\.status\s*===\s*403/);
-  assert.match(page, /reason\.status\s*>=\s*500/);
-  assert.match(page, /role="alert"/);
-  assert.match(page, /role="status"/);
-  assert.match(page, /重新读取/);
-});
-
-test("analytics modules expose evidence and never turn insufficient values into conclusions", async () => {
-  const page = await read("app/analytics/page.tsx");
-
-  for (const label of ["教学效率", "学生学习", "题库覆盖", "作业趋势", "教师成长", "统计范围", "数据来源", "数据不足"]) {
-    assert.match(page, new RegExp(label));
-  }
-  assert.match(page, /分母/);
-  assert.match(page, /formatPercentage|formatRate/);
-  assert.match(page, /formatAverage/);
-  assert.match(page, /formatDate/);
-  assert.doesNotMatch(page, /\|\|\s*0/);
-});
-
-test("analytics trends remain readable without relying on color alone", async () => {
-  const page = await read("app/analytics/page.tsx");
-
-  assert.match(page, /<ol/);
-  assert.match(page, /参与度/);
-  assert.match(page, /理解度/);
-  assert.match(page, /已完成/);
-  assert.match(page, /至少两个日期/);
-  assert.match(page, /aria-label/);
-  assert.doesNotMatch(page, /style=\{\{\s*height:/);
-});
-
-test("analytics API does not count unscored assessment rows as evidence", async () => {
-  const route = await read("app/api/analytics/route.ts");
-
-  assert.match(route, /requirePermission\("analytics:read"\)/);
-  assert.match(route, /COUNT\(r\.score\)\s+AS total/);
-  assert.doesNotMatch(route, /COUNT\(\*\)\s+AS total FROM assessment_results/);
-  assert.doesNotMatch(route, /Number\(row\(4\)\.average\s*\|\|\s*0\)/);
-});
-
-test("analytics styles are module-scoped, readable, touch-safe, responsive, and printable", async () => {
-  const [page, css] = await Promise.all([
-    read("app/analytics/page.tsx"),
-    read("app/analytics/analytics.module.css"),
+test("analytics is a native V2 learning view and the old page is retired", async () => {
+  const [page, workspace, navigation] = await Promise.all([
+    read("app/v2/modules/[slug]/page.tsx"),
+    read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),
+    read("app/components/navigation.ts"),
   ]);
 
-  assert.match(page, /analytics\.module\.css/);
-  assert.match(css, /font-size:\s*1rem/);
-  assert.match(css, /font-size:\s*0\.875rem/);
-  assert.match(css, /min-height:\s*2\.75rem/);
-  assert.match(css, /@media\s*\(min-width:\s*40rem\)/);
-  assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
-  assert.match(css, /@media\s*print/);
-  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
-  assert.match(css, /\.filterActions button\s*\{\s*display:\s*none;/);
-  assert.doesNotMatch(css, /\.filterActions\s*\{\s*display:\s*none;/);
-  assert.doesNotMatch(css, /overflow-x:\s*auto/);
-  assert.doesNotMatch(css, /#d8f16b/i);
+  assert.match(page, /searchParams/);
+  assert.match(page, /initialView=\{query\.view\}/);
+  assert.match(workspace, /view === "analytics"/);
+  assert.match(workspace, /证据数据中心/);
+  assert.match(navigation, /href:\s*"\/v2\/modules\/learning\?view=analytics"/);
+  await assert.rejects(access(new URL("../app/analytics/page.tsx", import.meta.url)));
+});
+
+test("analytics loading uses the versioned contract, explicit apply, abort and timeout", async () => {
+  const workspace = await read("app/v2/modules/[slug]/ModuleWorkspace.tsx");
+
+  assert.match(workspace, /\/api\/v2\/analytics\?range=\$\{range\}/);
+  assert.match(workspace, /AbortController/);
+  assert.match(workspace, /loadRequest\.current\?\.abort\(\)/);
+  assert.match(workspace, /15_000/);
+  assert.match(workspace, /draftRange/);
+  assert.match(workspace, /appliedRange/);
+  assert.match(workspace, /setAppliedRange\(draftRange\)/);
+  assert.match(workspace, /应用筛选/);
+  assert.match(workspace, /重置筛选/);
+});
+
+test("analytics distinguishes loading, empty, permission and retry states", async () => {
+  const workspace = await read("app/v2/modules/[slug]/ModuleWorkspace.tsx");
+
+  for (const state of ["loading", "ready", "empty", "permission", "error"]) assert.match(workspace, new RegExp(`"${state}"`));
+  assert.match(workspace, /status === 401 \|\| status === 403/);
+  assert.match(workspace, /role=\{tone \? "alert" : "status"\}/);
+  assert.match(workspace, /重新读取/);
+  assert.match(workspace, /旧结论已清空/);
+});
+
+test("analytics exposes five evidence modules without manufacturing conclusions", async () => {
+  const workspace = await read("app/v2/modules/[slug]/ModuleWorkspace.tsx");
+
+  for (const label of ["教学效率", "学生学习", "题库覆盖", "作业趋势", "教师成长", "统计范围", "数据来源", "数据不足", "分母为 0", "至少两个日期"]) {
+    assert.match(workspace, new RegExp(label));
+  }
+  assert.match(workspace, /value == null \? "数据不足"/);
+  assert.match(workspace, /<ol aria-label=\{`\$\{title\}趋势数据`\}/);
+  assert.doesNotMatch(workspace, /style=\{\{\s*height:/);
+});
+
+test("native V2 analytics excludes unscored assessments", async () => {
+  const route = await read("app/api/v2/analytics/route.ts");
+
+  assert.match(route, /requirePermission\("analytics:read"\)/);
+  assert.match(route, /COUNT\(r\.score\) AS total/);
+  assert.doesNotMatch(route, /COUNT\(\*\) AS total FROM assessment_results/);
+  assert.doesNotMatch(route, /Number\(row\(4\)\.average\s*\|\|\s*0\)/);
+  assert.match(route, /export async function GET/);
+  assert.doesNotMatch(route, /^export \{.*from/m);
+});
+
+test("V2 analytics is touch-safe, responsive and printable", async () => {
+  const css = await read("app/v2/v2.css");
+
+  assert.match(css, /\.v2-learning-tabs a\{[^}]*min-height:38px/);
+  assert.match(css, /\.v2-analytics-filter button\{[^}]*min-height:42px/);
+  assert.match(css, /@media\(max-width:720px\)[^{]*\{\.v2-learning-tabs/);
+  assert.match(css, /\.v2-analytics-filter form button\{[^}]*min-height:44px/);
+  assert.match(css, /@media print\{\.v2-learning-tabs/);
+  assert.doesNotMatch(css, /\.v2-analytics-list\{[^}]*overflow-x:auto/);
 });

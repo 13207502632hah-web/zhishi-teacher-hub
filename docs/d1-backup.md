@@ -50,7 +50,7 @@ pnpm exec wrangler d1 execute DB --local --file backups/local-2026-08-06.sql
 
 ## 设置页 JSON 导出
 
-设置页“数据导出”调用 `GET /api/settings/export`，提供业务层 JSON 备份，
+V2 设置页“数据导出”调用 `GET /api/v2/settings/export`，提供业务层 JSON 备份，
 可作为文件复制的补充。导出包含业务记录与演示数据，不包含任何密钥。
 
 ## 恢复演练与验收

@@ -26,7 +26,6 @@ test("captured DeepSeek request recursively removes forbidden fields and embedde
   assert.doesNotMatch(captured, /user_id|teacher_\d+/);
   assert.equal(request.body.thinking.type, "disabled");
 });
-
 test("retry policy retries only transient failures and at most once", async () => {
   const { shouldRetryDeepSeek } = await loadTsModule("app/lib/ai/policy.ts");
   assert.equal(shouldRetryDeepSeek(0, 429), true);
@@ -105,11 +104,15 @@ test("question review accepts omitted empty groups but still rejects non-object 
   for (const invalid of [[], "", 1, true]) assert.throws(() => normalizeOptionalJsonObject(invalid), (error) => error.code === "SCHEMA_INVALID");
 });
 
-test("daily limit defaults to 50 and blocks the boundary call", async () => {
-  const { dailyLimitReached } = await loadTsModule("app/lib/ai/policy.ts");
-  assert.equal(dailyLimitReached(49, 50), false);
-  assert.equal(dailyLimitReached(50, 50), true);
-  assert.equal(dailyLimitReached(50, 0), true);
+test("AI generation has no cost, daily call-count or token feature limit and keeps only a technical burst guard", async () => {
+  const [server, router, routing] = await Promise.all([read("app/lib/ai/server.ts"), read("app/lib/v2/ai-router.ts"), read("app/api/v2/settings/ai-routing/route.ts")]);
+  assert.doesNotMatch(server, /DAILY_LIMIT|dailyLimit/);
+  assert.match(server, /AI_BURST_GUARD/);
+  assert.match(server, /datetime\('now','-60 seconds'\)/);
+  assert.match(server, /COUNT\(\*\)[\s\S]+<30/);
+  assert.match(router, /AI_BURST_GUARD/);
+  assert.match(router, /v2_ai_runs[\s\S]+datetime\('now','-60 seconds'\)[\s\S]+<30/);
+  assert.match(routing, /costOrTokenFeatureLimit:\s*false/);
 });
 
 test("AI setting flags preserve database zero values instead of re-enabling privacy options", async () => {
@@ -118,16 +121,16 @@ test("AI setting flags preserve database zero values instead of re-enabling priv
   assert.equal(aiBoolean(1), true);
   assert.equal(aiBoolean("1"), true);
   for (const value of [0, "0", false, null]) assert.equal(aiBoolean(value), false);
-  const client = await read("app/settings/page.tsx"), route = await read("app/api/settings/ai/route.ts");
-  assert.match(client, /currentAiSettings\.includeStudentName/);
-  assert.match(client, /checked=\{aiBoolean\(currentAiSettings\.includeStudentName\)\}/);
+  const client = await read("app/v2/settings/SettingsWorkspace.tsx"), route = await read("app/api/v2/settings/ai/route.ts");
+  assert.match(client, /includeStudentName/);
+  assert.match(client, /enabled\(settings\.includeStudentName\)/);
   assert.match(route, /body\.includeStudentName === undefined/);
   assert.match(route, /existing\.includeStudentName/);
 });
 
 test("server keeps secrets server-side, uses current models and never sends a login identifier", async () => {
   const server = await read("app/lib/ai/server.ts"), policy = await read("app/lib/ai/policy.ts"), migration = await read("drizzle/0026_deepseek_ai_assistance.sql");
-  const clients = (await Promise.all(["app/feedback/page.tsx", "app/questions/page.tsx", "app/settings/page.tsx"].map(read))).join("\n");
+  const clients = (await Promise.all(["app/v2/modules/[slug]/ModuleWorkspace.tsx", "app/v2/questions/QuestionLibraryWorkspace.tsx", "app/v2/settings/SettingsWorkspace.tsx"].map(read))).join("\n");
   const [envExample, ignore, readme] = await Promise.all([read(".env.example"), read(".gitignore"), read("README.md")]);
   assert.match(server, /env\.DEEPSEEK_API_KEY/);
   assert.match(policy, /Authorization: `Bearer/);
@@ -143,18 +146,18 @@ test("server keeps secrets server-side, uses current models and never sends a lo
 
 test("AI routes enforce teacher-only access, privacy acknowledgement and no write before validated output", async () => {
   const { aiRoleAllowed } = await loadTsModule("app/lib/ai/policy.ts");
-  const server = await read("app/lib/ai/server.ts"), feedbackRoute = await read("app/api/ai/feedback-drafts/route.ts"), reviewRoute = await read("app/api/ai/question-reviews/route.ts");
+  const server = await read("app/lib/ai/server.ts"), feedbackRoute = await read("app/api/v2/ai/feedback-drafts/route.ts"), reviewRoute = await read("app/api/v2/ai/question-reviews/route.ts");
   const protectedRoutes = await Promise.all([
-    "app/api/ai/feedback-drafts/route.ts",
-    "app/api/ai/lesson-prep/route.ts",
-    "app/api/ai/paper-review/route.ts",
-    "app/api/ai/reflection-drafts/route.ts",
-    "app/api/ai/wrong-question-remediation/route.ts",
-    "app/api/ai/schedule-reschedule/route.ts",
-    "app/api/ai/question-reviews/route.ts",
-    "app/api/ai/question-reviews/apply/route.ts",
-    "app/api/ai/usage/route.ts",
-    "app/api/settings/ai/route.ts",
+    "app/api/v2/ai/feedback-drafts/route.ts",
+    "app/api/v2/ai/lesson-prep/route.ts",
+    "app/api/v2/ai/paper-review/route.ts",
+    "app/api/v2/ai/reflection-drafts/route.ts",
+    "app/api/v2/ai/wrong-question-remediation/route.ts",
+    "app/api/v2/ai/schedule-reschedule/route.ts",
+    "app/api/v2/ai/question-reviews/route.ts",
+    "app/api/v2/ai/question-reviews/apply/route.ts",
+    "app/api/v2/ai/usage/route.ts",
+    "app/api/v2/settings/ai/route.ts",
   ].map(read));
   assert.equal(aiRoleAllowed("teacher"), true);
   for (const role of ["assistant", "student", "parent", "anonymous", ""]) assert.equal(aiRoleAllowed(role), false);
@@ -164,15 +167,15 @@ test("AI routes enforce teacher-only access, privacy acknowledgement and no writ
   }
   assert.match(server, /requireAiTeacher/);
   assert.match(server, /PRIVACY_ACK_REQUIRED/);
-  assert.match(server, /DAILY_LIMIT/);
-  assert.match(server, /INSERT INTO ai_runs[\s\S]+SELECT[\s\S]+datetime\(created_at,'\+8 hours'\)[\s\S]+RETURNING id/);
+  assert.doesNotMatch(server, /DAILY_LIMIT|dailyLimit/);
+  assert.match(server, /INSERT INTO ai_runs[\s\S]+SELECT[\s\S]+RETURNING id/);
   assert.match(server, /DEEPSEEK_AI_ENABLED !== "true"/);
   assert.ok(feedbackRoute.indexOf("const result = await callDeepSeekJson") < feedbackRoute.indexOf("INSERT INTO ai_feedback_drafts"));
   assert.ok(reviewRoute.indexOf("result = await callDeepSeekJson") < reviewRoute.indexOf("INSERT INTO ai_question_reviews"));
 });
 
 test("question review is resumable, batches ten, reserves Pro for single deep review and protects sensitive fields", async () => {
-  const review = await read("app/api/ai/question-reviews/route.ts"), apply = await read("app/api/ai/question-reviews/apply/route.ts"), migration = await read("drizzle/0027_ai_workflow_completion.sql");
+  const review = await read("app/api/v2/ai/question-reviews/route.ts"), apply = await read("app/api/v2/ai/question-reviews/apply/route.ts"), migration = await read("drizzle/0027_ai_workflow_completion.sql");
   assert.match(review, /ids\.length > 100/);
   assert.match(review, /slice\(cursor, cursor \+ 10\)/);
   assert.match(review, /status='running'[\s\S]+cursor=\?[\s\S]+datetime\(updated_at\)<datetime\('now','-3 minutes'\)/);
@@ -192,7 +195,7 @@ test("question review is resumable, batches ten, reserves Pro for single deep re
 });
 
 test("feedback learning stores redacted saved-version differences and retrieves twelve matched examples", async () => {
-  const createRoute = await read("app/api/feedback/route.ts"), updateRoute = await read("app/api/feedback/[id]/route.ts"), learning = await read("app/lib/ai/learning.ts");
+  const createRoute = await read("app/api/v2/feedback/route.ts"), updateRoute = await read("app/api/v2/feedback/[id]/route.ts"), learning = await read("app/lib/ai/learning.ts");
   assert.match(createRoute, /recordFeedbackLearningEvent/);
   assert.match(updateRoute, /recordFeedbackLearningEvent/);
   assert.match(learning, /redactPrivateText/);
@@ -205,26 +208,27 @@ test("feedback learning stores redacted saved-version differences and retrieves 
 });
 
 test("feedback AI requires exact preflight, binds draft context and supports discard", async () => {
-  const aiRoute = await read("app/api/ai/feedback-drafts/route.ts"), createRoute = await read("app/api/feedback/route.ts"), updateRoute = await read("app/api/feedback/[id]/route.ts"), client = await read("app/feedback/page.tsx");
+  const aiRoute = await read("app/api/v2/ai/feedback-drafts/route.ts"), createRoute = await read("app/api/v2/feedback/route.ts"), updateRoute = await read("app/api/v2/feedback/[id]/route.ts"), client = await read("app/v2/modules/[slug]/ModuleWorkspace.tsx");
   assert.match(aiRoute, /body\.preview === true/);
   assert.match(aiRoute, /studentNames[\s\S]+allNames[\s\S]+redactNames/);
   assert.match(aiRoute, /export async function DELETE/);
   for (const source of [createRoute, updateRoute]) assert.match(source, /课时或学生已改变，请重新生成 AI 草稿/);
-  assert.match(client, /尚未调用 DeepSeek/);
-  assert.match(client, /form\.aiPreviewKey !== previewKey/);
-  assert.match(client, /discardAiDraft/);
+  assert.match(client, /尚未调用外部模型/);
+  assert.match(client, /aiPreviewKey !== previewKey/);
+  assert.match(client, /discardDraft/);
 });
 
-test("AI usage and daily boundaries use Asia Shanghai time and include readiness failures", async () => {
+test("AI usage reporting uses Asia Shanghai time and includes readiness failures without enforcing a daily boundary", async () => {
   const usage = await read("app/lib/ai/usage.ts"), server = await read("app/lib/ai/server.ts");
-  for (const source of [usage, server]) assert.match(source, /datetime\([^)]*,'\+8 hours'\)/);
+  assert.match(usage, /datetime\([^)]*,'\+8 hours'\)/);
+  assert.doesNotMatch(server, /datetime\([^)]*,'\+8 hours'\)|DAILY_LIMIT/);
   assert.match(usage, /audit_logs/);
   assert.match(usage, /generate_failed/);
 });
 
 test("AI assistance covers prep, review, reflection, tiered remediation and conflict-safe rescheduling without automatic writes", async () => {
   const [lessonRoute, paperRoute, reflectionRoute, remediationRoute, rescheduleRoute, lessonPage, studentPage, paperPage, reflectionPage, server] = await Promise.all([
-    "app/api/ai/lesson-prep/route.ts", "app/api/ai/paper-review/route.ts", "app/api/ai/reflection-drafts/route.ts", "app/api/ai/wrong-question-remediation/route.ts", "app/api/ai/schedule-reschedule/route.ts", "app/lessons/[id]/page.tsx", "app/students/[id]/page.tsx", "app/papers/[id]/page.tsx", "app/reflections/page.tsx", "app/lib/ai/server.ts",
+    "app/api/v2/ai/lesson-prep/route.ts", "app/api/v2/ai/paper-review/route.ts", "app/api/v2/ai/reflection-drafts/route.ts", "app/api/v2/ai/wrong-question-remediation/route.ts", "app/api/v2/ai/schedule-reschedule/route.ts", "app/v2/detail/[kind]/[id]/LessonDetailWorkspace.tsx", "app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx", "app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx", "app/v2/modules/[slug]/ModuleWorkspace.tsx", "app/lib/ai/server.ts",
   ].map(read));
   for (const route of [lessonRoute, paperRoute, reflectionRoute, remediationRoute, rescheduleRoute]) {
     assert.match(route, /requireAiTeacher/);
@@ -241,12 +245,12 @@ test("AI assistance covers prep, review, reflection, tiered remediation and conf
   assert.match(rescheduleRoute, /buildRescheduleCandidates/); assert.match(rescheduleRoute, /只能从 candidates 中选择 candidateId/); assert.doesNotMatch(rescheduleRoute, /UPDATE lessons/);
   assert.match(lessonPage, /生成 AI 备课草案/); assert.match(lessonPage, /尚未写入课时/);
   assert.match(paperPage, /运行 AI 结构质检/); assert.match(paperPage, /不会改题/);
-  assert.match(reflectionPage, /生成 AI 反思草案/); assert.match(reflectionPage, /尚未私密保存/); assert.match(reflectionPage, /关联课时已改变，旧 AI 反思草案已清空/);
+  assert.match(reflectionPage, /生成 AI 草稿/); assert.match(reflectionPage, /草稿尚未保存/); assert.match(reflectionPage, /切换课时会丢弃当前 AI 草稿/);
   assert.match(studentPage, /生成 AI 分层订正/); assert.match(studentPage, /尚未布置或写入学生档案/);
   assert.match(lessonPage, /生成 AI 调课建议/); assert.match(lessonPage, /系统先按现有课表排除时间冲突/);
 });
 
 test("all AI generation, apply, reject and learning-clear operations are audited", async () => {
-  const sources = (await Promise.all(["app/api/ai/feedback-drafts/route.ts", "app/api/ai/lesson-prep/route.ts", "app/api/ai/paper-review/route.ts", "app/api/ai/reflection-drafts/route.ts", "app/api/ai/wrong-question-remediation/route.ts", "app/api/ai/schedule-reschedule/route.ts", "app/api/ai/question-reviews/route.ts", "app/api/ai/question-reviews/apply/route.ts", "app/api/settings/ai/route.ts"].map(read))).join("\n");
+  const sources = (await Promise.all(["app/api/v2/ai/feedback-drafts/route.ts", "app/api/v2/ai/lesson-prep/route.ts", "app/api/v2/ai/paper-review/route.ts", "app/api/v2/ai/reflection-drafts/route.ts", "app/api/v2/ai/wrong-question-remediation/route.ts", "app/api/v2/ai/schedule-reschedule/route.ts", "app/api/v2/ai/question-reviews/route.ts", "app/api/v2/ai/question-reviews/apply/route.ts", "app/api/v2/settings/ai/route.ts"].map(read))).join("\n");
   for (const action of ["generate", "generate_failed", "apply_ai_suggestion", "reject", "delete_all"]) assert.match(sources, new RegExp(`audit\\(access, [\"']${action}[\"']`));
 });

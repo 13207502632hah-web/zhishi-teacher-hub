@@ -5,7 +5,7 @@ import { resolvePricingContext } from "../../../../lib/finance-rules";
 import { createApproval } from "../../../../lib/v2/approval-service";
 
 export async function POST(request: Request) {
-  const access = await requirePermission("lessons:write"); if (isDenied(access)) return access;
+  const access = await requirePermission("analytics:write"); if (isDenied(access)) return access;
   const body = await request.json().catch(() => ({})) as Record<string, unknown>, lessonId = Number(body.lessonId || 0), payerType = String(body.payerType || "");
   if (!Number.isInteger(lessonId) || lessonId <= 0) return Response.json({ error: "请选择有效课时" }, { status: 400 });
   const denied = await requireLessonAccess(access, lessonId); if (denied) return denied;

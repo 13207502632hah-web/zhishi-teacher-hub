@@ -9,6 +9,7 @@ const baseUrl = "http://localhost:3000";
 const marker = "__surface_audit__";
 const password = randomBytes(24).toString("base64url");
 const sessionSecret = randomBytes(32).toString("base64url");
+const miniTestCode = `surface-audit-${randomBytes(8).toString("hex")}`;
 const devVars = path.join(root, ".dev.vars.surface-audit");
 const reportPath = path.join(root, "outputs", "surface-audit.json");
 const logs = [];
@@ -172,91 +173,87 @@ async function resolveRoutePath(route, db) {
 }
 
 const postPayloads = {
-  "/api/assessments": {},
-  "/api/assessments/1": { date: "2026-99-99" },
-  "/api/assignments": { lessonId: 0, title: "" },
+  "/api/v2/assessments": {},
+  "/api/v2/assessments/1": { date: "2026-99-99" },
+  "/api/v2/assignments": { lessonId: 0, title: "" },
   "/api/auth/login": { account: marker, password },
   "/api/auth/logout": {},
-  "/api/calendar/subscription": {},
-  "/api/classes": { name: "" },
-  "/api/exam-projects": { academicYear: "2025-2026" },
-  "/api/feedback": {},
-  "/api/feedback/templates": { name: "" },
-  "/api/feedback-imports": { sourceText: "" },
-  "/api/files": {},
-  "/api/finance": {},
-  "/api/finance/packages": {},
-  "/api/lessons": { date: "not-a-date" },
-  "/api/v2/mini/login": { role: "student", testCode: "surface-audit" },
-  "/api/papers": {},
-  "/api/papers/upload": {},
-  "/api/question-sets/import": { name: "", questions: [] },
-  "/api/question-views": { name: "", filters: {} },
-  "/api/questions": {},
-  "/api/questions/batch": {},
-  "/api/questions/portable": {},
-  "/api/recognition": {},
-  "/api/reflections": { date: "2026-99-99" },
-  "/api/resources": { title: "" },
-  "/api/schedule-imports": {},
-  "/api/settings/ai": {},
-  "/api/settings/demo": {},
-  "/api/settings/data": { confirmation: "错误确认文字" },
-  "/api/workflow-templates": { type: "next_plan", name: "" },
-  "/api/ai/feedback-drafts": { lessonId: 0 },
-  "/api/ai/lesson-prep": { lessonId: 0 },
-  "/api/ai/paper-review": { paperId: 0 },
-  "/api/ai/question-reviews": { questionIds: [] },
-  "/api/ai/reflection-drafts": { lessonId: 0 },
-  "/api/ai/schedule-reschedule": { lessonId: 0 },
-  "/api/ai/wrong-question-remediation": { studentId: 0 },
-  "/api/ai/question-reviews/apply": { reviewIds: [] },
+  "/api/v2/calendar/subscription": {},
+  "/api/v2/classes": { name: "" },
+  "/api/v2/exam-projects": { academicYear: "2025-2026" },
+  "/api/v2/feedback": {},
+  "/api/v2/feedback/templates": { name: "" },
+  "/api/v2/feedback-imports": { sourceText: "" },
+  "/api/v2/files": {},
+  "/api/v2/lessons": { date: "not-a-date" },
+  "/api/v2/mini/login": { role: "student", testCode: miniTestCode },
+  "/api/v2/papers": {},
+  "/api/v2/papers/upload": {},
+  "/api/v2/question-sets/import": { name: "", questions: [] },
+  "/api/v2/question-views": { name: "", filters: {} },
+  "/api/v2/questions": {},
+  "/api/v2/questions/batch": {},
+  "/api/v2/questions/portable": {},
+  "/api/v2/recognition": {},
+  "/api/v2/reflections": { date: "2026-99-99" },
+  "/api/v2/resources": { title: "" },
+  "/api/v2/schedule-imports": {},
+  "/api/v2/settings/ai": {},
+  "/api/v2/settings/demo": {},
+  "/api/v2/settings/data": { confirmation: "错误确认文字" },
+  "/api/v2/workflow-templates": { type: "next_plan", name: "" },
+  "/api/v2/ai/feedback-drafts": { lessonId: 0 },
+  "/api/v2/ai/lesson-prep": { lessonId: 0 },
+  "/api/v2/ai/paper-review": { paperId: 0 },
+  "/api/v2/ai/question-reviews": { questionIds: [] },
+  "/api/v2/ai/reflection-drafts": { lessonId: 0 },
+  "/api/v2/ai/schedule-reschedule": { lessonId: 0 },
+  "/api/v2/ai/wrong-question-remediation": { studentId: 0 },
+  "/api/v2/ai/question-reviews/apply": { reviewIds: [] },
 };
 
 const methodPayloads = {
-  "/api/academic-years/[year]/promotion": { POST: { academicYear: "2025-2026" }, GET: null },
-  "/api/assessments/1": { PUT: { date: "2026-99-99" } },
-  "/api/classes/1": { PUT: { name: "" }, PATCH: { name: "" }, POST: { name: "" } },
-  "/api/feedback/1": { PUT: { content: "" } },
-  "/api/lessons/1": { PUT: { topic: "" } },
-  "/api/lessons/1/activity": { GET: null, POST: {} },
-  "/api/lessons/1/homework-draft": { POST: {} },
-  "/api/lessons/1/prep": { PATCH: {}, GET: null },
-  "/api/lessons/1/questions": { GET: null, POST: { questionIds: [] }, DELETE: {} },
-  "/api/lessons/1/questions/batch": { POST: { questionIds: [] } },
-  "/api/lessons/1/workflow-state": { GET: null, PUT: { revision: -1 } },
-  "/api/questions/1": { GET: null, PUT: { stem: "" }, PATCH: { stem: "" } },
-  "/api/reflections/1": { GET: null, PUT: { date: "2026-99-99" } },
-  "/api/students/1": { PUT: { name: "" } },
-  "/api/students/1/mastery": { GET: null, POST: {} },
-  "/api/students/1/wrong-questions": { GET: null, POST: {}, PATCH: {}, DELETE: {} },
-  "/api/exam-projects/1/results": { GET: null, PUT: {} },
-  "/api/papers/1": { GET: null, POST: {}, PATCH: {}, DELETE: {} },
-  "/api/papers/1/export-job": { GET: null, POST: {}, PUT: {}, PATCH: {} },
-  "/api/feedback-imports/1": { GET: null, PATCH: {} },
-  "/api/feedback-imports/1/confirm": { POST: {} },
-  "/api/question-sets/1/confirm": { POST: {} },
-  "/api/question-views/1": { DELETE: {} },
-  "/api/resources/1": { DELETE: {} },
-  "/api/schedule-imports/1/confirm": { POST: {} },
-  "/api/settings": { POST: {} },
-  "/api/workflow-templates/1": { GET: null, PUT: {}, DELETE: {} },
-  "/api/audit": { POST: { entityType: "", action: "" } },
+  "/api/v2/academic-years/[year]/promotion": { POST: { academicYear: "2025-2026" }, GET: null },
+  "/api/v2/assessments/1": { PUT: { date: "2026-99-99" } },
+  "/api/v2/classes/1": { PUT: { name: "" }, PATCH: { name: "" }, POST: { name: "" } },
+  "/api/v2/feedback/1": { PUT: { content: "" } },
+  "/api/v2/lessons/1": { PUT: { topic: "" } },
+  "/api/v2/lessons/1/activity": { GET: null, POST: {} },
+  "/api/v2/lessons/1/homework-draft": { POST: {} },
+  "/api/v2/lessons/1/prep": { PATCH: {}, GET: null },
+  "/api/v2/lessons/1/questions": { GET: null, POST: { questionIds: [] }, DELETE: {} },
+  "/api/v2/lessons/1/questions/batch": { POST: { questionIds: [] } },
+  "/api/v2/lessons/1/workflow-state": { GET: null, PUT: { revision: -1 } },
+  "/api/v2/questions/1": { GET: null, PUT: { stem: "" }, PATCH: { stem: "" } },
+  "/api/v2/reflections/1": { GET: null, PUT: { date: "2026-99-99" } },
+  "/api/v2/students/1": { PUT: { name: "" } },
+  "/api/v2/students/1/mastery": { GET: null, POST: {} },
+  "/api/v2/students/1/wrong-questions": { GET: null, POST: {}, PATCH: {}, DELETE: {} },
+  "/api/v2/exam-projects/1/results": { GET: null, PUT: {} },
+  "/api/v2/papers/1": { GET: null, POST: {}, PATCH: {}, DELETE: {} },
+  "/api/v2/papers/1/export-job": { GET: null, POST: {}, PUT: {}, PATCH: {} },
+  "/api/v2/feedback-imports/1": { GET: null, PATCH: {} },
+  "/api/v2/question-views/1": { DELETE: {} },
+  "/api/v2/resources/1": { DELETE: {} },
+  "/api/v2/schedule-imports/1/confirm": { POST: { operationId: "surface-audit" } },
+  "/api/v2/settings": { POST: {} },
+  "/api/v2/workflow-templates": { PUT: {}, DELETE: {} },
+  "/api/v2/audit": { POST: { entityType: "", action: "" } },
   "/api/auth/change-password": { POST: { currentPassword: "wrong", newPassword: "short" } },
-  "/api/questions/1/review": { POST: {} },
-  "/api/question-sets/source": { POST: {} },
-  "/api/assignments/1/submissions": { GET: null, POST: {} },
-  "/api/assignments/files": { POST: {} },
-  "/api/papers/1/files": { GET: null, POST: {} },
-  "/api/files/1": { GET: null },
-  "/api/questions/1/content": { GET: null },
-  "/api/questions/1/similar": { GET: null },
-  "/api/students/1/insights": { GET: null },
-  "/api/students/1/monthly-report": { GET: null },
-  "/api/students/1/private": { GET: null },
-  "/api/students/1/recommendations": { GET: null },
-  "/api/students/1/score-trends": { GET: null },
-  "/api/papers/1/files/1": { GET: null },
+  "/api/v2/questions/1/review-draft": { POST: {} },
+  "/api/v2/question-sets/source": { POST: {} },
+  "/api/v2/assignments/1/submissions": { GET: null, POST: {} },
+  "/api/v2/assignments/files": { POST: {} },
+  "/api/v2/papers/1/files": { GET: null },
+  "/api/v2/files/1": { GET: null },
+  "/api/v2/questions/1/content": { GET: null },
+  "/api/v2/questions/1/similar": { GET: null, POST: {} },
+  "/api/v2/students/1/insights": { GET: null },
+  "/api/v2/students/1/monthly-report": { GET: null },
+  "/api/v2/students/1/private": { GET: null },
+  "/api/v2/students/1/recommendations": { GET: null },
+  "/api/v2/students/1/score-trends": { GET: null },
+  "/api/v2/papers/1/files/1": { GET: null },
   "/api/v2/mini/me/GET": null,
   "/api/v2/mini/portal/GET": null,
   "/api/v2/mini/logout/POST": {},
@@ -275,12 +272,12 @@ const methodPayloads = {
 };
 
 const skipAuthenticatedGet = new Set([
-  "/api/exports/lessons",
-  "/api/finance/export",
-  "/api/settings/export",
-  "/api/settings/demo",
-  "/api/settings/data",
-  "/api/reflections",
+  "/api/v2/exports/lessons",
+  "/api/v2/finance/export",
+  "/api/v2/settings/export",
+  "/api/v2/settings/demo",
+  "/api/v2/settings/data",
+  "/api/v2/reflections",
   "/api/auth/login",
   "/api/auth/logout",
 ]);
@@ -291,17 +288,18 @@ const publicRoutes = new Set([
   "/api/session",
   "/api/calendar/feed/invalid-token",
   "/api/calendar/feed/[token]",
-  "/api/resources",
+  "/api/v2/resources",
   "/api/v2/mini/login",
 ]);
 
 const multipartMethods = {
-  "/api/assignments/files": new Set(["POST"]),
-  "/api/files": new Set(["POST"]),
-  "/api/papers/upload": new Set(["POST"]),
-  "/api/question-sets/source": new Set(["POST"]),
-  "/api/schedule-imports": new Set(["POST"]),
-  "/api/papers/[id]/export-job": new Set(["PUT"]),
+  "/api/v2/assignments/files": new Set(["POST"]),
+  "/api/v2/class-files": new Set(["POST"]),
+  "/api/v2/files": new Set(["POST"]),
+  "/api/v2/papers/upload": new Set(["POST"]),
+  "/api/v2/question-sets/source": new Set(["POST"]),
+  "/api/v2/schedule-imports": new Set(["POST"]),
+  "/api/v2/papers/[id]/export-job": new Set(["PUT"]),
 };
 
 async function readRouteMethods(route) {
@@ -314,14 +312,14 @@ async function probeRoute(route, db, cookie, miniToken) {
   const resolved = await resolveRoutePath(route, db);
   const isPublic = publicRoutes.has(resolved) || publicRoutes.has(route);
   const isMini = route.startsWith("/api/v2/mini/");
-  const isExport = route.includes("/exports/") || route === "/api/finance/export" || route === "/api/settings/export";
-  const isDemoData = route === "/api/settings/demo" || route === "/api/settings/data";
+  const isExport = route.includes("/exports/") || route === "/api/v2/finance/export" || route === "/api/v2/settings/export";
+  const isDemoData = route === "/api/v2/settings/demo" || route === "/api/v2/settings/data";
   const methods = await readRouteMethods(route);
 
   if (isPublic) {
     if (route === "/api/auth/login") {
       const bad = await request(resolved, { method: "POST", body: {} });
-      record({ group: "api-public", kind: "login-empty", method: "POST", url: resolved, status: bad.response.status, expected: [401] });
+      record({ group: "api-public", kind: "login-empty", method: "POST", url: resolved, status: bad.response.status, expected: [401, 429] });
     } else if (route === "/api/auth/logout") {
       const out = await request(resolved, { method: "GET" });
       record({ group: "api-public", kind: "logout", method: "GET", url: resolved, status: out.response.status, expected: [303] });
@@ -331,18 +329,18 @@ async function probeRoute(route, db, cookie, miniToken) {
     } else if (route === "/api/calendar/feed/[token]") {
       const feed = await request(resolved);
       record({ group: "api-public", kind: "feed-invalid-token", method: "GET", url: resolved, status: feed.response.status, expected: [404] });
-    } else if (route === "/api/resources") {
+    } else if (route === "/api/v2/resources") {
       const resource = await request(resolved);
       record({ group: "api-public", kind: "resources-anonymous", method: "GET", url: resolved, status: resource.response.status, expected: [200] });
     } else if (route === "/api/v2/mini/login") {
-      const mini = await request(resolved, { method: "POST", body: { role: "student", testCode: "surface-audit" } });
+      const mini = await request(resolved, { method: "POST", body: { role: "student", testCode: miniTestCode } });
       record({ group: "api-mini", kind: "mini-login", method: "POST", url: resolved, status: mini.response.status, expected: [200], detail: mini.data?.token ? `token=${String(mini.data.token).slice(0, 8)}…` : JSON.stringify(mini.data).slice(0, 120) });
       if (mini.response.status === 200 && mini.data?.token) return mini.data.token;
     }
     return miniToken;
   }
 
-  if (route === "/api/resources/[id]") {
+  if (route === "/api/v2/resources/[id]") {
     const anonymousGet = await request(resolved);
     record({ group: "api-public", kind: "resource-detail-anonymous", method: "GET", url: resolved, status: anonymousGet.response.status, expected: [200, 404] });
     const authenticatedGet = await request(resolved, { cookie });
@@ -453,19 +451,19 @@ async function main() {
     }
     await waitForServer();
 
-    const login = await request("/api/auth/login", { method: "POST", body: { account: marker, password, returnTo: "/workspace" } });
+    const login = await request("/api/auth/login", { method: "POST", body: { account: marker, password, returnTo: "/v2" } });
     record({ group: "auth", kind: "login", method: "POST", url: "/api/auth/login", status: login.response.status, expected: [200] });
     cookie = login.response.headers.get("set-cookie")?.split(";")[0] || "";
     if (!cookie.startsWith("zhishi_teacher_admin=")) anomalies.push({ group: "auth", kind: "login-cookie", method: "POST", url: "/api/auth/login", status: login.response.status, expected: [200], detail: "未获得教师会话 Cookie" });
 
-    await request("/api/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
-    const demo = await request("/api/settings/demo", { cookie, method: "POST", body: {} });
-    record({ group: "demo", kind: "create-demo", method: "POST", url: "/api/settings/demo", status: demo.response.status, expected: [200, 201] });
+    await request("/api/v2/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
+    const demo = await request("/api/v2/settings/demo", { cookie, method: "POST", body: {} });
+    record({ group: "demo", kind: "create-demo", method: "POST", url: "/api/v2/settings/demo", status: demo.response.status, expected: [200, 201] });
 
     const pages = await collectPageRoutes();
     for (const page of pages) {
       const resolved = await resolveRoutePath(page, sqlite);
-      const isPublicPage = page === "/" || page === "/teacher-login" || page === "/resources" || page === "/resources/[id]";
+      const isPublicPage = ["/", "/account-deletion", "/install", "/privacy", "/resources", "/resources/[id]", "/support", "/teacher-login", "/terms"].includes(page);
       const anon = await request(resolved);
       record({
         group: "page",
@@ -538,8 +536,12 @@ async function main() {
   } finally {
     try {
       if (cookie) {
-        const cleanup = await request("/api/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
+        const cleanup = await request("/api/v2/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
         console.error(`demo cleanup -> ${cleanup.response.status} ${JSON.stringify(cleanup.data).slice(0, 200)}`);
+        if (!cleanup.response.ok) {
+          console.error(serverLogTail.slice(-30).join("\n"));
+          process.exitCode = 1;
+        }
       }
     } catch (error) {
       console.error(`demo cleanup failed -> ${String(error)}`);

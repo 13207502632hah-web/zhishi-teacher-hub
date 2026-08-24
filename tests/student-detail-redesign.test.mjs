@@ -5,9 +5,9 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("student detail loads each evidence section through the typed request layer", async () => {
-  const page = await read("app/students/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx");
 
-  assert.match(page, /import \{ HttpError, requestJson \} from "\.\.\/\.\.\/lib\/http-client"/);
+  assert.match(page, /import \{ HttpError, requestJson \} from "\.\.\/\.\.\/\.\.\/\.\.\/lib\/http-client"/);
   assert.match(page, /AbortController/);
   assert.match(page, /requestJson<.*students\/\$\{(?:id|encodedId)\}/s);
   for (const section of ["mastery", "insights", "trend"]) {
@@ -22,7 +22,7 @@ test("student detail loads each evidence section through the typed request layer
 });
 
 test("student detail mutations guard duplicate submits and recover from failures", async () => {
-  const page = await read("app/students/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx");
 
   for (const state of ["saveBusy", "wrongSaveBusy", "masterySaveBusy", "archiveBusy"]) {
     assert.match(page, new RegExp(state));
@@ -36,7 +36,7 @@ test("student detail mutations guard duplicate submits and recover from failures
 });
 
 test("student detail dialogs preserve focus, escape, and unfinished edits", async () => {
-  const page = await read("app/students/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx");
 
   assert.match(page, /dialogRef/);
   assert.match(page, /previousFocusRef/);
@@ -50,7 +50,7 @@ test("student detail dialogs preserve focus, escape, and unfinished edits", asyn
 });
 
 test("student detail keeps sensitive data and AI output teacher-controlled", async () => {
-  const page = await read("app/students/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx");
 
   assert.match(page, /监护人联系方式属于敏感信息/);
   assert.match(page, /教师确认后查看/);
@@ -65,8 +65,8 @@ test("student detail keeps sensitive data and AI output teacher-controlled", asy
 
 test("student detail uses a mobile-first CSS module and existing design tokens", async () => {
   const [page, css] = await Promise.all([
-    read("app/students/[id]/page.tsx"),
-    read("app/students/[id]/student-detail.module.css"),
+    read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx"),
+    read("app/v2/detail/[kind]/[id]/student-detail.module.css"),
   ]);
 
   assert.match(page, /student-detail\.module\.css/);
@@ -81,4 +81,20 @@ test("student detail uses a mobile-first CSS module and existing design tokens",
   assert.match(css, /@media\s*\(min-width:\s*80rem\)/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   assert.doesNotMatch(css, /#d8f16b/i);
+});
+
+test("student evidence detail is V2-only and every capability uses a versioned contract", async () => {
+  const [page, route] = await Promise.all([
+    read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx"),
+    read("app/v2/detail/[kind]/[id]/page.tsx"),
+  ]);
+  await assert.rejects(read("app/students/[id]/page.tsx"), { code: "ENOENT" });
+  assert.match(route, /StudentDetailWorkspace/);
+  for (const endpoint of ["mastery", "insights", "score-trends", "wrong-questions", "private", "monthly-report", "recommendations"]) {
+    assert.match(page, new RegExp(`/api/v2/students/\\$\\{encodedId\\}/${endpoint}`));
+    assert.ok((await read(`app/api/v2/students/[id]/${endpoint}/route.ts`)).includes("export async function"));
+  }
+  assert.match(page, /\/api\/v2\/questions\/search/);
+  assert.match(page, /\/api\/v2\/ai\/wrong-question-remediation/);
+  assert.doesNotMatch(page, /<AppShell/);
 });

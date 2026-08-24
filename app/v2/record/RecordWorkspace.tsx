@@ -43,7 +43,7 @@ export function RecordWorkspace() {
   const load = useCallback(async () => {
     const [recordResponse, lessonResponse] = await Promise.all([
       fetch("/api/v2/mobile/records", { cache: "no-store" }),
-      fetch("/api/lessons?from=" + new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10), { cache: "no-store" }),
+      fetch("/api/v2/lessons?from=" + new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10), { cache: "no-store" }),
     ]);
     if (recordResponse.ok) setRecords(((await recordResponse.json()) as { records: RecordItem[] }).records || []);
     if (lessonResponse.ok) setLessons(((await lessonResponse.json()) as { lessons: Lesson[] }).lessons?.slice(0, 40) || []);

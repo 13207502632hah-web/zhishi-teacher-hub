@@ -5,7 +5,7 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("resources API exposes public discovery summary and a bounded public scope", async () => {
-  const api = await read("app/api/resources/route.ts");
+  const api = await read("app/api/v2/resources/route.ts");
 
   assert.match(api, /scope/);
   assert.match(api, /limit/);
@@ -13,7 +13,8 @@ test("resources API exposes public discovery summary and a bounded public scope"
   assert.match(api, /\.limit\(limit\)/);
   assert.match(api, /publicCount/);
   assert.match(api, /popularTags/);
-  assert.match(api, /visibility\s*===\s*["`]public["`]/);
+  assert.match(api, /visibility:\s*["`]private["`]/);
+  assert.doesNotMatch(api, /body\.visibility\s*===\s*["`]public["`]/);
 });
 
 test("public home renders a real resource preview backed by the public API", async () => {
@@ -37,7 +38,7 @@ test("public home preview styles are mobile-first with desktop enhancement", asy
   assert.match(css, /@media\s*\(min-width:\s*48rem\)/);
 });
 
-test("docs keep resources write boundary and portal access implementation accurate", async () => {
+test("docs keep resources write boundary and mini-only learner access accurate", async () => {
   const [readme, architecture] = await Promise.all([
     read("README.md"),
     read("ARCHITECTURE.md"),
@@ -45,9 +46,11 @@ test("docs keep resources write boundary and portal access implementation accura
 
   assert.match(architecture, /匿名\/公开请求只读公开资源/);
   assert.match(architecture, /新增、删除与私有范围读写要求教师或已授权助教/);
-  assert.match(architecture, /门户页面与 API 暂按教师管理员登录保护/);
-  assert.match(readme, /当前实现说明/);
-  assert.match(readme, /登录链路尚未开放/);
+  assert.match(architecture, /学生与家长唯一业务入口/);
+  assert.match(architecture, /网站不建立学生或家长会话/);
+  assert.match(readme, /学生与家长仅使用微信小程序/);
+  assert.match(readme, /网站只服务主教师和助教/);
+  assert.doesNotMatch(readme, /`\/portal`/);
 });
 
 test("resources page surfaces the public discovery summary from the same API", async () => {
@@ -61,7 +64,7 @@ test("resources page surfaces the public discovery summary from the same API", a
 });
 
 test("popular tags aggregate across all public resources, not only current result rows", async () => {
-  const api = await read("app/api/resources/route.ts");
+  const api = await read("app/api/v2/resources/route.ts");
 
   assert.match(api, /publicTagRows/);
   assert.match(api, /\.from\(resources\)\.where\(eq\(resources\.visibility,\s*["`]public["`]\)\)/);

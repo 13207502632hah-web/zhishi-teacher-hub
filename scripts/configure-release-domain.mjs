@@ -31,7 +31,7 @@ export function releaseTarget(rootDomain = "") {
   return {
     rootDomain: normalized,
     webOrigin: `https://${normalized}`,
-    apiOrigin: `https://api.${normalized}`,
+    apiOrigin: `https://${normalized}`,
   };
 }
 

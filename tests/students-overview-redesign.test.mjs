@@ -5,7 +5,7 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("student overview keeps student and class requests independently recoverable", async () => {
-  const page = await read("app/students/page.tsx");
+  const page = await read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx");
 
   assert.match(page, /requestJson/);
   assert.match(page, /HttpError/);
@@ -21,7 +21,7 @@ test("student overview keeps student and class requests independently recoverabl
 });
 
 test("student filters apply explicitly instead of requesting on every keystroke", async () => {
-  const page = await read("app/students/page.tsx");
+  const page = await read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx");
 
   assert.match(page, /draftFilters/);
   assert.match(page, /appliedFilters/);
@@ -32,7 +32,7 @@ test("student filters apply explicitly instead of requesting on every keystroke"
 });
 
 test("student creation is teacher-only, guarded, and preserves unfinished work", async () => {
-  const page = await read("app/students/page.tsx");
+  const page = await read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx");
 
   assert.match(page, /useSessionState/);
   assert.match(page, /const canWrite = session\.role === "teacher"/);
@@ -47,7 +47,7 @@ test("student creation is teacher-only, guarded, and preserves unfinished work",
 });
 
 test("student overview uses shared primitives and evidence-first growth sections", async () => {
-  const page = await read("app/students/page.tsx");
+  const page = await read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx");
 
   for (const component of ["Button", "EmptyState", "MetricCard", "Panel", "StatusBadge"]) {
     assert.match(page, new RegExp(component));
@@ -77,10 +77,26 @@ test("student overview styles are readable touch-safe and mobile-first", async (
 });
 
 test("student creation only enrolls into accessible active classes", async () => {
-  const route = await read("app/api/students/route.ts");
+  const route = await read("app/api/v2/students/route.ts");
 
   assert.match(route, /requireClassAccess/);
   assert.match(route, /仅可加入进行中的班级/);
   assert.match(route, /status='active'/);
   assert.match(route, /classNames/);
+});
+
+test("student overview is native V2 and the retired root entry is gone", async () => {
+  const [workspace, module, attention] = await Promise.all([
+    read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx"),
+    read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),
+    read("app/api/v2/students/attention/route.ts"),
+  ]);
+
+  await assert.rejects(read("app/students/page.tsx"), { code: "ENOENT" });
+  assert.match(module, /<StudentOverviewWorkspace\/>/);
+  assert.match(workspace, /\/api\/v2\/students/);
+  assert.match(workspace, /\/api\/v2\/classes\/options/);
+  assert.match(workspace, /\/v2\/detail\/students\//);
+  assert.doesNotMatch(workspace, /<AppShell/);
+  assert.match(attention, /export async function GET/);
 });

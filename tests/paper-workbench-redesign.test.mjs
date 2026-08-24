@@ -17,7 +17,7 @@ const loadTsModule = async (path) => {
 };
 
 test("paper candidates wait for explicit filters and every request uses the resilient client", async () => {
-  const page = await read("app/papers/page.tsx");
+  const page = await read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx");
 
   assert.match(page, /appliedFilters/);
   assert.match(page, /applyCandidateFilters/);
@@ -27,7 +27,7 @@ test("paper candidates wait for explicit filters and every request uses the resi
 });
 
 test("paper candidates paginate through the bank with totals and load more", async () => {
-  const page = await read("app/papers/page.tsx");
+  const page = await read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx");
 
   assert.match(page, /page: String\(page\)/);
   assert.match(page, /candidateTotal/);
@@ -66,7 +66,7 @@ test("paper draft validation rejects missing titles, invalid scores and invalid 
 });
 
 test("creating a paper draft does not count questions as already used", async () => {
-  const route = await read("app/api/papers/route.ts");
+  const route = await read("app/api/v2/papers/route.ts");
 
   assert.doesNotMatch(route, /UPDATE questions SET use_count=use_count\+1/);
 });
@@ -151,7 +151,7 @@ test("paper recommendation drops invalid and zero-score candidates", async () =>
 });
 
 test("paper workbench exposes clear actions, recommendation engine and candidate totals", async () => {
-  const page = await read("app/papers/page.tsx");
+  const page = await read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx");
 
   assert.match(page, /recommendPaperQuestions/);
   assert.match(page, /loadAllCandidates/);
@@ -164,7 +164,7 @@ test("paper workbench exposes clear actions, recommendation engine and candidate
 });
 
 test("saved paper filters persist to the URL and restore on refresh", async () => {
-  const page = await read("app/papers/page.tsx");
+  const page = await read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx");
 
   assert.match(page, /new URLSearchParams\(location\.search\)/);
   assert.match(page, /params\.get\("paperSearch"\)/);
@@ -172,7 +172,16 @@ test("saved paper filters persist to the URL and restore on refresh", async () =
   assert.match(page, /params\.get\("academicYear"\)/);
   assert.match(page, /params\.get\("province"\)/);
   assert.match(page, /if \(value\) query\.set\(key, value\)/);
-  assert.match(page, /history\.replaceState\(null, "", `\/papers/);
+  assert.match(page, /history\.replaceState\(null, "", `\/v2\/modules\/papers/);
   assert.match(page, /clearPaperFilters/);
   assert.match(page, /清空试卷筛选/);
+});
+
+test("paper workbench uses only versioned V2 business endpoints", async () => {
+  const page = await read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx");
+
+  for (const endpoint of ["/api/v2/questions", "/api/v2/papers", "/api/v2/papers/upload"]) {
+    assert.match(page, new RegExp(endpoint.replaceAll("/", "\\/")));
+  }
+  assert.doesNotMatch(page, /["`]\/api\/(questions|papers)(?:[?"`/])/);
 });

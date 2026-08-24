@@ -209,8 +209,8 @@ function insertClasses(db, count = 4300) {
   }
 }
 
-const classesRoute = () => loadTsModule("app/api/classes/route.ts");
-const optionsRoute = () => loadTsModule("app/api/classes/options/route.ts");
+const classesRoute = () => loadTsModule("app/api/v2/classes/route.ts");
+const optionsRoute = () => loadTsModule("app/api/v2/classes/options/route.ts");
 
 const getJson = async (routeModule, pathname, search) => {
   const url = `http://localhost${pathname}${search ? `?${search}` : ""}`;
@@ -224,7 +224,7 @@ test("4300 classes paginate with a bounded page and stable total", { skip: !sqli
   const { db } = setupDatabase();
   insertClasses(db, 4300);
 
-  const first = await getJson(classesRoute(), "/api/classes");
+  const first = await getJson(classesRoute(), "/api/v2/classes");
   assert.equal(first.response.status, 200);
   assert.equal(first.data.classes.length, 50, "default page must stay bounded");
   assert.equal(first.data.total, 4300);
@@ -232,7 +232,7 @@ test("4300 classes paginate with a bounded page and stable total", { skip: !sqli
   assert.equal(first.data.pageSize, 50);
   assert.equal(first.data.pageCount, 86);
 
-  const second = await getJson(classesRoute(), "/api/classes", searchParams({ page: "2" }));
+  const second = await getJson(classesRoute(), "/api/v2/classes", searchParams({ page: "2" }));
   assert.equal(second.response.status, 200);
   assert.equal(second.data.classes.length, 50);
   const firstIds = new Set(first.data.classes.map((item) => item.id));
@@ -246,23 +246,23 @@ test("class search reaches rows beyond the first page", { skip: !sqlite }, async
   const { db } = setupDatabase();
   insertClasses(db, 4300);
 
-  const result = await getJson(classesRoute(), "/api/classes", searchParams({ q: "班级-4200" }));
+  const result = await getJson(classesRoute(), "/api/v2/classes", searchParams({ q: "班级-4200" }));
   assert.equal(result.response.status, 200);
   assert.equal(result.data.total, 1);
   assert.equal(result.data.classes[0].name, "班级-4200");
   assert.ok(result.data.classes[0].id >= 4200);
 });
 
-test("/api/classes/options stays bounded and filters by q", { skip: !sqlite }, async () => {
+test("/api/v2/classes/options stays bounded and filters by q", { skip: !sqlite }, async () => {
   const { db } = setupDatabase();
   insertClasses(db, 4300);
 
-  const all = await getJson(optionsRoute(), "/api/classes/options");
+  const all = await getJson(optionsRoute(), "/api/v2/classes/options");
   assert.equal(all.response.status, 200);
   assert.equal(all.data.classes.length, 50, "options must never return more than 50 rows");
   assert.equal(all.data.total, 4300);
 
-  const filtered = await getJson(optionsRoute(), "/api/classes/options", searchParams({ q: "班级-4100" }));
+  const filtered = await getJson(optionsRoute(), "/api/v2/classes/options", searchParams({ q: "班级-4100" }));
   assert.equal(filtered.response.status, 200);
   assert.deepEqual(filtered.data.classes.map((item) => item.name), ["班级-4100"]);
   assert.equal(filtered.data.total, 1);
@@ -272,12 +272,12 @@ test("a class beyond the first 50 is reachable through options q and ids", { ski
   const { db } = setupDatabase();
   insertClasses(db, 4300);
 
-  const byQ = await getJson(optionsRoute(), "/api/classes/options", searchParams({ q: "班级-4300" }));
+  const byQ = await getJson(optionsRoute(), "/api/v2/classes/options", searchParams({ q: "班级-4300" }));
   assert.equal(byQ.data.classes.length, 1);
   assert.equal(byQ.data.classes[0].name, "班级-4300");
   assert.equal(byQ.data.classes[0].id, 4300);
 
-  const byIds = await getJson(optionsRoute(), "/api/classes/options", searchParams({ ids: "4300" }));
+  const byIds = await getJson(optionsRoute(), "/api/v2/classes/options", searchParams({ ids: "4300" }));
   assert.equal(byIds.data.classes.length, 1);
   assert.equal(byIds.data.classes[0].name, "班级-4300");
 });
@@ -288,14 +288,14 @@ test("paginated classes payload drops at least 80% versus the full list", { skip
 
   const all = [];
   for (let page = 1; page <= 22; page++) {
-    const part = await getJson(classesRoute(), "/api/classes", searchParams({ pageSize: "200", page: String(page) }));
+    const part = await getJson(classesRoute(), "/api/v2/classes", searchParams({ pageSize: "200", page: String(page) }));
     assert.equal(part.response.status, 200);
     all.push(...part.data.classes);
   }
   assert.equal(all.length, 4300);
   const fullBytes = Buffer.byteLength(JSON.stringify({ classes: all }), "utf8");
 
-  const result = await getJson(classesRoute(), "/api/classes");
+  const result = await getJson(classesRoute(), "/api/v2/classes");
   assert.equal(result.response.status, 200);
   const defaultBytes = Buffer.byteLength(JSON.stringify(result.data), "utf8");
   assert.ok(
@@ -303,7 +303,7 @@ test("paginated classes payload drops at least 80% versus the full list", { skip
     `default page must cut at least 80% of the full classes payload (${defaultBytes} bytes vs ${fullBytes} bytes)`,
   );
 
-  const options = await getJson(optionsRoute(), "/api/classes/options");
+  const options = await getJson(optionsRoute(), "/api/v2/classes/options");
   const optionsBytes = Buffer.byteLength(JSON.stringify(options.data), "utf8");
   assert.ok(optionsBytes < 100_000, `options payload must stay small, got ${optionsBytes} bytes`);
   assert.ok(

@@ -15,20 +15,16 @@ async function sourceFiles(directory) {
   return nested.flat();
 }
 
-test("dashboard uses the political-teaching workspace navigation", async () => {
-  const [page, shell, navigation, layout, dashboardApi, brand] = await Promise.all([read("app/page.tsx"), read("app/components/AppShell.tsx"), read("app/components/navigation.ts"), read("app/layout.tsx"), read("app/api/dashboard/route.ts"), read("app/lib/brand.ts")]);
-  for (const label of ["今日","题库","组卷","课时","学生","测验与成绩","课程反馈","教学反思","数据中心","资源中心","教研与运营"]) assert.match(navigation, new RegExp(label));
-  assert.match(shell, /WorkspaceNavigation/);
-  for (const label of ["今日教学工作台", "导入 Word", "继续校对", "搜索题目", "开始组卷", "今日课程", "今天建议先完成的3件事", "集中待办"]) assert.match(page, new RegExp(label));
-  assert.match(page,/\[7,14,30\]/);
-  assert.match(page,/\/api\/dashboard\?days=\$\{days\}/);
-  assert.match(page,/工作台暂时无法读取/);
-  assert.doesNotMatch(page, /12,800|4\.9 \/ 5/);
+test("V2 dashboard is the only primary teacher workspace", async () => {
+  const [page, shell, layout, brand] = await Promise.all([read("app/v2/page.tsx"), read("app/v2/V2Shell.tsx"), read("app/layout.tsx"), read("app/lib/brand.ts")]);
+  for (const label of ["教学驾驶舱", "智能课表", "智能题库", "组卷工作台", "作业与批改", "学生、班级与课时", "学情与反馈", "资源中心", "财务核对", "系统设置"]) assert.match(shell, new RegExp(label));
+  for (const label of ["今天先把最影响教学的事处理掉", "今日课时", "待确认中心", "智能课表", "智能题库", "完整教学工作流"]) assert.match(page, new RegExp(label));
+  assert.match(page, /env\.DB\.prepare/);
+  assert.doesNotMatch(page, /12,800|4\.9 \/ 5|内部测试/);
   assert.match(layout, /title: METADATA_TITLE/);
   assert.match(brand, /BRAND_NAME = "知师研室"/);
   assert.match(brand, /BRAND_TAGLINE = "初高中教师教学工作台"/);
   assert.ok(brand.includes('METADATA_TITLE = `${BRAND_NAME}｜${BRAND_TAGLINE}`;'), "brand metadata title stays parameterized");
-  assert.match(dashboardApi, /l\.topic,l\.mode,l\.location,l\.online_link AS onlineLink,l\.status/);
 });
 
 test("route navigation keeps session state mounted and preserves native link behavior", async () => {
@@ -73,7 +69,7 @@ test("every literal internal hyperlink resolves to an existing page or API route
 });
 
 test("zero-cost usability optimizations add quick navigation, resilient route states and explicit question search", async () => {
-  const [shell, questions, loading, error, notFound, design] = await Promise.all(["app/components/AppShell.tsx", "app/questions/page.tsx", "app/loading.tsx", "app/error.tsx", "app/not-found.tsx", "app/design-system.css"].map(read));
+  const [shell, questions, loading, error, notFound, design] = await Promise.all(["app/components/AppShell.tsx", "app/v2/questions/QuestionLibraryWorkspace.tsx", "app/loading.tsx", "app/error.tsx", "app/not-found.tsx", "app/design-system.css"].map(read));
   assert.match(shell, /Command 或 Control 加 K/); assert.match(shell, /quickSwitcher/); assert.match(shell, /搜索工作台入口/);
   assert.match(questions, /submitSearch/); assert.match(questions, /requestJson/); assert.match(questions, /AbortController/); assert.match(questions, /AbortError/); assert.match(questions, /signal: controller\.signal/);
   assert.match(loading, /正在整理教学工作台/); assert.match(error, /不会因为本次失败自动重复提交/); assert.match(error, /reset/); assert.match(notFound, /没有找到这个页面/);
@@ -81,7 +77,7 @@ test("zero-cost usability optimizations add quick navigation, resilient route st
 });
 
 test("stage one exposes lesson and student persistence surfaces", async () => {
-  const [schema, lessonApi, lessonPage, lessonDetail, classPage, studentPage, hosting] = await Promise.all([read("db/schema.ts"),read("app/api/lessons/route.ts"),read("app/lessons/page.tsx"),read("app/lessons/[id]/page.tsx"),read("app/classes/page.tsx"),read("app/students/page.tsx"),read(".openai/hosting.json")]);
+  const [schema, lessonApi, lessonPage, lessonDetail, classPage, studentPage, hosting] = await Promise.all([read("db/schema.ts"),read("app/api/v2/lessons/route.ts"),read("app/v2/modules/[slug]/LessonOverviewWorkspace.tsx"),read("app/v2/detail/[kind]/[id]/LessonDetailWorkspace.tsx"),read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx"),read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx"),read(".openai/hosting.json")]);
   for (const table of ["users","roles","classes","students","enrollments","courses","lessons","attendance","studentLessonRecords","assignments","questions","papers","feedback","reflections","resources","auditLogs"]) assert.match(schema,new RegExp(`export const ${table}`));
   assert.match(hosting,/"d1": "DB"/); assert.match(lessonApi,/export async function POST/); assert.match(lessonPage,/确认删除/); assert.match(lessonPage,/复制/); assert.match(lessonDetail,/window\.print/); assert.match(classPage,/新建班级/); assert.match(studentPage,/监护人联系方式/); assert.match(studentPage,/风险标签必须由教师手动确认/);
 });
@@ -93,58 +89,59 @@ test("original brand experience remains available as resource center", async () 
 });
 
 test("question review URLs, counts and pagination share one contract", async () => {
-  const [page,api,dashboard,summary] = await Promise.all([read("app/questions/page.tsx"),read("app/api/questions/route.ts"),read("app/api/dashboard/route.ts"),read("app/lib/question-review.ts")]);
+  const [page,api,dashboard,summary] = await Promise.all([read("app/v2/questions/QuestionLibraryWorkspace.tsx"),read("app/api/v2/questions/route.ts"),read("app/api/v2/dashboard/route.ts"),read("app/lib/question-review.ts")]);
   assert.match(page,/setStatus\(params\.get\("status"\)/); assert.match(page,/setReady\(true\)/); assert.match(page,/选择全部结果/); assert.match(page,/pageCount/); assert.match(page,/reviewIssues\.total/);
   for(const field of ["total","pageCount","allIds","filters","issues"]) assert.match(api,new RegExp(field));
   assert.match(api,/questionReviewSummary/); assert.match(dashboard,/questionReviewSummary/); assert.match(summary,/WHERE status=\?/);
 });
 
 test("daily-use design keeps lesson and assessment states explicit", async () => {
-  const [lesson,assessment,design] = await Promise.all([read("app/lessons/[id]/page.tsx"),read("app/assessments/[id]/page.tsx"),read("app/design-system.css")]);
+  const [lesson,assessment,design] = await Promise.all([read("app/v2/detail/[kind]/[id]/LessonDetailWorkspace.tsx"),read("app/v2/operations/[kind]/[id]/OperationDetail.tsx"),read("app/design-system.css")]);
   for(const label of ["签到","教学内容","课堂表现","作业","反馈","下节计划","整理为反馈草稿"]) assert.match(lesson,new RegExp(label));
   assert.match(assessment,/样本不足/); assert.match(assessment,/有未保存修改/); assert.match(design,/position:sticky/); assert.match(design,/min-height:44px/);
 });
 
 test("next-stage workflows cover WeChat feedback, whole papers, review and explainable attention", async () => {
   const [schema, feedbackPage, generator, copied, paperPage, paperDetail, upload, files, questions, batch, readiness, reviewService, studentRoute, studentPage, migration] = await Promise.all([
-    "db/schema.ts","app/feedback/page.tsx","app/lib/feedback-generator.ts","app/api/feedback/[id]/copied/route.ts","app/papers/page.tsx","app/papers/[id]/page.tsx","app/api/papers/upload/route.ts","app/api/papers/[id]/files/route.ts","app/api/questions/route.ts","app/api/questions/batch/route.ts","app/lib/question-readiness.ts","app/lib/services/question-review-service.ts","app/api/students/[id]/route.ts","app/students/[id]/page.tsx","drizzle/0014_teacher_feedback_papers.sql",
+    "db/schema.ts","app/v2/modules/[slug]/ModuleWorkspace.tsx","app/lib/feedback-generator.ts","app/api/v2/feedback/[id]/copied/route.ts","app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx","app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx","app/api/v2/papers/upload/route.ts","app/api/v2/papers/[id]/files/route.ts","app/api/v2/questions/route.ts","app/api/v2/questions/batch/route.ts","app/lib/question-readiness.ts","app/lib/services/question-review-service.ts","app/api/v2/students/[id]/route.ts","app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx","drizzle/0014_teacher_feedback_papers.sql",
   ].map(read));
   for (const entity of ["feedbackTemplates","paperFiles","copiedAt","shortContent","standardContent","useStatus"]) assert.match(schema,new RegExp(entity));
   for (const label of ["微信私聊版","家长群版","复制简短版","复制标准版","预计提交时间","简短补充"]) assert.match(feedbackPage,new RegExp(label));
   assert.match(generator,/generateFeedback/); assert.match(generator,/previousHomework/); assert.match(copied,/copied_at/);
   for (const label of ["上传整张试卷","上传并保存原卷","原卷优先"]) assert.match(paperPage,new RegExp(label));
   for (const label of ["整张试卷版本","打开并打印原卷","布置为作业"]) assert.match(paperDetail,new RegExp(label));
-  assert.match(upload,/env\.FILES\.put/); assert.match(upload,/30 \* 1024 \* 1024/); assert.match(files,/assignment_submissions/);
+  assert.match(upload,/env\.FILES\.put/); assert.match(upload,/30 \* 1024 \* 1024/); assert.doesNotMatch(files,/assignment_submissions/); assert.match(paperDetail,/assignment\.publish/);
   assert.match(questions,/issue === "ready"/); assert.match(batch,/reviewQuestions/); assert.match(reviewService,/questionReadinessIssues/); assert.match(readiness,/疑似重复/); assert.match(readiness,/主观题缺少采分点或解析/);
   assert.match(studentRoute,/attention/); assert.match(studentRoute,/得分率下降/); assert.match(studentPage,/学习关注事项/); assert.match(studentPage,/生成阶段总结/);
   for (const field of ["paper_files","feedback_templates","copied_at","paper_id"]) assert.match(migration,new RegExp(field));
 });
 
-test("reviewed questions can enter the formal bank without one blocked item stopping the group", async () => {
-  const [confirmRoute, batchRoute, reviewService, page, readiness] = await Promise.all([read("app/api/question-sets/[id]/confirm/route.ts"),read("app/api/questions/batch/route.ts"),read("app/lib/services/question-review-service.ts"),read("app/questions/page.tsx"),read("app/lib/question-readiness.ts")]);
-  assert.match(confirmRoute,/reviewedIds/); assert.match(confirmRoute,/partial/); assert.match(confirmRoute,/promoted/); assert.match(confirmRoute,/reviewQuestions/);
-  assert.match(batchRoute,/reviewQuestions/); assert.match(reviewService,/questionReadinessIssues/); assert.match(reviewService,/status='active'/); assert.match(page,/将已校对且合格的题目入库/); assert.doesNotMatch(page,/disabled=\{reviewCount !== parsed\.length\}/);
+test("reviewed questions enter the formal bank only through the unified approval center", async () => {
+  const [approvalRoute, executor, reviewService, page, readiness] = await Promise.all([read("app/api/v2/approvals/route.ts"),read("app/lib/v2/approval-executor.ts"),read("app/lib/services/question-review-service.ts"),read("app/v2/questions/QuestionLibraryWorkspace.tsx"),read("app/lib/question-readiness.ts")]);
+  for (const action of ["question.promote", "question.update", "question.delete"]) assert.match(approvalRoute,new RegExp(action.replace(".", "\\.")));
+  assert.match(executor,/reviewQuestions\(ids, "confirm"\)/); assert.match(executor,/question\.update/); assert.match(executor,/question\.delete/);
+  assert.match(reviewService,/questionReadinessIssues/); assert.match(reviewService,/status='active'/); assert.match(page,/提交正式入库确认/); assert.match(page,/queueQuestionApproval/); assert.doesNotMatch(page,/disabled=\{reviewCount !== parsed\.length\}/);
   assert.match(readiness,/主观题缺少采分点或解析/); assert.match(readiness,/缺少选项/); assert.match(readiness,/识别置信度低/);
 });
 
 test("Word imports accept the advertised size and explain non-JSON upload failures", async () => {
-  const [config, page, source] = await Promise.all([read("next.config.ts"), read("app/questions/page.tsx"), read("app/api/question-sets/source/route.ts")]);
+  const [config, page, source] = await Promise.all([read("next.config.ts"), read("app/v2/questions/QuestionLibraryWorkspace.tsx"), read("app/api/v2/question-sets/source/route.ts")]);
   assert.match(config, /bodySizeLimit:\s*"20mb"/); assert.match(page, /response\.text\(\)/); assert.match(page, /超过服务器接收上限/);
   assert.match(page, /15 \* 1024 \* 1024/); assert.match(source, /15 \* 1024 \* 1024/); assert.match(source, /status: 413/);
 });
 
 test("question-bank-first workflow exposes queue, saved views, indexed search and durable paper cart", async () => {
-  const [page, questionApi, viewsApi, facetsApi, migration, schema, papers, navigation, dashboard] = await Promise.all([read("app/questions/page.tsx"), read("app/api/questions/route.ts"), read("app/api/question-views/route.ts"), read("app/api/questions/facets/route.ts"), read("drizzle/0021_question_bank_search.sql"), read("db/schema.ts"), read("app/papers/page.tsx"), read("app/components/navigation.ts"), read("app/page.tsx")]);
+  const [page, questionApi, viewsApi, facetsApi, migration, schema, papers, navigation, dashboard] = await Promise.all([read("app/v2/questions/QuestionLibraryWorkspace.tsx"), read("app/api/v2/questions/route.ts"), read("app/api/v2/question-views/route.ts"), read("app/api/v2/questions/facets/route.ts"), read("drizzle/0021_question_bank_search.sql"), read("db/schema.ts"), read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx"), read("app/components/navigation.ts"), read("app/v2/page.tsx")]);
   for (const label of ["批量导入 Word", "Word 导入队列", "保存筛选", "最近：", "加入试卷草稿", "相似题并排核对", "使用次数从多到少"]) assert.match(page, new RegExp(label));
   assert.match(page, /multiple type="file"/); assert.match(page, /question-import-queue/); assert.match(page, /单个文件失败不会中断后续文件/);
   assert.match(questionApi, /use_count_desc/); assert.match(questionApi, /params\.get\("ids"\)/); assert.match(facetsApi, /textbook_version/);
   assert.match(viewsApi, /ownerId/); assert.match(viewsApi, /allowedKeys/); assert.match(schema, /savedQuestionViews/);
   for (const index of ["question_search_textbook_index", "question_search_knowledge_index", "question_search_sort_index"]) assert.match(migration, new RegExp(index));
-  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(navigation, /label:\s*"题库"/); assert.match(navigation, /微信小程序（体验版准备中）/); assert.match(navigation, /2\.0 内测工作台/); assert.match(dashboard, /今日教学工作台/); assert.match(dashboard, /题库与组卷/);
+  assert.match(papers, /paper-workbench/); assert.match(papers, /paper-cart/); assert.match(navigation, /label:\s*"题库"/); assert.match(navigation, /href:\s*"\/v2"[^\n]+label:\s*"今日"/); assert.match(dashboard, /可用题目/); assert.match(dashboard, /智能题库/);
 });
 
 test("question facet counts drive combined-filter feedback", async () => {
-  const [facetsApi, page] = await Promise.all([read("app/api/questions/facets/route.ts"), read("app/questions/page.tsx")]);
+  const [facetsApi, page] = await Promise.all([read("app/api/v2/questions/facets/route.ts"), read("app/v2/questions/QuestionLibraryWorkspace.tsx")]);
   assert.match(facetsApi, /COUNT\(\*\) AS count/);
   assert.match(facetsApi, /GROUP BY \$\{column\}/);
   assert.match(facetsApi, /ORDER BY count DESC/);
@@ -153,9 +150,8 @@ test("question facet counts drive combined-filter feedback", async () => {
   assert.match(page, /item\.count/);
   assert.match(page, /facets\.grade\?\.length/);
 });
-
 test("knowledge filter supports multiple AND tokens without LIKE wildcards", async () => {
-  const [questionsApi, page] = await Promise.all([read("app/api/questions/route.ts"), read("app/questions/page.tsx")]);
+  const [questionsApi, page] = await Promise.all([read("app/api/v2/questions/route.ts"), read("app/v2/questions/QuestionLibraryWorkspace.tsx")]);
   assert.match(questionsApi, /knowledge\.split\(\/\[、\\s\]\+\/\)/);
   assert.match(questionsApi, /and\(\.\.\.knowledgeTokens\.map/);
   assert.match(questionsApi, /instr\(\$\{questions\.knowledgePoints\}, \$\{token\}\) > 0/);
@@ -165,43 +161,42 @@ test("knowledge filter supports multiple AND tokens without LIKE wildcards", asy
 });
 
 test("lesson closure persists attendance, performance, homework, feedback and review finance", async () => {
-  const [activity, detail, dashboard, classDetail, students, classPicker] = await Promise.all([read("app/api/lessons/[id]/activity/route.ts"),read("app/lessons/[id]/page.tsx"),read("app/api/dashboard/route.ts"),read("app/classes/[id]/page.tsx"),read("app/students/page.tsx"),read("app/components/ClassPicker.tsx")]);
+  const [activity, detail, dashboard, classDetail, students, classPicker] = await Promise.all([read("app/api/v2/lessons/[id]/activity/route.ts"),read("app/v2/detail/[kind]/[id]/LessonDetailWorkspace.tsx"),read("app/api/v2/dashboard/route.ts"),read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx"),read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx"),read("app/components/ClassPicker.tsx")]);
   assert.match(activity,/studentRecord/); assert.match(activity,/saveDraft/); assert.match(activity,/validateLessonCompletion/); assert.match(activity,/ON CONFLICT\(lesson_id,student_id\)/); assert.match(activity,/assignment_submissions/); assert.match(activity,/INSERT INTO feedback/); assert.match(activity,/lesson_finance/); assert.match(activity,/status!='review'|status !== "review"/);
   for (const label of ["学生出勤与课堂表现","单独保存作业草稿","单独保存反馈","教师确认关注","保存草稿","一键完成本节课","待核对"]) assert.match(detail,new RegExp(label));
   assert.match(dashboard,/SELECT COUNT\(\*\) AS total/); assert.match(dashboard,/pendingFinance/); assert.match(classDetail,/平均出勤/); assert.match(students,/ClassPicker/); assert.match(classPicker,/全部班级/);
 });
 
 test("class pickers use the bounded options endpoint instead of full class lists", async () => {
-  const [picker, css, overview, lessons, students, reflections, assessments, assignments, feedback, paperDetail] = await Promise.all([
+  const [picker, css, overview, lessons, students, reflections, assignments, feedback, paperDetail] = await Promise.all([
     "app/components/ClassPicker.tsx",
     "app/class-picker.css",
-    "app/classes/page.tsx",
-    "app/lessons/page.tsx",
-    "app/students/page.tsx",
-    "app/reflections/page.tsx",
-    "app/assessments/page.tsx",
-    "app/assignments/page.tsx",
-    "app/feedback/page.tsx",
-    "app/papers/[id]/page.tsx",
+    "app/v2/modules/[slug]/ClassOverviewWorkspace.tsx",
+    "app/v2/modules/[slug]/LessonOverviewWorkspace.tsx",
+    "app/v2/modules/[slug]/StudentOverviewWorkspace.tsx",
+    "app/v2/modules/[slug]/ModuleWorkspace.tsx",
+    "app/v2/modules/[slug]/ModuleWorkspace.tsx",
+    "app/v2/modules/[slug]/ModuleWorkspace.tsx",
+    "app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx",
   ].map(read));
-  assert.match(picker, /api\/classes\/options/);
+  assert.match(picker, /api\/v2\/classes\/options/);
   assert.match(picker, /params\.set\("limit", "50"\)/);
   assert.match(picker, /params\.set\("q"/);
   assert.match(picker, /params\.set\("ids"/);
   assert.match(picker, /includeAll/);
   assert.match(picker, /全部班级/);
   assert.match(css, /class-picker__listbox/);
-  for (const page of [lessons, students, reflections, assessments, assignments, feedback, paperDetail]) {
+  for (const page of [lessons, students, reflections, assignments, feedback, paperDetail]) {
     assert.match(page, /ClassPicker/);
     assert.doesNotMatch(page, /\/api\/classes(?!\/options)/);
   }
-  assert.match(overview, /\/api\/classes\?/);
+  assert.match(overview, /\/api\/v2\/classes\?/);
   assert.match(overview, /pageCount/);
 });
 
 test("daily cockpit milestones stay connected to durable, evidence-backed APIs", async () => {
   const [dashboard, prep, workflow, activity, questionStats, similar, insights, attention, feedbackApi, financeApi, monthly, financeExport, migration22, migration23] = await Promise.all([
-    "app/api/dashboard/route.ts", "app/api/lessons/[id]/prep/route.ts", "app/api/lessons/[id]/workflow-state/route.ts", "app/api/lessons/[id]/activity/route.ts", "app/api/questions/stats/route.ts", "app/api/questions/[id]/similar/route.ts", "app/api/students/[id]/insights/route.ts", "app/api/students/attention/route.ts", "app/api/feedback/route.ts", "app/api/finance/route.ts", "app/lib/finance-monthly.ts", "app/api/finance/export/route.ts", "drizzle/0022_daily_workflow.sql", "drizzle/0023_learning_evidence_finance.sql",
+    "app/api/v2/dashboard/route.ts", "app/api/v2/lessons/[id]/prep/route.ts", "app/api/v2/lessons/[id]/workflow-state/route.ts", "app/api/v2/lessons/[id]/activity/route.ts", "app/api/v2/questions/stats/route.ts", "app/api/v2/questions/[id]/similar/route.ts", "app/api/v2/students/[id]/insights/route.ts", "app/api/v2/students/attention/route.ts", "app/api/v2/feedback/route.ts", "app/api/v2/finance/route.ts", "app/lib/finance-monthly.ts", "app/api/v2/finance/export/route.ts", "drizzle/0022_daily_workflow.sql", "drizzle/0023_learning_evidence_finance.sql",
   ].map(read));
   assert.match(dashboard, /\[7, 14, 30\]/); assert.match(dashboard, /suggestedActions/); assert.match(dashboard, /weekStart: monday/); assert.match(dashboard, /nextLesson/);
   for (const label of ["教材版本一致", "册别一致", "单元一致", "课题匹配", "知识点匹配"]) assert.match(prep, new RegExp(label));
@@ -216,13 +211,13 @@ test("daily cockpit milestones stay connected to durable, evidence-backed APIs",
 
 test("comprehensive repairs connect lazy answers, imports, exams, promotion and student mini home", async () => {
   const [questions, contentApi, reviewApi, paperImport, lessonDisplay, feedbackImport, feedbackPage, recognition, examPage, trends, promotion, dashboard, migration24, migration25, miniHome] = await Promise.all([
-    "app/questions/page.tsx", "app/api/questions/[id]/content/route.ts", "app/api/questions/[id]/review/route.ts", "app/api/question-sets/import/route.ts", "app/lib/lesson-display.ts", "app/lib/feedback-import.ts", "app/feedback-imports/page.tsx", "app/recognition/page.tsx", "app/exam-projects/page.tsx", "app/api/students/[id]/score-trends/route.ts", "app/lib/services/grade-promotion-service.ts", "app/api/dashboard/route.ts", "drizzle/0024_paper_feedback_workflow.sql", "drizzle/0025_academic_exam_analytics.sql", "mini-program/pages/home/index.wxml",
+    "app/v2/questions/QuestionLibraryWorkspace.tsx", "app/api/v2/questions/[id]/content/route.ts", "app/api/v2/questions/[id]/review-draft/route.ts", "app/api/v2/question-sets/import/route.ts", "app/lib/lesson-display.ts", "app/lib/feedback-import.ts", "app/v2/operations/[kind]/[id]/OperationDetail.tsx", "app/v2/operations/OperationsWorkspace.tsx", "app/v2/operations/[kind]/[id]/OperationDetail.tsx", "app/api/v2/students/[id]/score-trends/route.ts", "app/lib/services/grade-promotion-service.ts", "app/api/v2/dashboard/route.ts", "drizzle/0024_paper_feedback_workflow.sql", "drizzle/0025_academic_exam_analytics.sql", "mini-program/pages/home/index.wxml",
   ].map(read));
   for (const state of ["加载中", "读取失败", "待补充", "重试题目"]) assert.match(questions, new RegExp(state));
   assert.match(questions, /questionContentRef/); assert.match(questions, /cache:\s*"no-store"/); assert.match(questions, /answer:\s*state\.answer/);
   assert.match(contentApi, /standardExpression/); assert.match(contentApi, /private, no-store/); assert.match(reviewApi, /expectedUpdatedAt/); assert.match(paperImport, /paperId/);
   assert.match(lessonDisplay, /studentNames/); assert.match(lessonDisplay, /startTime/); assert.match(feedbackImport, /confidence/); assert.match(feedbackPage, /原文证据/); assert.match(feedbackPage, /未发布草稿/);
-  assert.match(recognition, /【存疑】/); assert.match(recognition, /本机浏览器/); assert.match(examPage, /待录/); assert.match(examPage, /成绩波动度/); assert.match(trends, /movingAverage/); assert.match(trends, /数据不足/);
+  assert.match(recognition, /答题卡原图/); assert.match(recognition, /未经确认不会调用外部 AI/); assert.match(examPage, /待录/); assert.match(examPage, /成绩波动度/); assert.match(trends, /movingAverage/); assert.match(trends, /数据不足/);
   assert.match(promotion, /INSERT OR IGNORE/); assert.match(dashboard, /today\.slice\(5, 7\) === "09"/); assert.match(dashboard, /核对新学年年级晋升/);
   for (const field of ["feedback_imports", "academic_year", "exam_category", "district"]) assert.match(migration24, new RegExp(field));
   for (const table of ["academic_years", "exam_projects", "exam_project_students", "grade_promotion_runs", "review_assets"]) assert.match(migration25, new RegExp(table));
@@ -231,40 +226,40 @@ test("comprehensive repairs connect lazy answers, imports, exams, promotion and 
 });
 
 test("stage two covers political question review, paper drafting and lesson links", async () => {
-  const [schema, page, parser, importApi, sourceRoute, confirmApi, reviewService, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/questions/page.tsx"),read("app/lib/question-import.ts"),read("app/api/question-sets/import/route.ts"),read("app/api/question-sets/source/route.ts"),read("app/api/question-sets/[id]/confirm/route.ts"),read("app/lib/services/question-review-service.ts"),read("app/papers/page.tsx"),read("app/api/papers/route.ts"),read("app/api/lessons/[id]/questions/route.ts")]);
+  const [schema, page, parser, importApi, sourceRoute, executor, reviewService, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/v2/questions/QuestionLibraryWorkspace.tsx"),read("app/lib/question-import.ts"),read("app/api/v2/question-sets/import/route.ts"),read("app/api/v2/question-sets/source/route.ts"),read("app/lib/v2/approval-executor.ts"),read("app/lib/services/question-review-service.ts"),read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx"),read("app/api/v2/papers/route.ts"),read("app/api/v2/lessons/[id]/questions/route.ts")]);
   for (const field of ["factBasis","textbookView","valueJudgment","answerLogic","standardExpression","coreCompetencies","isFavorite","isWrong","isFrequent"]) assert.match(schema,new RegExp(field));
   for (const label of ["正式题库","待校对","Word 导入","事实依据","教材观点","价值判断","答题逻辑","规范表述","识别报告","政治题目核对四点","必修3 政治与法治"]) assert.match(page,new RegExp(label));
   for (const marker of ["parsePoliticsDocx","summarizeImport","缺少答案","缺少知识点","缺少解析","题库的难度系数越高代表越容易"]) assert.match(parser,new RegExp(marker));
-  assert.match(importApi,/status:\s*"review"/); assert.match(confirmApi,/reviewQuestions/); assert.match(reviewService,/status='active'/); assert.match(page,/将已校对且合格的题目入库/);
+  assert.match(importApi,/status:\s*"review"/); assert.match(executor,/reviewQuestions/); assert.match(executor,/question\.promote/); assert.match(reviewService,/status='active'/); assert.match(page,/提交正式入库确认/); assert.match(page,/question\.promote/);
   assert.match(importApi,/QUESTION_SET_IMPORT_LIMIT\s*=\s*300/); assert.match(importApi,/parsed\.length > QUESTION_SET_IMPORT_LIMIT/); assert.match(page,/超过单任务上限/); assert.match(page,/拆分成多个文件后分批导入/);
   assert.match(importApi,/env\.FILES\.get\(sourceKey\)/); assert.match(importApi,/sourceFingerprint/); assert.match(page,/sourceFingerprint/);
   assert.match(importApi,/typeCounts/); assert.match(importApi,/incompleteItems/); assert.match(importApi,/lowConfidenceItems/);
   assert.match(page,/importReport\.typeCounts/); assert.match(page,/待补充清单/); assert.match(page,/低置信度清单/); assert.match(page,/importReport\.incompleteItems/); assert.match(page,/importReport\.lowConfidenceItems/); assert.match(page,/setImportStep\(3\);\s*setCurrent\(Number\(item\.index\)\)/);
   assert.match(sourceRoute,/export async function GET/); assert.match(sourceRoute,/env\.FILES\.get\(key\)/); assert.match(sourceRoute,/Content-Disposition/); assert.match(sourceRoute,/private, no-store/);
-  assert.match(page,/文件已上传，可继续处理/); assert.match(page,/刷新后浏览器不保留本地文件，请重新选择同名文件/); assert.match(page,/item\.file \|\| item\.sourceKey/); assert.match(page,/api\/question-sets\/source\?key=/);
+  assert.match(page,/文件已上传，可继续处理/); assert.match(page,/刷新后浏览器不保留本地文件，请重新选择同名文件/); assert.match(page,/item\.file \|\| item\.sourceKey/); assert.match(page,/api\/v2\/question-sets\/source\?key=/);
   for (const label of ["自动推荐题目","手动添加","保存试卷草稿","练习","周测","阶段测","讲义题组"]) assert.match(paperPage,new RegExp(label));
   assert.match(paperPage,/page: String\(page\)/); assert.match(paperPage,/共 \{candidateTotal \|\| bank\.length\} 题/); assert.match(paperPage,/已显示 \{bank\.length\} 题/); assert.match(paperPage,/candidateLimited/); assert.match(paperPage,/加载更多候选题/); assert.doesNotMatch(paperPage,/bank\.slice\(0, 100\)/);
   assert.match(paperApi,/paperQuestions/); assert.match(lessonQuestions,/lessonQuestions/);
 });
 
 test("stage three uses real records for feedback, reflection and analytics", async () => {
-  const [schema, feedbackPage, feedbackSummary, reflectionPage, reflectionApi, analyticsPage, analyticsApi, resourcePage, classPicker] = await Promise.all([read("db/schema.ts"),read("app/feedback/page.tsx"),read("app/api/feedback/summary/route.ts"),read("app/reflections/page.tsx"),read("app/api/reflections/route.ts"),read("app/analytics/page.tsx"),read("app/api/analytics/route.ts"),read("app/resources/page.tsx"),read("app/components/ClassPicker.tsx")]);
+  const [schema, feedbackPage, feedbackSummary, reflectionPage, reflectionApi, analyticsPage, analyticsApi, resourcePage, classPicker] = await Promise.all([read("db/schema.ts"),read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),read("app/api/v2/feedback/summary/route.ts"),read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),read("app/api/v2/reflections/route.ts"),read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),read("app/api/v2/analytics/route.ts"),read("app/resources/page.tsx"),read("app/components/ClassPicker.tsx")]);
   for (const field of ["learningContent","periodStart","periodSummary","problemType","actionCompleted","sourceRef"]) assert.match(schema,new RegExp(field));
   for (const label of ["单节课反馈","阶段反馈","专业简洁","温和鼓励","重点提醒","汇总真实课时、出勤、作业与测验","尚未发送"]) assert.match(feedbackPage,new RegExp(label));
   for (const table of ["lessons","attendance","assignment_submissions","assessment_results","student_lesson_records"]) assert.match(feedbackSummary,new RegExp(table));
   for (const label of ["全文搜索","全部问题类型","日历","沉淀为策略","完整内容默认私密"]) assert.match(reflectionPage,new RegExp(label));
-  assert.match(reflectionPage, /ClassPicker/); assert.match(classPicker, /全部班级/);
+  assert.match(reflectionPage, /<ClassPicker[^>]+includeAll/); assert.match(classPicker, /全部班级/);
   assert.match(reflectionApi,/lessonTopic/); assert.match(reflectionApi,/className/);
-  for (const label of ["周","月","学期","口径说明","数据不足","反馈及时率","知识点覆盖率","常用题目"]) assert.match(analyticsPage,new RegExp(label));
+  for (const label of ["周","月","学期","统计范围","数据不足","反馈及时率","知识点覆盖率","常用题目"]) assert.match(analyticsPage,new RegExp(label));
   assert.match(analyticsApi,/julianday/); assert.match(analyticsApi,/f\.status='confirmed'/); assert.match(analyticsApi,/use_count/); assert.match(resourcePage,/这里不会填充虚构资源/);
 });
 
 test("stage four enforces roles, logs sensitive actions and requires destructive confirmations", async () => {
-  const [access, shell, navigation, settings, settingsApi, exportApi, deleteApi, portalApi, privateStudent, css, schema, teacherAuth, teacherLogin] = await Promise.all([read("app/lib/access.ts"),read("app/components/AppShell.tsx"),read("app/components/WorkspaceNavigation.tsx"),read("app/settings/page.tsx"),read("app/api/settings/route.ts"),read("app/api/settings/export/route.ts"),read("app/api/settings/data/route.ts"),read("app/api/portal/route.ts"),read("app/api/students/[id]/private/route.ts"),read("app/globals.css"),read("db/schema.ts"),read("app/lib/teacher-auth.ts"),read("app/teacher-login/page.tsx")]);
+  const [access, shell, navigation, settings, settingsApi, exportApi, deleteApi, miniPortal, miniAccess, privateStudent, css, schema, teacherAuth, teacherLogin] = await Promise.all([read("app/lib/access.ts"),read("app/components/AppShell.tsx"),read("app/components/WorkspaceNavigation.tsx"),read("app/v2/settings/SettingsWorkspace.tsx"),read("app/api/v2/settings/route.ts"),read("app/api/v2/settings/export/route.ts"),read("app/api/v2/settings/data/route.ts"),read("app/api/v2/mini/portal/route.ts"),read("app/lib/services/mini-sync-service.ts"),read("app/api/v2/students/[id]/private/route.ts"),read("app/globals.css"),read("db/schema.ts"),read("app/lib/teacher-auth.ts"),read("app/teacher-login/page.tsx")]);
   for (const role of ["teacher","assistant","student","parent"]) assert.match(access,new RegExp(role));
   assert.match(access,/requirePermission/); assert.match(shell,/teacher-login/); assert.match(shell,/资源中心仍可公开浏览/); assert.match(navigation,/aria-current/); assert.match(shell,/跳到主要内容/); assert.match(teacherAuth,/HttpOnly/); assert.match(teacherAuth,/SameSite=Lax/); assert.match(teacherAuth,/crypto\.subtle/); assert.match(teacherLogin,/教师管理员登录/);
-  for (const label of ["账号与角色","助教","学生","家长","操作日志","二次确认后导出","删除全部教学数据"]) assert.match(settings,new RegExp(label));
+  for (const label of ["成员与权限","助教","学生","家长","审计记录","完整数据备份","删除全部教学数据"]) assert.match(settings,new RegExp(label));
   assert.match(settingsApi,/assign_role/); assert.match(exportApi,/Content-Disposition/); assert.match(exportApi,/audit\(access,\s*"export"/); assert.match(deleteApi,/confirmation !== "删除全部教学数据"/); assert.match(deleteApi,/delete_all/);
-  assert.match(portalApi,/status='confirmed'/); assert.match(portalApi,/guardian_user_id/); assert.match(privateStudent,/view_sensitive/);
+  assert.match(miniPortal,/status='confirmed'/); assert.match(miniAccess,/mini_bindings/); assert.match(miniAccess,/parent_student_links/); assert.match(privateStudent,/view_sensitive/);
   assert.match(css,/prefers-reduced-motion/); assert.match(css,/:focus-visible/); assert.match(schema,/visibility/); assert.match(schema,/guardianUserId/);
 });

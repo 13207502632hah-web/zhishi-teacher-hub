@@ -128,7 +128,7 @@ export default function ResourcesPage() {
     setListStatus("loading");
     setListError("");
     try {
-      const payload = await requestJson<ResourceList>(`/api/resources?q=${encodeURIComponent(query)}`, { signal });
+      const payload = await requestJson<ResourceList>(`/api/v2/resources?q=${encodeURIComponent(query)}`, { signal });
       if (!payload || !Array.isArray(payload.resources)) throw new HttpError(200, "资源中心返回了无法识别的数据");
       setRows(payload.resources);
       setCanWrite(Boolean(payload.canWrite));
@@ -245,7 +245,7 @@ export default function ResourcesPage() {
     setSaving(true);
     setFormError("");
     try {
-      const payload = await requestJson<{ resource?: Resource }>("/api/resources", {
+      const payload = await requestJson<{ resource?: Resource }>("/api/v2/resources", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, title, url }),
@@ -253,7 +253,7 @@ export default function ResourcesPage() {
       if (!payload?.resource) throw new HttpError(200, "服务器没有返回已保存的资源");
       const resource = payload.resource;
       setRows((current) => matchesQuery(resource, appliedQuery) ? [resource, ...current.filter((item) => item.id !== resource.id)] : current);
-      setNotice({ tone: "success", text: "资源已保存；公开范围仍由服务端权限规则控制。" });
+      setNotice({ tone: "success", text: "资源已保存为私有草稿；公开请到教师工作台提交确认。" });
       closeModal(true);
     } catch (error) {
       setFormError(isPermissionError(error) ? "保存失败：当前账号没有资源管理权限，请刷新后重试。" : `保存失败：${errorMessage(error, "服务器暂时无法保存，请稍后重试")}`);
@@ -270,7 +270,7 @@ export default function ResourcesPage() {
     setDeletingId(resource.id);
     setNotice(null);
     try {
-      const payload = await requestJson<{ ok?: boolean }>(`/api/resources/${resource.id}`, { method: "DELETE" });
+      const payload = await requestJson<{ ok?: boolean }>(`/api/v2/resources/${resource.id}`, { method: "DELETE" });
       if (!payload?.ok) throw new HttpError(200, "服务器没有确认删除结果");
       setRows((current) => current.filter((item) => item.id !== resource.id));
       setNotice({ tone: "success", text: "资源已删除。" });
@@ -287,7 +287,7 @@ export default function ResourcesPage() {
     setPrintingId(resource.id);
     setNotice(null);
     try {
-      const payload = await requestJson<{ ok?: boolean }>("/api/audit", {
+      const payload = await requestJson<{ ok?: boolean }>("/api/v2/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "print", entityType: "resource", entityId: resource.id }),
@@ -323,10 +323,10 @@ export default function ResourcesPage() {
           {publicSummary && <div className={styles.heroTags} aria-label="公开资源摘要"><span>当前公开 {publicSummary.publicCount ?? rows.length} 份</span>{publicSummary.popularTags?.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>}
         </div>
         <div className={styles.shortcutGrid} aria-label="教师工作台入口">
-          <Link className={styles.shortcut} href="/workspace"><strong>教师工作台</strong><span>登录后使用 · 管理课时、学生、题库和反馈</span></Link>
-          <Link className={styles.shortcut} href="/questions?import=1"><strong>题库导入</strong><span>登录后使用 · Word 识别预览与逐题校对</span></Link>
-          <Link className={styles.shortcut} href="/papers"><strong>专业组卷</strong><span>登录后使用 · 按知识点、题型、难度组合</span></Link>
-          <Link className={styles.shortcut} href="/reflections"><strong>教学策略</strong><span>登录后使用 · 从真实教学反思沉淀</span></Link>
+          <Link className={styles.shortcut} href="/v2"><strong>教师工作台</strong><span>登录后使用 · 管理课时、学生、题库和反馈</span></Link>
+          <Link className={styles.shortcut} href="/v2/questions"><strong>题库导入</strong><span>登录后使用 · 文档识别预览与逐题校对</span></Link>
+          <Link className={styles.shortcut} href="/v2/modules/papers"><strong>专业组卷</strong><span>登录后使用 · 按知识点、题型、难度组合</span></Link>
+          <Link className={styles.shortcut} href="/v2/modules/learning"><strong>教学策略</strong><span>登录后使用 · 从真实教学反思沉淀</span></Link>
         </div>
       </section>
 
@@ -362,12 +362,12 @@ export default function ResourcesPage() {
 
       <section className={styles.methodSection} id="teaching-method" aria-labelledby="teaching-method-title">
         <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>{TEACHER_DISPLAY_NAME}的教学方法</p><h2 id="teaching-method-title">保留方法说明，把重点放回资源检索</h2></div><span>资料边界先于分享速度</span></div>
-        <div className={styles.methodGrid}><Link href="/classes"><strong>01 · 建立班级与学生</strong><span>必要的学习信息留在私人工作台，联系方式不在公开资源中展示。</span></Link><Link href="/lessons?new=1"><strong>02 · 记录一节真实课时</strong><span>目标、重难点、课堂活动和课后表现分开记录，方便后续检索。</span></Link><Link href="/questions?import=1"><strong>03 · 导入并校对试题</strong><span>答案版 Word 先进入待校对区，核对题干、答案、解析和知识点。</span></Link><Link href="/reflections?new=1"><strong>04 · 复盘并沉淀策略</strong><span>只把确认过的有效做法整理为资源，下一次备课再复用。</span></Link></div>
+        <div className={styles.methodGrid}><Link href="/v2/modules/students"><strong>01 · 建立班级与学生</strong><span>必要的学习信息留在私人工作台，联系方式不在公开资源中展示。</span></Link><Link href="/v2/modules/students"><strong>02 · 记录一节真实课时</strong><span>目标、重难点、课堂活动和课后表现分开记录，方便后续检索。</span></Link><Link href="/v2/questions"><strong>03 · 导入并校对试题</strong><span>题目原件先进入待校对区，核对题干、答案、解析和知识点。</span></Link><Link href="/v2/modules/learning"><strong>04 · 复盘并沉淀策略</strong><span>只把确认过的有效做法整理为资源，下一次备课再复用。</span></Link></div>
       </section>
 
       <section className={styles.boundarySection} aria-labelledby="resource-boundary-title">
         <div><p className={styles.eyebrow}>外部资源连接</p><h2 id="resource-boundary-title">能保存链接，不替你绕过授权</h2><p>可保存自己有权访问的夸克网盘、WPS 或学校教研平台链接；打开会进入新标签页。系统不会绕过登录、付费、下载券或验证码，也不会自动抓取未授权页面。</p></div>
-        <div className={styles.boundaryList}><div><strong>公开前检查</strong><span>不包含学生、家长、联系方式、评价、个别反馈或其他私人教学信息。</span></div><div><strong>本地导入</strong><span>自己有权使用的 .docx 先下载，再从 Word 导入并人工校对。</span></div><Link className={styles.secondaryButton} href="/questions?import=1">查看导入步骤 →</Link></div>
+        <div className={styles.boundaryList}><div><strong>公开前检查</strong><span>不包含学生、家长、联系方式、评价、个别反馈或其他私人教学信息。</span></div><div><strong>本地导入</strong><span>自己有权使用的文档先下载，再从智能题库导入并人工校对。</span></div><Link className={styles.secondaryButton} href="/v2/questions">查看导入步骤 →</Link></div>
       </section>
     </div>
 
@@ -395,11 +395,10 @@ function ResourceDialog({ dialogRef, firstFieldRef, form, formError, isDirty, sa
       <form className={styles.dialogForm} onSubmit={(event) => { event.preventDefault(); onSave(); }}>
         <label className={styles.fieldWide}>资源名称<input ref={firstFieldRef} value={form.title} onChange={(event) => onChange("title", event.target.value)} aria-invalid={Boolean(formError)} /></label>
         <label>类型<select value={form.type} onChange={(event) => onChange("type", event.target.value)}><option>备课素材</option><option>课堂活动</option><option>教学策略</option><option>规范话术</option><option>其他</option></select></label>
-        <label>可见范围<select value={form.visibility} onChange={(event) => onChange("visibility", event.target.value as ResourceForm["visibility"])}><option value="private">仅教师与助教</option><option value="public">公开给访客（仅适合不含学生、家长或私人教学信息）</option></select></label>
+        <label>可见范围<input value="仅教师与助教（公开需到教师工作台提交确认）" readOnly/></label>
         <label className={styles.fieldWide}>标签<input value={form.tags} onChange={(event) => onChange("tags", event.target.value)} placeholder="逗号分隔" /></label>
         <label className={styles.fieldWide}>外部链接（可选，仅 http:// 或 https://）<input type="url" value={form.url} onChange={(event) => onChange("url", event.target.value)} placeholder="https://example.com/resource" /></label>
         <label className={styles.fieldWide}>内容说明<textarea rows={6} value={form.content} onChange={(event) => onChange("content", event.target.value)} /></label>
-        {form.visibility === "public" && <div className={styles.publicWarning} role="alert"><strong>公开前请确认</strong><span>不得包含学生、家长或私人教学信息；联系方式、评价、个别反馈和可识别课堂记录必须保持“仅教师与助教”。</span></div>}
         {formError && <div className={styles.formError} role="alert">{formError}</div>}
         <footer className={styles.dialogActions}><button type="button" className={styles.secondaryButton} disabled={saving} onClick={onClose}>取消</button><button type="submit" className={styles.primaryButton} disabled={saving || !isDirty}>{saving ? "保存中…" : "保存资源"}</button></footer>
       </form>

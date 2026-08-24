@@ -5,7 +5,7 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("class detail keeps the primary record recoverable when candidate loading fails", async () => {
-  const page = await read("app/classes/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx");
 
   assert.match(page, /requestJson/);
   assert.match(page, /HttpError/);
@@ -21,7 +21,7 @@ test("class detail keeps the primary record recoverable when candidate loading f
 });
 
 test("class membership mutations cannot overlap and always report failure", async () => {
-  const page = await read("app/classes/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx");
 
   assert.match(page, /mutationBusy/);
   assert.match(page, /if \(!pick \|\| mutationBusy\) return/);
@@ -35,7 +35,7 @@ test("class membership mutations cannot overlap and always report failure", asyn
 });
 
 test("class detail only exposes membership writes to teachers", async () => {
-  const page = await read("app/classes/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx");
 
   assert.match(page, /useSessionState/);
   assert.match(page, /const canWrite = session\.role === "teacher"/);
@@ -45,7 +45,7 @@ test("class detail only exposes membership writes to teachers", async () => {
 });
 
 test("class detail uses shared workspace primitives and evidence-first sections", async () => {
-  const page = await read("app/classes/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx");
 
   for (const component of ["Button", "EmptyState", "MetricCard", "Panel", "StatusBadge"]) {
     assert.match(page, new RegExp(component));
@@ -55,6 +55,24 @@ test("class detail uses shared workspace primitives and evidence-first sections"
   assert.match(page, /id="class-members"/);
   assert.match(page, /id="class-lessons"/);
   assert.match(page, /id="class-assessments"/);
+});
+
+test("class detail is V2-native and the legacy route is retired", async () => {
+  const [page, router, workspace, lessonOverview] = await Promise.all([
+    read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx"),
+    read("app/v2/detail/[kind]/[id]/page.tsx"),
+    read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),
+    read("app/v2/modules/[slug]/LessonOverviewWorkspace.tsx"),
+  ]);
+
+  await assert.rejects(read("app/classes/[id]/page.tsx"), { code: "ENOENT" });
+  assert.match(router, /ClassDetailWorkspace/);
+  assert.match(page, /\/api\/v2\/classes\/\$\{id\}/);
+  assert.match(page, /\/v2\/detail\/students\/\$\{student\.id\}/);
+  assert.match(page, /view=lessons&new=1&classId=/);
+  assert.match(workspace, /LessonOverviewWorkspace/);
+  assert.match(lessonOverview, /params\.get\("classId"\) \|\| params\.get\("class"\)/);
+  assert.doesNotMatch(page, /AppShell/);
 });
 
 test("class detail styles are readable touch-safe and mobile-first", async () => {
@@ -76,7 +94,7 @@ test("class detail styles are readable touch-safe and mobile-first", async () =>
 });
 
 test("class membership API validates real students and real active relationships", async () => {
-  const route = await read("app/api/classes/[id]/route.ts");
+  const route = await read("app/api/v2/classes/[id]/route.ts");
 
   assert.match(route, /requireStudentAccess/);
   assert.match(route, /请选择有效的学生/g);
@@ -88,7 +106,7 @@ test("class membership API validates real students and real active relationships
 });
 
 test("class evidence uses recent lesson order and unique student knowledge counts", async () => {
-  const route = await read("app/api/classes/[id]/route.ts");
+  const route = await read("app/api/v2/classes/[id]/route.ts");
 
   assert.match(route, /orderBy\(desc\(lessons\.date\), desc\(lessons\.startTime\)\)/);
   assert.match(route, /studentId/);

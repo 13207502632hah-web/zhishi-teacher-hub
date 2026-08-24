@@ -82,7 +82,8 @@ OCR 准确率验收、独立测试环境逐角色动态越权验收、微信体�
 - 教学业务：`/api/v2/students`、`/classes`、`/lessons`、`/assignments`、`/papers`、
   `/analytics`、`/feedback`、`/reflections`、`/resources`、`/finance`。
 - 教学运营与设置：`/api/v2/assessments`、`/exam-projects`、`/recognition`、
-  `/feedback-imports`、`/academic-years`、`/calendar/subscription`、`/settings`，并包含
+  `/feedback-imports`、`/academic-years`、`/calendar/subscription`、`/settings`、
+  `/settings/ai`、`/settings/demo`、`/settings/export`、`/settings/data`，并包含
   测评、考试项目、答题卡、反馈解析、学年晋升安全撤销和试卷导出的版本化详情接口。
 
 ## 环境与密钥

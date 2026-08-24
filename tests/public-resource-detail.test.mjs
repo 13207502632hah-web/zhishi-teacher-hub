@@ -9,7 +9,7 @@ test("public resource detail is a client page backed by the detail API", async (
 
   assert.match(page, /"use client"/);
   assert.match(page, /useParams/);
-  assert.match(page, /requestJson<DetailPayload>\(`\/api\/resources\/\$\{encodeURIComponent\(id\)\}`/);
+  assert.match(page, /requestJson<DetailPayload>\(`\/api\/v2\/resources\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(page, /AbortController/);
   assert.match(page, /HttpError/);
   assert.match(page, /retryKey/);
@@ -86,7 +86,7 @@ test("home and resource list link into resource detail pages", async () => {
 });
 
 test("detail API lets anonymous users read only public resources and keeps DELETE private", async () => {
-  const api = await read("app/api/resources/[id]/route.ts");
+  const api = await read("app/api/v2/resources/[id]/route.ts");
 
   assert.match(api, /export async function GET/);
   assert.match(api, /resources:private/);

@@ -137,9 +137,9 @@ const access = (role, id = 10) => ({ id, name: "测试账号", email: "test@loca
 
 test("route source keeps server fingerprint and enforces key authorization", async () => {
   const [sourceRoute, importRoute, setIdRoute] = await Promise.all([
-    readFileSync(new URL("../app/api/question-sets/source/route.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../app/api/question-sets/import/route.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../app/api/question-sets/[id]/source/route.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../app/api/v2/question-sets/source/route.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../app/api/v2/question-sets/import/route.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../app/api/v2/question-sets/[id]/source/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(sourceRoute, /fingerprint:\s*digest/);
   assert.match(sourceRoute, /canReadQuestionSourceObject/);

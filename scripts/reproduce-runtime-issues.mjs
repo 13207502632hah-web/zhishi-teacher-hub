@@ -113,11 +113,11 @@ async function main() {
   }
   await waitForServer();
 
-  const login = await request("/api/auth/login", { method: "POST", body: { account: marker, password, returnTo: "/workspace" } });
+  const login = await request("/api/auth/login", { method: "POST", body: { account: marker, password, returnTo: "/v2" } });
   const cookie = login.response.headers.get("set-cookie")?.split(";")[0] || "";
   record({ name: "teacher login", status: login.response.status, detail: cookie.startsWith("zhishi_teacher_admin=") ? "cookie ok" : "cookie missing" });
 
-  const demoCreate = await request("/api/settings/demo", { cookie, method: "POST", body: {} });
+  const demoCreate = await request("/api/v2/settings/demo", { cookie, method: "POST", body: {} });
   record({ name: "demo create", status: demoCreate.response.status, body: demoCreate.data });
 
   const targetDb = new DatabaseSync(database, { readOnly: true });
@@ -131,8 +131,8 @@ async function main() {
   if (!lesson || !paper) throw new Error("演示数据创建后未找到可删除的课时/试卷");
 
   for (const target of [
-    { url: `/api/lessons/${lesson.id}`, kind: "lesson" },
-    { url: `/api/papers/${paper.id}`, kind: "paper" },
+    { url: `/api/v2/lessons/${lesson.id}`, kind: "lesson" },
+    { url: `/api/v2/papers/${paper.id}`, kind: "paper" },
   ]) {
     const deleted = await request(target.url, { cookie, method: "DELETE", body: {} });
     record({ name: `DELETE ${target.url}`, status: deleted.response.status, body: deleted.data });
@@ -141,7 +141,7 @@ async function main() {
     }
   }
 
-  const demoCleanup = await request("/api/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
+  const demoCleanup = await request("/api/v2/settings/demo", { cookie, method: "DELETE", body: { confirmation: "清除演示数据" } });
   record({ name: "demo cleanup", status: demoCleanup.response.status, body: demoCleanup.data });
   if (demoCleanup.response.status !== 200) {
     failures.push(`demo cleanup 期望 200，实际 ${demoCleanup.response.status}`);

@@ -33,7 +33,7 @@ test("multi-model AI routing anonymizes identities, validates JSON and records p
 
 test("assistant staff accounts have revocable sessions, class scope and teacher-only approval decisions", async () => {
   const [migration, auth, access, login, logout, settings, layout, shell, approvals, approvalRoute, passwordRoute] = await Promise.all([
-    read("drizzle/0031_staff_authentication.sql"), read("app/lib/staff-auth.ts"), read("app/lib/access.ts"), read("app/api/auth/login/route.ts"), read("app/api/auth/logout/route.ts"), read("app/api/settings/route.ts"), read("app/v2/layout.tsx"), read("app/v2/V2Shell.tsx"), read("app/lib/v2/approval-service.ts"), read("app/api/v2/approvals/[id]/route.ts"), read("app/api/auth/staff-password/route.ts"),
+    read("drizzle/0031_staff_authentication.sql"), read("app/lib/staff-auth.ts"), read("app/lib/access.ts"), read("app/api/auth/login/route.ts"), read("app/api/auth/logout/route.ts"), read("app/api/v2/settings/route.ts"), read("app/v2/layout.tsx"), read("app/v2/V2Shell.tsx"), read("app/lib/v2/approval-service.ts"), read("app/api/v2/approvals/[id]/route.ts"), read("app/api/auth/staff-password/route.ts"),
   ]);
   for (const table of ["staff_credentials", "staff_login_attempts"]) assert.match(migration, new RegExp(table));
   for (const marker of ["PBKDF2", "session_version", "zhishi_staff", "HttpOnly", "SameSite=Lax", "revokeStaffSessions"]) assert.match(auth, new RegExp(marker));
@@ -61,11 +61,12 @@ test("V2 schedule import supports tables and vision with row review, idempotent 
 });
 
 test("long imports run in a leased background consumer with retry cancel and scheduled recovery", async () => {
-  const [migration, jobs, dispatch, worker, schedule, questions, scheduleUi, questionUi] = await Promise.all([
-    read("drizzle/0033_v2_background_job_leases.sql"), read("app/lib/v2/job-service.ts"), read("app/lib/v2/background-dispatch.ts"), read("worker/index.ts"), read("app/lib/v2/schedule-import-service.ts"), read("app/lib/v2/question-import-service.ts"), read("app/v2/schedule-imports/ScheduleWorkspace.tsx"), read("app/v2/questions/QuestionSearch.tsx"),
+  const [migration, jobs, jobRoute, dispatch, worker, schedule, questions, scheduleUi, questionUi] = await Promise.all([
+    read("drizzle/0033_v2_background_job_leases.sql"), read("app/lib/v2/job-service.ts"), read("app/api/v2/jobs/[id]/route.ts"), read("app/lib/v2/background-dispatch.ts"), read("worker/index.ts"), read("app/lib/v2/schedule-import-service.ts"), read("app/lib/v2/question-import-service.ts"), read("app/v2/schedule-imports/ScheduleWorkspace.tsx"), read("app/v2/questions/QuestionSearch.tsx"),
   ]);
   for (const field of ["available_at", "attempt_count", "max_attempts", "lease_owner", "lease_until", "v2_jobs_background_claim_index"]) assert.match(migration, new RegExp(field));
   for (const marker of ["claimBackgroundJob", "attempt_count<max_attempts", "requeueBackgroundJob", "retry_wait", "requestJobCancel"]) assert.match(jobs, new RegExp(marker));
+  assert.match(jobRoute, /jobWritePermission/); assert.match(jobRoute, /"questions:write"/); assert.match(jobRoute, /"lessons:write"/); assert.match(jobRoute, /denyJobMutation/);
   assert.match(dispatch, /schedule-import/); assert.match(dispatch, /question-import/); assert.match(dispatch, /waitUntil/); assert.match(dispatch, /drainV2BackgroundJobs/);
   assert.match(worker, /scheduled/); assert.match(worker, /drainV2BackgroundJobs/);
   assert.match(schedule, /processScheduleImportJobV2/); assert.match(schedule, /FILES\.get/); assert.match(schedule, /cancelRequested/);
@@ -112,11 +113,11 @@ test("native iOS app is SwiftUI-first and uses the same authenticated mobile API
 });
 
 test("remaining teaching modules use native V2 workspaces instead of legacy redirects", async () => {
-  const [page, workspace] = await Promise.all([read("app/v2/modules/[slug]/page.tsx"), read("app/v2/modules/[slug]/ModuleWorkspace.tsx")]);
+  const [page, workspace, paperWorkspace] = await Promise.all([read("app/v2/modules/[slug]/page.tsx"), read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx")]);
   for (const moduleName of ["students", "papers", "assignments", "learning", "resources", "finance"]) assert.match(page, new RegExp(`${moduleName}:`));
   for (const endpoint of ["students", "classes", "lessons", "assignments", "papers", "analytics", "feedback", "reflections", "resources", "finance"]) {
-    assert.ok((await read(`app/api/v2/${endpoint}/route.ts`)).includes("export {"), `${endpoint} must expose the versioned contract`);
-    assert.match(workspace, new RegExp(`/api/v2/${endpoint}`));
+    assert.match(await read(`app/api/v2/${endpoint}/route.ts`), /export (?:\{|async function)/, `${endpoint} must expose the versioned contract`);
+    assert.match(workspace + paperWorkspace, new RegExp(`/api/v2/${endpoint}`));
   }
   assert.doesNotMatch(page, /legacy:|打开业务数据|href=\{item\.legacy\}/);
   assert.match(workspace, /status: "draft"/);
@@ -187,29 +188,43 @@ test("V2 imported questions can be edited but only approvals promote them", asyn
   assert.match(search, /\/review-draft/);
   assert.match(search, /question\.promote/);
   assert.match(search, /提交正式入库确认/);
-  assert.match(executor, /UPDATE questions SET status='active'/);
+  assert.match(executor, /reviewQuestions\(ids, "confirm"\)/);
 });
 
 test("student class lesson and paper details stay inside the V2 shell", async () => {
-  const [workspace, detail] = await Promise.all([read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/EntityDetail.tsx")]);
+  const [workspace, paperWorkspace, studentOverview, classOverview, lessonOverview, studentDetail, classDetail, lessonDetail, paperDetail, detail] = await Promise.all([read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx"), read("app/v2/modules/[slug]/StudentOverviewWorkspace.tsx"), read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx"), read("app/v2/modules/[slug]/LessonOverviewWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/ClassDetailWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/LessonDetailWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/EntityDetail.tsx")]);
   for (const kind of ["students", "classes", "lessons", "papers"]) {
-    assert.match(workspace, new RegExp(`/v2/detail/${kind}`));
-    assert.match(detail, new RegExp(`/api/v2/\\$\\{kind\\}/\\$\\{id\\}`));
-    assert.ok((await read(`app/api/v2/${kind}/[id]/route.ts`)).includes("export {"));
+    assert.match(workspace + paperWorkspace + studentOverview + classOverview + lessonOverview + classDetail, new RegExp(`/v2/detail/${kind}`));
+    assert.match(await read(`app/api/v2/${kind}/[id]/route.ts`), /export (?:\{|async function)/);
   }
-  assert.match(detail, /knowledgeEvidence/);
-  assert.match(detail, /memberAction/);
-  assert.match(detail, /教学目标/);
-  assert.match(detail, /难度梯度/);
+  assert.match(studentDetail, /\/api\/v2\/students\/\$\{encodedId\}/);
+  assert.match(classDetail, /\/api\/v2\/classes\/\$\{id\}/);
+  assert.match(lessonDetail, /\/api\/v2\/lessons\/\$\{id\}/);
+  assert.match(detail, /\/api\/v2\/resources\/\$\{id\}/);
+  assert.match(paperDetail, /\/api\/v2\/papers\/\$\{id\}/);
+  assert.match(studentDetail, /knowledgeEvidence/);
+  assert.match(classDetail, /mutationBusy/);
+  assert.match(lessonDetail, /教学目标/);
+  assert.match(paperDetail, /难度分布/);
 });
 
-test("resource detail can be edited inside V2 without changing its visibility implicitly", async () => {
-  const [workspace, detail, route] = await Promise.all([read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/EntityDetail.tsx"), read("app/api/v2/resources/[id]/route.ts")]);
+test("resource detail is edited in V2 while publishing remains teacher-approved and deletion is explicit", async () => {
+  const [workspace, detail, route, approvals, executor, navigation] = await Promise.all([read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/v2/detail/[kind]/[id]/EntityDetail.tsx"), read("app/api/v2/resources/[id]/route.ts"), read("app/api/v2/approvals/route.ts"), read("app/lib/v2/approval-executor.ts"), read("app/components/navigation.ts")]);
   assert.match(workspace, /\/v2\/detail\/resources/);
   assert.match(detail, /ResourceDetail/);
+  assert.match(detail, /resource\.publish/);
+  assert.match(detail, /公开前请确认不包含学生/);
+  assert.match(detail, /永久删除资源/);
   assert.match(route, /resources:write/);
   assert.match(route, /UPDATE resources SET title=\?,type=\?,url=\?,tags=\?,content=\?/);
+  assert.match(route, /export async function DELETE/);
   assert.doesNotMatch(route, /visibility=\?/);
+  assert.match(approvals, /"resource\.publish"/);
+  assert.match(executor, /approval\.actionType === "resource\.publish"/);
+  assert.match(executor, /owner_id AS ownerId/);
+  assert.match(executor, /access\.authType !== "teacher_admin"/);
+  assert.match(executor, /Number\(resource\.ownerId \|\| 0\) !== access\.id/);
+  assert.match(navigation, /href:\s*"\/v2\/modules\/resources"/);
 });
 
 test("50k question performance has explicit release gates and cached similarity profiles", async () => {
@@ -224,14 +239,15 @@ test("50k question performance has explicit release gates and cached similarity 
 });
 
 test("V2 deep operations keep formal scores promotions and reverse imports behind approval", async () => {
-  const [detail, operations, approvals, executor, assignment, submissions, paper, recognition] = await Promise.all([read("app/v2/operations/[kind]/[id]/OperationDetail.tsx"), read("app/v2/operations/OperationsWorkspace.tsx"), read("app/api/v2/approvals/route.ts"), read("app/lib/v2/approval-executor.ts"), read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/api/assignments/[id]/submissions/route.ts"), read("app/v2/detail/[kind]/[id]/EntityDetail.tsx"), read("app/api/recognition/route.ts")]);
+  const [detail, operations, approvals, executor, assignment, submissions, paper, recognition] = await Promise.all([read("app/v2/operations/[kind]/[id]/OperationDetail.tsx"), read("app/v2/operations/OperationsWorkspace.tsx"), read("app/api/v2/approvals/route.ts"), read("app/lib/v2/approval-executor.ts"), read("app/v2/modules/[slug]/ModuleWorkspace.tsx"), read("app/api/v2/assignments/[id]/submissions/route.ts"), read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx"), read("app/api/v2/recognition/route.ts")]);
   for (const action of ["assessment.complete", "recognition.confirm", "academic_year.promote", "feedback_import.confirm"]) {
     const pattern = new RegExp(action.replace(".", "\\.")); assert.match(detail + operations, pattern); assert.match(approvals, pattern); assert.match(executor, pattern);
   }
   for (const marker of ["逐题人工校对", "保存成绩草稿", "previewToken", "提交正式写入确认"]) assert.match(detail + operations, new RegExp(marker));
   for (const marker of ["assetIds", "reviewAssetIds", "annotation", "audio", "/api/v2/assignments/files"]) assert.match(assignment + executor + submissions, new RegExp(marker));
   assert.match(paper, /\/api\/v2\/papers\/\$\{id\}\/export/);
-  assert.match(paper, /打印 \/ 存为 PDF/);
+  assert.match(paper, /导出 PDF/);
+  assert.match(paper, /assignment\.publish/);
   assert.match(detail, /查看原答题卡/);
   assert.match(detail, /recognition_crop/);
   assert.match(recognition, /crop_asset_id=\?/);
@@ -241,15 +257,28 @@ test("V2 deep operations keep formal scores promotions and reverse imports behin
   assert.match(detail, /原答题卡发送给外部视觉模型/);
 });
 
+test("V2 private file gateway fixes upload purposes and scopes assistant reads to authorized classes", async () => {
+  const [upload, assignmentUpload, download, operations, detail] = await Promise.all([read("app/api/v2/files/route.ts"), read("app/api/v2/assignments/files/route.ts"), read("app/api/v2/files/[id]/route.ts"), read("app/v2/operations/OperationsWorkspace.tsx"), read("app/v2/operations/[kind]/[id]/OperationDetail.tsx")]);
+  for (const purpose of ["answer-card", "feedback-import", "recognition_crop"]) assert.match(upload, new RegExp(purpose));
+  assert.doesNotMatch(upload + operations + detail, /form\.(?:get|append)\("ownerType"/);
+  assert.match(upload, /recognition_items/);
+  for (const table of ["staff_class_access", "assignment_assets", "submission_assets", "review_assets", "class_files"]) assert.match(download, new RegExp(table));
+  assert.match(download, /status: 403/);
+  assert.match(download, /private, no-store/);
+  for (const route of [upload, assignmentUpload]) { assert.match(route, /content-length/); assert.match(route, /'-60 seconds'/); assert.match(route, /status: 429/); }
+  assert.match(assignmentUpload, /file_leases fl/);
+  assert.match(assignmentUpload, /reused: true/);
+});
+
 test("every newly versioned route has an explicit contract inventory reference", async () => {
   const contractPaths = [
-    "/api/v2/academic-years", "/api/v2/academic-years/[year]/promotion", "/api/v2/academic-years/[year]/promotion/undo", "/api/v2/analytics", "/api/v2/assessments", "/api/v2/assessments/[id]",
-    "/api/v2/assignments", "/api/v2/assignments/[id]/submissions", "/api/v2/assignments/[id]/submissions/[submissionId]/ai-review", "/api/v2/assignments/files", "/api/v2/calendar/subscription", "/api/v2/classes", "/api/v2/classes/[id]", "/api/v2/dictations", "/api/v2/class-files", "/api/v2/class-files/[id]", "/api/v2/class-files/[id]/content", "/api/v2/notices", "/api/v2/notices/[id]",
-    "/api/v2/exam-projects", "/api/v2/exam-projects/[id]/results", "/api/v2/exam-projects/[id]/analytics", "/api/v2/feedback", "/api/v2/feedback-imports", "/api/v2/feedback-imports/[id]", "/api/v2/finance", "/api/v2/finance/receipts", "/api/v2/jobs", "/api/v2/jobs/[id]",
+    "/api/v2/academic-years", "/api/v2/academic-years/[year]/promotion", "/api/v2/academic-years/[year]/promotion/undo", "/api/v2/ai/reflection-drafts", "/api/v2/ai/usage", "/api/v2/analytics", "/api/v2/assessments", "/api/v2/assessments/[id]",
+    "/api/v2/assignments", "/api/v2/assignments/[id]/submissions", "/api/v2/assignments/[id]/submissions/[submissionId]/ai-review", "/api/v2/assignments/files", "/api/v2/calendar/subscription", "/api/v2/classes", "/api/v2/classes/[id]", "/api/v2/classes/options", "/api/v2/dashboard", "/api/v2/dictations", "/api/v2/class-files", "/api/v2/class-files/[id]", "/api/v2/class-files/[id]/content", "/api/v2/notices", "/api/v2/notices/[id]", "/api/v2/files", "/api/v2/files/[id]", "/api/v2/exports/[type]",
+    "/api/v2/exam-projects", "/api/v2/exam-projects/[id]/results", "/api/v2/exam-projects/[id]/analytics", "/api/v2/feedback", "/api/v2/feedback/[id]", "/api/v2/feedback/[id]/copied", "/api/v2/feedback/summary", "/api/v2/feedback/templates", "/api/v2/ai/feedback-drafts", "/api/v2/feedback-imports", "/api/v2/feedback-imports/[id]", "/api/v2/finance", "/api/v2/finance/context", "/api/v2/finance/exceptions", "/api/v2/finance/export", "/api/v2/finance/monthly", "/api/v2/finance/packages", "/api/v2/finance/receipts", "/api/v2/jobs", "/api/v2/jobs/[id]",
     "/api/v2/lessons", "/api/v2/lessons/[id]", "/api/v2/mobile/dashboard", "/api/v2/mobile/records/[id]/share",
-    "/api/v2/papers", "/api/v2/papers/[id]", "/api/v2/papers/[id]/export", "/api/v2/papers/[id]/export-job", "/api/v2/questions/[id]/similar", "/api/v2/questions/batch-review",
-    "/api/v2/questions/imports", "/api/v2/questions/imports/[id]", "/api/v2/questions/search", "/api/v2/recognition", "/api/v2/recognition/[id]",
-    "/api/v2/reflections", "/api/v2/resources", "/api/v2/resources/[id]", "/api/v2/settings", "/api/v2/settings/ai", "/api/v2/students", "/api/v2/students/[id]",
+    "/api/v2/papers", "/api/v2/papers/[id]", "/api/v2/papers/[id]/export", "/api/v2/papers/[id]/export-job", "/api/v2/papers/[id]/files", "/api/v2/papers/[id]/files/[fileId]", "/api/v2/papers/upload", "/api/v2/ai/paper-review",
+    "/api/v2/questions", "/api/v2/questions/[id]", "/api/v2/questions/[id]/content", "/api/v2/questions/[id]/review-draft", "/api/v2/questions/[id]/similar", "/api/v2/questions/batch", "/api/v2/questions/facets", "/api/v2/questions/portable", "/api/v2/questions/stats", "/api/v2/questions/imports", "/api/v2/questions/imports/[id]", "/api/v2/questions/search", "/api/v2/question-sets/import", "/api/v2/question-sets/source", "/api/v2/question-sets/[id]", "/api/v2/question-sets/[id]/source", "/api/v2/question-views", "/api/v2/question-views/[id]", "/api/v2/ai/question-reviews", "/api/v2/ai/question-reviews/apply", "/api/v2/recognition", "/api/v2/recognition/[id]",
+    "/api/v2/reflections", "/api/v2/reflections/[id]", "/api/v2/resources", "/api/v2/resources/[id]", "/api/v2/settings", "/api/v2/settings/ai", "/api/v2/settings/data", "/api/v2/settings/demo", "/api/v2/settings/export", "/api/v2/students", "/api/v2/students/attention", "/api/v2/students/[id]", "/api/v2/students/[id]/insights", "/api/v2/students/[id]/mastery", "/api/v2/students/[id]/monthly-report", "/api/v2/students/[id]/private", "/api/v2/students/[id]/recommendations", "/api/v2/students/[id]/score-trends", "/api/v2/students/[id]/wrong-questions", "/api/v2/ai/wrong-question-remediation",
     "/api/v2/mini/assignments", "/api/v2/mini/dictations", "/api/v2/mini/class-files", "/api/v2/mini/notices", "/api/v2/mini/notices/[id]/read", "/api/v2/mini/bind", "/api/v2/mini/bindings/[id]",
     "/api/v2/mini/excellent", "/api/v2/mini/files", "/api/v2/mini/files/[id]", "/api/v2/mini/invites", "/api/v2/mini/login",
     "/api/v2/mini/logout", "/api/v2/mini/me", "/api/v2/mini/paper-files/[id]", "/api/v2/mini/portal", "/api/v2/mini/submissions", "/api/v2/mini/sync",

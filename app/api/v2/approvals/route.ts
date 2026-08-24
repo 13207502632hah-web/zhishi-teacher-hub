@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   return Response.json({ approvals, activeJobs, canDecide: access.role === "teacher" }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
-const allowedActions = new Set(["question.promote", "schedule.adjust", "assignment.publish", "class_file.publish", "class_notice.publish", "submission.review_confirm", "assessment.complete", "recognition.confirm", "academic_year.promote", "academic_year.undo", "feedback_import.confirm", "feedback.send", "finance.confirm", "finance.receive", "paper.create_draft", "lesson.prepare_draft", "analysis.create_report", "mobile_record.share"]);
+const allowedActions = new Set(["question.promote", "question.update", "question.delete", "schedule.adjust", "assignment.publish", "class_file.publish", "class_notice.publish", "submission.review_confirm", "assessment.complete", "recognition.confirm", "academic_year.promote", "academic_year.undo", "feedback_import.confirm", "feedback.send", "finance.confirm", "finance.receive", "paper.create_draft", "lesson.prepare_draft", "analysis.create_report", "mobile_record.share", "resource.publish"]);
 
 export async function POST(request: Request) {
   const access = await requirePermission("dashboard:read"); if (isDenied(access)) return access;

@@ -8,8 +8,8 @@ export type AccessContext = { id: number; name: string; email: string; roles: Ro
 const permissions: Record<RoleCode, string[]> = {
   teacher: ["*"],
   assistant: ["dashboard:read", "classes:read", "students:read", "lessons:read", "lessons:write", "questions:read", "questions:write", "papers:read", "papers:write", "feedback:read", "feedback:write", "resources:read", "resources:private", "resources:write"],
-  student: ["portal:read", "resources:read"],
-  parent: ["portal:read", "resources:read"],
+  student: ["resources:read"],
+  parent: ["resources:read"],
 };
 
 async function seedRoles() {

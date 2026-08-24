@@ -17,7 +17,7 @@ const loadTsModule = async (path) => {
 };
 
 test("question keywords wait for an explicit search and list requests use the resilient client", async () => {
-  const page = await read("app/questions/page.tsx");
+  const page = await read("app/v2/questions/QuestionLibraryWorkspace.tsx");
 
   assert.match(page, /appliedSearch/);
   assert.match(page, /submitSearch/);
@@ -28,7 +28,7 @@ test("question keywords wait for an explicit search and list requests use the re
 });
 
 test("question list distinguishes loading, recoverable errors and genuine empty results", async () => {
-  const page = await read("app/questions/page.tsx");
+  const page = await read("app/v2/questions/QuestionLibraryWorkspace.tsx");
 
   assert.match(page, /listState/);
   assert.match(page, /正在整理题库/);
@@ -39,7 +39,7 @@ test("question list distinguishes loading, recoverable errors and genuine empty 
 });
 
 test("question pagination is clamped after filtering instead of returning a false empty page", async () => {
-  const route = await read("app/api/questions/route.ts");
+  const route = await read("app/api/v2/questions/route.ts");
 
   assert.match(route, /requestedPage/);
   assert.match(route, /Math\.min\(requestedPage,\s*pageCount\)/);
@@ -48,9 +48,8 @@ test("question pagination is clamped after filtering instead of returning a fals
     "the total must be known before the page offset is selected",
   );
 });
-
 test("question pagination keeps a stable secondary id order for every sort path", async () => {
-  const route = await read("app/api/questions/route.ts");
+  const route = await read("app/api/v2/questions/route.ts");
 
   assert.match(route, /asc\(questions\.updatedAt\), asc\(questions\.id\)/);
   assert.match(route, /desc\(questions\.updatedAt\), desc\(questions\.id\)/);
