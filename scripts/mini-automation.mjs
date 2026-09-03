@@ -291,6 +291,25 @@ async function findDatabase() {
   return files[0];
 }
 
+async function initializeDatabaseBinding() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/v2/mini/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        testCode: "mini-e2e-bootstrap",
+        role: "student",
+        displayName: "小程序验收初始化",
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    await response.text();
+  } catch {
+    // A fresh database has no schema yet, so the bootstrap request may fail
+    // after Miniflare creates the local D1 file. The file is checked below.
+  }
+}
+
 function sqlite(db, sql, label = "本地 D1") {
   const database = new DatabaseSync(db);
   try {
@@ -342,7 +361,7 @@ async function verifySchema(db) {
   const tables = [
     "users", "classes", "students", "assignments", "wechat_accounts", "mini_sessions", "mini_invites",
     "parent_student_links", "mini_bindings", "assignment_targets", "assignment_settings", "idempotency_operations",
-    "sync_events", "file_leases", "submission_reviews", "reminder_tasks", "class_files", "class_notices", "notice_receipts",
+    "sync_events", "file_leases", "submission_reviews", "reminder_tasks", "v2_mobile_records", "class_files", "class_notices", "notice_receipts",
   ];
   const missingTables = [];
   for (const table of tables) if (!await hasTable(db, table)) missingTables.push(table);
@@ -367,6 +386,7 @@ async function prepareDatabase() {
   let db = await findDatabase();
   if (!db) {
     const bootstrap = await startServer();
+    await initializeDatabaseBinding();
     await stopServer(bootstrap);
     db = await findDatabase();
   }
@@ -389,7 +409,7 @@ async function prepareDatabase() {
   await backupLocalDatabase(db, backup);
 
   if (!await hasTable(db, "users")) {
-    const migrations = (await readdir(DRIZZLE_ROOT)).filter((name) => /^00(?:0\d|1[0-4])_.*\.sql$/.test(name)).sort();
+    const migrations = (await readdir(DRIZZLE_ROOT)).filter((name) => /^00\d\d_.*\.sql$/.test(name)).sort();
     for (const migration of migrations) await applyMigration(db, migration, applied);
   }
   const migration0014Checks = [
@@ -413,6 +433,7 @@ async function prepareDatabase() {
   let needs0020 = false;
   for (const table of newTables) if (!await hasTable(db, table)) needs0020 = true;
   if (needs0020) await applyMigration(db, "0020_mini_integration.sql", applied);
+  if (!await hasTable(db, "v2_mobile_records")) await applyMigration(db, "0030_mobile_records_and_sync.sql", applied);
   if (!await hasColumn(db, "assignments", "kind")) await applyMigration(db, "0034_assignment_learning_modes.sql", applied);
   if (!await hasTable(db, "class_files")) await applyMigration(db, "0035_class_files.sql", applied);
   if (!await hasTable(db, "class_notices")) await applyMigration(db, "0036_class_notices.sql", applied);
