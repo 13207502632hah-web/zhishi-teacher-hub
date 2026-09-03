@@ -8,7 +8,7 @@ Page({
     this.setData({ loading: true, error: "" });
     try {
       const me = await api.request("/api/v2/mini/me"), studentId = this.data.studentId || me.currentStudentId;
-      if (!studentId) { this.setData({ me, loading: false, error: me.bindingStatus === "pending" ? "绑定申请待教师确认" : "请先绑定学生" }); return; }
+      if (!studentId) { this.setData({ me, loading: false, error: me.bindingStatus === "pending" ? "注册申请待教师批准" : "请先申请注册" }); return; }
       const data = await api.request(`/api/v2/mini/notices?studentId=${studentId}`), studentIndex = Math.max(0, me.students.findIndex((item) => Number(item.studentId) === Number(studentId)));
       this.setData({ ...data, me, studentId, studentIndex, loading: false });
     } catch (error) { this.setData({ loading: false, error: error.error || "家校消息加载失败" }); }

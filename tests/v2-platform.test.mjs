@@ -85,7 +85,7 @@ test("V2 question workflow exposes progressive hybrid search and intelligent mul
 test("student and parent mini program uses the versioned contract and excludes teacher-only pages", async () => {
   const [app, api] = await Promise.all([read("mini-program/app.json"), read("mini-program/utils/api.js")]);
   assert.match(api, /\/api\/v2\/mini/); assert.doesNotMatch(api, /v2Path|\/api\/mini/); assert.match(api, /onProgressUpdate/); assert.match(api, /mini-sync-cursor/);
-  for (const page of ["pages/home/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index", "pages/bind/index", "pages/portal/index"]) assert.match(app, new RegExp(page));
+  for (const page of ["pages/home/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index", "pages/register/index", "pages/portal/index"]) assert.match(app, new RegExp(page));
   for (const page of ["pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.doesNotMatch(app, new RegExp(page));
   for (const page of ["review", "publish", "inbox", "annotate"]) await assert.rejects(read(`mini-program/pages/${page}/index.js`), { code: "ENOENT" });
   for (const route of ["accounts", "classes"]) await assert.rejects(read(`app/api/v2/mini/${route}/route.ts`), { code: "ENOENT" });
@@ -279,8 +279,8 @@ test("every newly versioned route has an explicit contract inventory reference",
     "/api/v2/papers", "/api/v2/papers/[id]", "/api/v2/papers/[id]/export", "/api/v2/papers/[id]/export-job", "/api/v2/papers/[id]/files", "/api/v2/papers/[id]/files/[fileId]", "/api/v2/papers/upload", "/api/v2/ai/paper-review",
     "/api/v2/questions", "/api/v2/questions/[id]", "/api/v2/questions/[id]/content", "/api/v2/questions/[id]/review-draft", "/api/v2/questions/[id]/similar", "/api/v2/questions/batch", "/api/v2/questions/facets", "/api/v2/questions/portable", "/api/v2/questions/stats", "/api/v2/questions/imports", "/api/v2/questions/imports/[id]", "/api/v2/questions/search", "/api/v2/question-sets/import", "/api/v2/question-sets/source", "/api/v2/question-sets/[id]", "/api/v2/question-sets/[id]/source", "/api/v2/question-views", "/api/v2/question-views/[id]", "/api/v2/ai/question-reviews", "/api/v2/ai/question-reviews/apply", "/api/v2/recognition", "/api/v2/recognition/[id]",
     "/api/v2/reflections", "/api/v2/reflections/[id]", "/api/v2/resources", "/api/v2/resources/[id]", "/api/v2/settings", "/api/v2/settings/ai", "/api/v2/settings/data", "/api/v2/settings/demo", "/api/v2/settings/export", "/api/v2/students", "/api/v2/students/attention", "/api/v2/students/[id]", "/api/v2/students/[id]/insights", "/api/v2/students/[id]/mastery", "/api/v2/students/[id]/monthly-report", "/api/v2/students/[id]/private", "/api/v2/students/[id]/recommendations", "/api/v2/students/[id]/score-trends", "/api/v2/students/[id]/wrong-questions", "/api/v2/ai/wrong-question-remediation",
-    "/api/v2/mini/assignments", "/api/v2/mini/dictations", "/api/v2/mini/class-files", "/api/v2/mini/notices", "/api/v2/mini/notices/[id]/read", "/api/v2/mini/bind", "/api/v2/mini/bindings/[id]",
-    "/api/v2/mini/excellent", "/api/v2/mini/files", "/api/v2/mini/files/[id]", "/api/v2/mini/invites", "/api/v2/mini/login",
+    "/api/v2/mini/assignments", "/api/v2/mini/dictations", "/api/v2/mini/class-files", "/api/v2/mini/notices", "/api/v2/mini/notices/[id]/read", "/api/v2/mini/bindings/[id]",
+    "/api/v2/mini/excellent", "/api/v2/mini/files", "/api/v2/mini/files/[id]", "/api/v2/mini/registrations", "/api/v2/mini/registrations/[id]", "/api/v2/mini/login",
     "/api/v2/mini/logout", "/api/v2/mini/me", "/api/v2/mini/paper-files/[id]", "/api/v2/mini/portal", "/api/v2/mini/submissions", "/api/v2/mini/sync",
   ];
   for (const route of contractPaths) assert.ok((await read(`app${route}/route.ts`)).length > 20, `${route} contract route must exist`);

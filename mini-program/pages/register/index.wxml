@@ -1,0 +1,22 @@
+<view class="page">
+  <view class="hero">
+    <view class="eyebrow">知师研室 · 注册申请</view>
+    <view class="title">申请加入学习端</view>
+    <view class="muted">无需邀请码；资料只用于教师核对学生身份</view>
+  </view>
+  <view class="card">
+    <view class="title small">选择身份</view>
+    <view class="buttonRow">
+      <button class="secondary {{role==='student'?'active':''}}" data-role="student" bindtap="chooseRole">我是学生</button>
+      <button class="secondary {{role==='parent'?'active':''}}" data-role="parent" bindtap="chooseRole">我是家长</button>
+    </view>
+    <input wx:if="{{role==='parent'}}" class="field" maxlength="30" value="{{applicantName}}" data-field="applicantName" bindinput="input" placeholder="家长称呼，例如：小明妈妈"/>
+    <input class="field" maxlength="30" value="{{studentName}}" data-field="studentName" bindinput="input" placeholder="{{role==='parent'?'孩子姓名':'学生姓名'}}"/>
+    <input class="field" maxlength="40" value="{{classOrGrade}}" data-field="classOrGrade" bindinput="input" placeholder="班级或年级，例如：九年级1班"/>
+    <input wx:if="{{role==='parent'}}" class="field" maxlength="20" value="{{relationship}}" data-field="relationship" bindinput="input" placeholder="与学生关系，例如：母亲"/>
+    <view class="muted">提交后不会立即看到学生数据。教师会在网站核对申请，并选择正确的学生档案。</view>
+    <button class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">提交注册申请</button>
+    <view wx:if="{{message}}" class="notice">{{message}}</view>
+    <view wx:if="{{error}}" class="errorMessage">{{error}}</view>
+  </view>
+</view>

@@ -1,6 +1,6 @@
 const api = require("../../utils/api");
 const config = require("../../config");
-const CLIENT_VERSION = "2.0.5";
+const CLIENT_VERSION = "2.0.6";
 
 function diagnosticText(error) {
   const parts = [CLIENT_VERSION, error && error.stage, error && error.code];
@@ -43,7 +43,7 @@ Page({
       this.setData({ loginRetrying: false });
     }
   },
-  bindAccount() { wx.navigateTo({ url: "/pages/bind/index" }); },
+  registerAccount() { wx.navigateTo({ url: "/pages/register/index" }); },
   openDictations() { wx.navigateTo({ url: "/pages/dictation/index" }); },
   open(event) { wx.navigateTo({ url: `/pages/assignment/index?id=${event.currentTarget.dataset.id}` }); },
 });

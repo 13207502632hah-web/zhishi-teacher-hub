@@ -51,7 +51,7 @@ const miniProject = JSON.parse(source("mini-program/project.config.json") || "{}
 const miniConfig = source("mini-program/config.js");
 const releaseTarget = JSON.parse(source("release-target.json") || "{}");
 const releaseTargetSource = source("mini-program/release-target.js");
-const allowedPages = new Set(["pages/home/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index", "pages/bind/index", "pages/portal/index", "pages/excellent/index"]);
+const allowedPages = new Set(["pages/home/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index", "pages/register/index", "pages/portal/index", "pages/excellent/index"]);
 const registeredPages = Array.isArray(miniApp.pages) ? miniApp.pages : [];
 const miniPageSources = registeredPages.map((page) => source(`mini-program/${page}.js`)).join("\n");
 const miniApi = source("mini-program/utils/api.js");

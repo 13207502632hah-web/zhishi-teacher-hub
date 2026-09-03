@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type Dispatch, FormEvent, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
 
 type Row = Record<string, unknown>;
 type SettingsData = { current: Row; users: Row[]; students: Row[]; classes: Row[]; staffClassAccess: Row[]; logs: Row[] };
@@ -12,7 +12,6 @@ const text = (value: unknown, fallback = "—") => String(value ?? "").trim() ||
 const number = (value: unknown) => Number(value || 0);
 const enabled = (value: unknown) => value === true || value === 1 || value === "1" || value === "true";
 const roleLabel: Record<string, string> = { teacher: "教师", assistant: "助教", student: "学生", parent: "家长" };
-const bindingStatusLabel: Record<string, string> = { pending: "待确认", active: "已生效", disabled: "已停用", rejected: "已拒绝" };
 
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
@@ -25,9 +24,10 @@ export function SettingsWorkspace() {
   const [data, setData] = useState<SettingsData>(blank);
   const [routing, setRouting] = useState<Row>({});
   const [ai, setAi] = useState<AiData>({});
+  const [registrations, setRegistrations] = useState<Row[]>([]);
   const [bindings, setBindings] = useState<Row[]>([]);
+  const [registrationStudents, setRegistrationStudents] = useState<Record<number, number>>({});
   const [demoRuns, setDemoRuns] = useState<Row[]>([]);
-  const [invite, setInvite] = useState<Row | null>(null);
   const [tab, setTab] = useState<SettingsTab>("members");
   const [busyKey, setBusyKey] = useState("");
   const [loading, setLoading] = useState(true);
@@ -42,12 +42,13 @@ export function SettingsWorkspace() {
       const [settings, routingResult, mini, aiResult, demo] = await Promise.all([
         request("/api/v2/settings"),
         request("/api/v2/settings/ai-routing"),
-        request("/api/v2/mini/invites"),
+        request("/api/v2/mini/registrations"),
         request("/api/v2/settings/ai"),
         request("/api/v2/settings/demo"),
       ]);
       setData(settings as unknown as SettingsData);
       setRouting(routingResult);
+      setRegistrations(Array.isArray(mini.registrations) ? mini.registrations as Row[] : []);
       setBindings(Array.isArray(mini.bindings) ? mini.bindings as Row[] : []);
       setAi(aiResult as AiData);
       setDemoRuns(Array.isArray(demo.runs) ? demo.runs as Row[] : []);
@@ -91,21 +92,22 @@ export function SettingsWorkspace() {
     });
   };
 
-  const createInvite = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const fields = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>;
-    await run("invite", async () => {
-      const created = await request("/api/v2/mini/invites", { method: "POST", body: JSON.stringify({ studentId: Number(fields.studentId), role: fields.role }) });
-      setInvite(created); return "邀请码已生成；微信用户输入后仍需教师在本页确认。";
+  const decideRegistration = async (id: number, decision: "approve" | "reject") => {
+    const studentId = registrationStudents[id] || 0;
+    if (decision === "approve" && !studentId) { setError("批准前请选择对应学生档案。"); return; }
+    const label = decision === "approve" ? "批准" : "拒绝";
+    if (!window.confirm(`${label}这条注册申请？批准后该微信账号将立即获得所选学生的数据权限。`)) return;
+    await run(`registration:${id}`, async () => {
+      await request(`/api/v2/mini/registrations/${id}`, { method: "POST", body: JSON.stringify({ decision, studentId }) });
+      await load(); return `注册申请已${label}，权限变化立即生效。`;
     });
   };
 
-  const decideMiniBinding = async (id: number, decision: "confirm" | "reject" | "disable") => {
-    const label = decision === "confirm" ? "确认" : decision === "reject" ? "拒绝" : "停用";
-    if (!window.confirm(`${label}这条绑定关系？停用后旧会话将立即失去该学生的数据权限。`)) return;
+  const disableMiniBinding = async (id: number) => {
+    if (!window.confirm("停用这条绑定关系？旧会话将立即失去该学生的数据权限。")) return;
     await run(`binding:${id}`, async () => {
-      await request(`/api/v2/mini/bindings/${id}`, { method: "POST", body: JSON.stringify({ decision }) });
-      await load(); return `已${label}绑定；权限变化立即生效。`;
+      await request(`/api/v2/mini/bindings/${id}`, { method: "POST", body: JSON.stringify({ decision: "disable" }) });
+      await load(); return "绑定关系已停用，权限变化立即生效。";
     });
   };
 
@@ -181,7 +183,7 @@ export function SettingsWorkspace() {
     {error && <p className="v2-alert v2-error" role="alert">{error}</p>}{notice && <p className="v2-alert" role="status">{notice}</p>}
     <div className={loading ? "v2-loading" : ""}>
       {tab === "members" && <MembersTab data={data} busy={Boolean(busyKey)} saveMember={saveMember} disableMember={disableMember} saveScope={saveScope}/>}
-      {tab === "mini" && <MiniTab data={data} bindings={bindings} invite={invite} busy={Boolean(busyKey)} createInvite={createInvite} decide={decideMiniBinding}/>}
+      {tab === "mini" && <MiniTab data={data} registrations={registrations} bindings={bindings} registrationStudents={registrationStudents} setRegistrationStudents={setRegistrationStudents} busy={Boolean(busyKey)} decideRegistration={decideRegistration} disableBinding={disableMiniBinding}/>}
       {tab === "ai" && <AiTab routing={routing} models={models} jobs={jobs} settings={aiSettings} learning={ai.learning || {}} learningRecords={learningRecords} busy={Boolean(busyKey)} save={saveAi} clearLearning={clearLearning} setLearningActive={setLearningActive}/>}
       {tab === "audit" && <AuditTab rows={data.logs}/>}
       {tab === "data" && <DataTab demoRuns={demoRuns} busy={Boolean(busyKey)} deleteConfirmation={deleteConfirmation} setDeleteConfirmation={setDeleteConfirmation} demoConfirmation={demoConfirmation} setDemoConfirmation={setDemoConfirmation} exportData={exportData} seedDemo={seedDemo} clearDemo={clearDemo} deleteAllData={deleteAllData}/>}
@@ -193,8 +195,40 @@ function MembersTab({ data, busy, saveMember, disableMember, saveScope }: { data
   return <div className="v2-native-layout"><section className="v2-card"><header className="v2-card-head"><div><h2>工作室成员</h2><p>学生与家长只能访问绑定档案；助教仅访问授权班级</p></div><span className="v2-status completed">{data.users.length} 个账号</span></header><div className="v2-native-list v2-member-list">{data.users.map((row) => <article key={String(row.id)}><div className="v2-avatar">{text(row.name).slice(0, 1)}</div><div><h3>{text(row.name)} <small>{text(row.email)}</small></h3><p>{text(row.roleNames, text(row.roles).split(",").map((role) => roleLabel[role] || role).join("、"))}</p><span>{text(row.roles).includes("assistant") ? Number(row.hasCredential) ? "可使用邮箱和独立密码登录" : "尚未设置登录密码" : text(row.status) === "active" ? "账号正常" : "账号已停用"}</span>{text(row.roles).includes("assistant") && <AssistantScopeEditor userId={number(row.id)} classes={data.classes} access={data.staffClassAccess} disabled={busy} save={saveScope}/>} {text(row.status) === "active" && number(row.id) !== number(data.current.id) && !/@(chatgpt\.com|local\.invalid)$/i.test(text(row.email, "")) && <button className="v2-row-inline-button" disabled={busy} onClick={() => void disableMember(row)}>停用账号</button>}</div><em className={`v2-status ${text(row.status) === "active" && (!text(row.roles).includes("assistant") || Number(row.hasCredential)) ? "completed" : "failed"}`}>{text(row.status) === "active" ? "已启用" : "已停用"}</em></article>)}</div></section><section className="v2-card v2-sticky-card"><header className="v2-card-head"><div><h2>新增或更新成员</h2><p>相同邮箱会更新角色；密码留空时保留原助教密码</p></div></header><form className="v2-form" onSubmit={saveMember}><label>姓名<input name="name" required/></label><label>邮箱<input name="email" type="email" required/></label><label>角色<select name="role" required><option value="assistant">助教</option><option value="student">学生</option><option value="parent">家长</option></select></label><label>助教登录密码<input name="password" type="password" autoComplete="new-password" minLength={12}/><small>新助教必填；至少 12 位并包含多类字符。重设后旧会话立即失效。</small></label><label>绑定学生（学生/家长）<select name="studentId"><option value="">不绑定</option>{data.students.map((row) => <option value={String(row.id)} key={String(row.id)}>{text(row.name)} · {text(row.grade)}</option>)}</select></label><button className="v2-primary" disabled={busy}>{busy ? "保存中…" : "保存成员"}</button></form></section></div>;
 }
 
-function MiniTab({ data, bindings, invite, busy, createInvite, decide }: { data: SettingsData; bindings: Row[]; invite: Row | null; busy: boolean; createInvite: (event: FormEvent<HTMLFormElement>) => Promise<void>; decide: (id: number, decision: "confirm" | "reject" | "disable") => Promise<void> }) {
-  return <div className="v2-native-layout"><section className="v2-card"><header className="v2-card-head"><div><h2>教师确认学生或家长绑定</h2><p>一期仅服务学生与家长；只开放教师已经确认并发布的学习内容</p></div><span className="v2-status completed">{bindings.length} 条绑定</span></header>{bindings.length ? <div className="v2-native-list v2-mini-binding-list">{bindings.map((row) => <article key={String(row.id)}><div className="v2-avatar">微</div><div><h3>{text(row.displayName, "微信用户")} → {text(row.studentName)}</h3><p>{roleLabel[text(row.role)] || text(row.role)} · 申请于 {text(row.createdAt).slice(0, 16)}</p><span>小程序不能访问教师草稿、答案或其他学生数据</span></div><div className="v2-mini-binding-actions"><em className={`v2-status ${text(row.status) === "active" ? "completed" : text(row.status) === "pending" ? "warning" : "failed"}`}>{bindingStatusLabel[text(row.status)] || text(row.status)}</em>{text(row.status) === "pending" && <><button disabled={busy} onClick={() => void decide(number(row.id), "confirm")}>确认</button><button disabled={busy} onClick={() => void decide(number(row.id), "reject")}>拒绝</button></>}{text(row.status) === "active" && <button disabled={busy} onClick={() => void decide(number(row.id), "disable")}>停用</button>}</div></article>)}</div> : <div className="v2-empty"><b>暂无绑定申请</b>学生或家长输入邀请码后，申请会出现在这里。</div>}</section><section className="v2-card v2-sticky-card"><header className="v2-card-head"><div><h2>生成一次性邀请码</h2><p>邀请码 7 天有效，使用后仍需教师确认</p></div></header><form className="v2-form" onSubmit={createInvite}><label>学生<select name="studentId" required defaultValue=""><option value="" disabled>请选择学生</option>{data.students.map((row) => <option value={String(row.id)} key={String(row.id)}>{text(row.name)} · {text(row.grade)}</option>)}</select></label><label>身份<select name="role" defaultValue="parent"><option value="parent">家长</option><option value="student">学生</option></select></label><button className="v2-primary" disabled={busy}>{busy ? "生成中…" : "生成邀请码"}</button></form>{invite && <label className="v2-secret-once">本次邀请码<input readOnly value={text(invite.code)}/><span>身份：{roleLabel[text(invite.role)] || text(invite.role)} · 有效期至 {text(invite.expiresAt).slice(0, 16)}</span></label>}<p className="v2-form-note">停用后旧会话会立即失去对应学生的数据权限；发布作业、批改、审批和正式反馈仍只能由教师端执行。</p></section></div>;
+function MiniTab({ data, registrations, bindings, registrationStudents, setRegistrationStudents, busy, decideRegistration, disableBinding }: {
+  data: SettingsData;
+  registrations: Row[];
+  bindings: Row[];
+  registrationStudents: Record<number, number>;
+  setRegistrationStudents: Dispatch<SetStateAction<Record<number, number>>>;
+  busy: boolean;
+  decideRegistration: (id: number, decision: "approve" | "reject") => Promise<void>;
+  disableBinding: (id: number) => Promise<void>;
+}) {
+  const pending = registrations.filter((row) => text(row.status) === "pending");
+  return <div className="v2-native-layout">
+    <section className="v2-card">
+      <header className="v2-card-head"><div><h2>待审批注册申请</h2><p>学生和家长自主提交资料；批准前不能查看任何学生数据</p></div><span className={`v2-status ${pending.length ? "warning" : "completed"}`}>{pending.length} 条待处理</span></header>
+      {pending.length ? <div className="v2-native-list v2-mini-binding-list">{pending.map((row) => {
+        const id = number(row.id);
+        return <article key={String(id)}>
+          <div className="v2-avatar">申</div>
+          <div>
+            <h3>{text(row.applicantName)} · {roleLabel[text(row.role)] || text(row.role)}</h3>
+            <p>学生：{text(row.studentName)} · {text(row.classOrGrade)}{text(row.role) === "parent" ? ` · ${text(row.relationship)}` : ""}</p>
+            <span>申请于 {text(row.createdAt).slice(0, 16)}；请人工核对后选择学生档案</span>
+            <label className="v2-inline-select">对应学生<select value={registrationStudents[id] || ""} disabled={busy} onChange={(event) => setRegistrationStudents((current) => ({ ...current, [id]: Number(event.target.value) }))}><option value="">请选择学生</option>{data.students.map((student) => <option key={String(student.id)} value={String(student.id)}>{text(student.name)} · {text(student.grade)}</option>)}</select></label>
+          </div>
+          <div className="v2-mini-binding-actions"><em className="v2-status warning">待审批</em><button disabled={busy || !registrationStudents[id]} onClick={() => void decideRegistration(id, "approve")}>批准</button><button disabled={busy} onClick={() => void decideRegistration(id, "reject")}>拒绝</button></div>
+        </article>;
+      })}</div> : <div className="v2-empty"><b>暂无待审批申请</b>新用户可在小程序直接申请注册，无需邀请码。</div>}
+    </section>
+    <section className="v2-card v2-sticky-card">
+      <header className="v2-card-head"><div><h2>已生效绑定</h2><p>只显示教师已经批准的学生和家长关系</p></div><span className="v2-status completed">{bindings.filter((row) => text(row.status) === "active").length} 条有效</span></header>
+      {bindings.filter((row) => text(row.status) === "active").length ? <div className="v2-native-list v2-mini-binding-list">{bindings.filter((row) => text(row.status) === "active").map((row) => <article key={String(row.id)}><div className="v2-avatar">微</div><div><h3>{text(row.displayName, "微信用户")} → {text(row.studentName)}</h3><p>{roleLabel[text(row.role)] || text(row.role)} · 批准于 {text(row.confirmedAt).slice(0, 16)}</p><span>只能访问该学生经教师确认发布的内容</span></div><div className="v2-mini-binding-actions"><em className="v2-status completed">已生效</em><button disabled={busy} onClick={() => void disableBinding(number(row.id))}>停用</button></div></article>)}</div> : <div className="v2-empty"><b>暂无有效绑定</b>批准注册申请后，关系会出现在这里。</div>}
+      <p className="v2-form-note">停用后旧会话会立即失去对应学生的数据权限；发布作业、批改和正式反馈仍只能由教师端执行。</p>
+    </section>
+  </div>;
 }
 
 function AiTab({ routing, models, jobs, settings, learning, learningRecords, busy, save, clearLearning, setLearningActive }: { routing: Row; models: Row; jobs: Row[]; settings: Row; learning: Row; learningRecords: Row[]; busy: boolean; save: (event: FormEvent<HTMLFormElement>) => Promise<void>; clearLearning: () => Promise<void>; setLearningActive: (id: number, active: boolean) => Promise<void> }) {

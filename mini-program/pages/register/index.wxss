@@ -1,0 +1,17 @@
+.secondary.active {
+  background: #315d4d !important;
+  color: #fff !important;
+}
+
+.card .primary {
+  margin-top: 24rpx;
+}
+
+.errorMessage {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border: 1px solid #e5b9af;
+  border-radius: 10rpx;
+  background: #fff7f5;
+  color: #8c4036;
+}

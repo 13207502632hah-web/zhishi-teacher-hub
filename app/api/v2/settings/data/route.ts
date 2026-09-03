@@ -15,7 +15,7 @@ export async function DELETE(request: Request) {
     "submission_reviews", "review_annotations", "excellent_submissions", "submission_assets", "submission_versions",
     "assignment_assets", "assignment_targets", "assignment_settings", "assignment_submissions", "assignments",
     "file_leases", "recognition_items", "recognition_jobs", "file_assets",
-    "mini_bindings", "parent_student_links", "mini_sessions", "mini_invites", "wechat_accounts",
+    "mini_bindings", "mini_registration_requests", "parent_student_links", "mini_sessions", "mini_invites", "wechat_accounts",
     "knowledge_evidence", "assessment_question_results", "paper_files", "paper_questions", "lesson_questions", "wrong_questions",
     "assessment_results", "student_mastery_adjustments", "assessments", "attendance", "student_lesson_records",
     "settlement_items", "settlements", "package_ledger", "lesson_billing_items", "lesson_finance", "lesson_packages", "pricing_rules", "institutions",
