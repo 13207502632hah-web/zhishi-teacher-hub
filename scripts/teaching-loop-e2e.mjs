@@ -206,6 +206,8 @@ function cleanupBusinessCoverage() {
     DELETE FROM recognition_jobs WHERE source_asset_id IN (${assetIds}) OR assessment_id IN (${assessmentIds});
     DELETE FROM assessment_question_results WHERE assessment_result_id IN (SELECT id FROM assessment_results WHERE assessment_id IN (${assessmentIds}) OR assessment_id IN (SELECT id FROM assessments WHERE exam_project_id IN (${examProjectIds})) OR student_id IN (${markerStudents}));
     DELETE FROM knowledge_evidence WHERE student_id IN (${markerStudents});
+    DELETE FROM grade_promotion_items WHERE student_id IN (${markerStudents});
+    DELETE FROM grade_promotion_runs WHERE academic_year='2026-2027' AND NOT EXISTS (SELECT 1 FROM grade_promotion_items WHERE run_id=grade_promotion_runs.id);
     DELETE FROM exam_project_students WHERE project_id IN (${examProjectIds}) OR student_id IN (${markerStudents});
     DELETE FROM assessment_results WHERE assessment_id IN (${assessmentIds}) OR assessment_id IN (SELECT id FROM assessments WHERE exam_project_id IN (${examProjectIds})) OR student_id IN (${markerStudents});
     DELETE FROM assessments WHERE id IN (${assessmentIds}) OR exam_project_id IN (${examProjectIds});
