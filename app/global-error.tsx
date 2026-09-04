@@ -34,7 +34,7 @@ export default function GlobalError({ reset }: GlobalErrorProps) {
               <button className={styles.routeStateButton} type="button" onClick={retry} disabled={retrying}>
                 {retrying ? "正在重新加载…" : "重试"}
               </button>
-              <Link className={styles.routeStateButtonSecondary} href="/workspace">返回工作台</Link>
+              <Link className={styles.routeStateButtonSecondary} href="/v2">返回工作台</Link>
               <Link className={styles.routeStateButtonQuiet} href="/">返回公开首页</Link>
             </div>
             <p className={styles.routeStateHint} role="status">不会显示内部错误信息，也不会自动提交或修改教学记录。</p>

@@ -4,10 +4,11 @@ import type { AccessContext } from "../access";
 import { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule, type ScheduleMapping } from "../schedule-import";
 import { inspectScheduleImportRow, loadPreviousScheduleIdentities, type NormalizedScheduleRow } from "../schedule-import-preview";
 import type { ScheduleIdentityCache } from "../schedule-import-identity";
+import { reconcileLessonFinance } from "../schedule-import-confirm";
 import { cellValueToText, readFirstWorksheetCompat } from "../xlsx-compat";
 import { callV2AiJson } from "./ai-router";
 import { parseJsonArray, parseJsonObject, type ImportRowState } from "./contracts";
-import { createJob, getJob, updateJob } from "./job-service";
+import { createJob, getJob, heartbeatBackgroundJob, updateJob } from "./job-service";
 
 type PreparedRow = { rowNumber: number; sourceCell: string; raw: Record<string, unknown>; value: NormalizedScheduleRow; confidence: number; issues: string[] };
 type StoredRow = { id: number; rowNumber: number; rawJson: string; normalizedJson: string; previousJson: string; state: ImportRowState; confidence: number; issuesJson: string; action: string; lessonId: number | null };
@@ -74,26 +75,37 @@ export async function createScheduleImportV2(access: AccessContext, form: FormDa
   return { id: importId, job: created.job, report: { total: 0, valid: 0, warning: 0, blocked: 0 }, mapping: {}, rows: [] };
 }
 
-export async function processScheduleImportJobV2(access: AccessContext, jobId: string) {
+class ScheduleLeaseLostError extends Error {}
+
+async function renewScheduleLease(jobId: string, leaseOwner?: string) {
+  if (leaseOwner && !await heartbeatBackgroundJob(jobId, leaseOwner, 300)) throw new ScheduleLeaseLostError("后台任务租约已移交，本次执行已安全停止");
+}
+
+export async function processScheduleImportJobV2(access: AccessContext, jobId: string, leaseOwner?: string) {
+  await renewScheduleLease(jobId, leaseOwner);
   const item = await env.DB.prepare("SELECT id,source_name AS sourceName,source_type AS sourceType,storage_key AS storageKey,state FROM v2_schedule_imports WHERE job_id=? AND user_id=?").bind(jobId, access.id).first<{ id: string; sourceName: string; sourceType: string; storageKey: string; state: string }>();
   if (!item) throw new Error("课表导入任务或原始文件记录不存在");
+  if (item.state === "confirming") return processScheduleConfirmationChunkV2(access, item.id, jobId, leaseOwner);
   if (["waiting_review", "completed", "partial"].includes(item.state)) return getScheduleImportV2(access, item.id);
   const object = await env.FILES.get(item.storageKey); if (!object) throw new Error("课表原始文件不存在，请重新上传");
   const buffer = await object.arrayBuffer(), extension = item.sourceName.toLowerCase().split(".").pop() || "", file = new File([buffer], item.sourceName, { type: item.sourceType || object.httpMetadata?.contentType || "application/octet-stream" });
   await env.DB.prepare("UPDATE v2_schedule_imports SET state='running',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(item.id).run();
   try {
+    await renewScheduleLease(jobId, leaseOwner);
     await updateJob(access, jobId, { state: "running", stage: "recognizing", progress: 20, message: "正在识别课表结构" });
     const parsed = extension === "xlsx" || extension === "csv" ? await spreadsheetRows(file, buffer, extension) : await visualRows(access, file, buffer, jobId);
+    await renewScheduleLease(jobId, leaseOwner);
     if (!parsed.rows.length) throw new Error("没有识别到可导入的课时行");
     const current = await getJob(access, jobId); if (current?.cancelRequested) { await env.DB.prepare("UPDATE v2_schedule_imports SET state='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(item.id).run(); await updateJob(access, jobId, { state: "cancelled", stage: "cancelled", progress: current.progress, message: "任务已按请求取消" }); return { cancelled: true }; }
     const rows = await previews(access, parsed.rows), statements = rows.map((row) => { const issues = [...new Set([...row.issues, ...row.preview.issues])], state: ImportRowState = row.preview.action === "blocked" || row.issues.some((issue) => !issue.includes("置信度")) ? "blocked" : row.confidence < .85 || issues.length ? "warning" : "valid"; return env.DB.prepare("INSERT INTO v2_schedule_rows(import_id,row_number,source_cell,raw_json,normalized_json,state,confidence,issues_json,action,lesson_id) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(item.id, row.rowNumber, row.sourceCell || null, JSON.stringify(row.raw), JSON.stringify(row.value), state, row.confidence, JSON.stringify(issues), row.preview.action, row.preview.existingLessonId); });
     await env.DB.prepare("DELETE FROM v2_schedule_rows WHERE import_id=? AND state IN ('valid','warning','blocked','processing','failed')").bind(item.id).run();
-    for (let index = 0; index < statements.length; index += 50) await env.DB.batch(statements.slice(index, index + 50));
+    for (let index = 0; index < statements.length; index += 50) { await renewScheduleLease(jobId, leaseOwner); await env.DB.batch(statements.slice(index, index + 50)); }
     const report = { total: rows.length, valid: rows.filter((row) => !row.issues.length && row.confidence >= .85 && row.preview.action !== "blocked").length, warning: rows.filter((row) => row.confidence < .85).length, blocked: rows.filter((row) => row.issues.length || row.preview.action === "blocked").length, create: rows.filter((row) => row.preview.action === "create").length, update: rows.filter((row) => row.preview.action === "update").length, skip: rows.filter((row) => row.preview.action === "skip").length, headers: parsed.headers, unknownColumns: parsed.unknownColumns, compatibility: parsed.compatibility, model: parsed.model };
     await env.DB.prepare("UPDATE v2_schedule_imports SET format=?,mapping_json=?,report_json=?,state='waiting_review',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(parsed.format, JSON.stringify(parsed.mapping), JSON.stringify(report), item.id).run();
     const job = await updateJob(access, jobId, { state: "waiting_review", stage: "review", progress: 65, processed: rows.length, total: rows.length, result: { importId: item.id, report }, message: "识别完成，等待逐行确认" });
     return { id: item.id, job, report, mapping: parsed.mapping, rows: rows.slice(0, 100) };
   } catch (error) {
+    if (error instanceof ScheduleLeaseLostError) throw error;
     const message = error instanceof Error ? error.message : "课表识别失败"; await env.DB.prepare("UPDATE v2_schedule_imports SET state='failed',report_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify({ error: message }), item.id).run(); throw error;
   }
 }
@@ -129,24 +141,102 @@ async function classAndStudents(access: AccessContext, value: NormalizedSchedule
   return { classId: Number(item.id), studentIds };
 }
 
-async function timeConflict(value: NormalizedScheduleRow, excludeLessonId?: number | null) {
-  const row = await env.DB.prepare("SELECT id,course_name AS courseName FROM lessons WHERE date=? AND status!='cancelled' AND start_time<? AND end_time>? AND (? IS NULL OR id!=?) ORDER BY start_time LIMIT 1").bind(value.date, value.endTime, value.startTime, excludeLessonId || null, excludeLessonId || null).first<{ id: number; courseName: string }>();
+const lessonScope = (access: AccessContext) => access.role === "teacher"
+  ? { sql: "(c.owner_id=? OR c.owner_id IS NULL)", bind: [access.id] }
+  : { sql: "EXISTS(SELECT 1 FROM staff_class_access sca WHERE sca.user_id=? AND sca.class_id=l.class_id)", bind: [access.id] };
+
+async function timeConflict(access: AccessContext, value: NormalizedScheduleRow, excludeLessonId?: number | null) {
+  const scope = lessonScope(access);
+  const row = await env.DB.prepare(`SELECT l.id,l.course_name AS courseName FROM lessons l JOIN classes c ON c.id=l.class_id WHERE l.date=? AND l.status!='cancelled' AND l.start_time<? AND l.end_time>? AND (? IS NULL OR l.id!=?) AND ${scope.sql} ORDER BY l.start_time LIMIT 1`).bind(value.date, value.endTime, value.startTime, excludeLessonId || null, excludeLessonId || null, ...scope.bind).first<{ id: number; courseName: string }>();
   return row || null;
 }
 
 export async function confirmScheduleImportV2(access: AccessContext, id: string, operationId: string) {
-  const item = await env.DB.prepare("SELECT job_id AS jobId FROM v2_schedule_imports WHERE id=? AND user_id=?").bind(id, access.id).first<{ jobId: string }>(); if (!item) return null;
-  const repeated = await env.DB.prepare("SELECT result_json AS resultJson FROM v2_idempotency_operations WHERE user_id=? AND action='schedule-confirm' AND operation_id=?").bind(access.id, operationId).first<{ resultJson: string }>(); if (repeated) return parseJsonObject(repeated.resultJson);
-  const blocked = await env.DB.prepare("SELECT count(*) AS total FROM v2_schedule_rows WHERE import_id=? AND state='blocked'").bind(id).first<{ total: number }>(); if (Number(blocked?.total || 0)) throw new Error("仍有阻塞行，请修正或忽略后再确认");
-  await env.DB.prepare("INSERT INTO v2_idempotency_operations(user_id,action,operation_id,state) VALUES(?,?,?,'running')").bind(access.id, "schedule-confirm", operationId).run(); await updateJob(access, item.jobId, { state: "running", stage: "writing", progress: 70, message: "正在写入已确认课时" });
-  const rows = await env.DB.prepare("SELECT id,normalized_json AS normalizedJson,state,action,lesson_id AS lessonId FROM v2_schedule_rows WHERE import_id=? AND state IN ('valid','warning','failed') ORDER BY row_number,id").bind(id).all<StoredRow>(); let completed = 0, failed = 0;
-  for (const row of rows.results) { try { await env.DB.prepare("UPDATE v2_schedule_rows SET state='processing',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run(); const value = fromAi(parseJsonObject(row.normalizedJson)), issues = validateNormalizedSchedule(value); if (issues.length) throw new Error(issues.join("；")); if (row.action === "skip") { await env.DB.prepare("UPDATE v2_schedule_rows SET state='skipped' WHERE id=?").bind(row.id).run(); completed++; continue; } const conflict = await timeConflict(value, row.action === "update" ? row.lessonId : null); if (conflict) { const exact = await env.DB.prepare("SELECT id FROM lessons WHERE id=? AND date=? AND start_time=? AND end_time=? AND course_name=? AND status='draft'").bind(conflict.id, value.date, value.startTime, value.endTime, value.courseName).first<{ id: number }>(); if (row.action === "create" && exact) { await env.DB.prepare("UPDATE v2_schedule_rows SET state='created',lesson_id=?,issues_json='[]',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(exact.id, row.id).run(); completed++; continue; } throw new Error(`该时段与“${conflict.courseName || "其他课程"}”冲突`); } const { classId, studentIds } = await classAndStudents(access, value);
-      if (row.action === "update" && row.lessonId) { const before = await env.DB.prepare("SELECT * FROM lessons WHERE id=? AND status NOT IN ('completed','cancelled')").bind(row.lessonId).first<Record<string, unknown>>(); if (!before) throw new Error("原课时已锁定或不存在"); await env.DB.prepare("UPDATE lessons SET class_id=?,date=?,start_time=?,end_time=?,location=?,course_name=?,fee=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(classId, value.date, value.startTime, value.endTime, value.location || null, value.courseName, value.fee || null, row.lessonId).run(); await env.DB.prepare("UPDATE v2_schedule_rows SET state='updated',previous_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify(before), row.id).run(); }
-      else { const lesson = await env.DB.prepare("INSERT INTO lessons(class_id,date,start_time,end_time,mode,location,course_name,stage,grade,fee,fee_status,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft') RETURNING id").bind(classId, value.date, value.startTime, value.endTime, "offline", value.location || null, value.courseName, "未设置", gradeFor(value.className), value.fee || null, value.fee ? "review" : "untracked").first<{ id: number }>(); if (!lesson) throw new Error("无法创建课时"); for (const studentId of studentIds) await env.DB.prepare("INSERT OR IGNORE INTO attendance(lesson_id,student_id,status) VALUES(?,?,'pending')").bind(lesson.id, studentId).run(); await env.DB.prepare("UPDATE v2_schedule_rows SET state='created',lesson_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(lesson.id, row.id).run(); }
-      completed++; } catch (error) { failed++; await env.DB.prepare("UPDATE v2_schedule_rows SET state='failed',issues_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify([error instanceof Error ? error.message : "写入失败"]), row.id).run(); }
-    await updateJob(access, item.jobId, { state: "running", stage: "writing", progress: 70 + Math.round((completed + failed) / Math.max(1, rows.results.length) * 25), processed: completed + failed, total: rows.results.length }); }
-  const state = failed ? "partial" : "completed", undoUntil = new Date(Date.now() + 86_400_000).toISOString(), result = { importId: id, completed, failed, state, undoUntil };
-  await env.DB.batch([env.DB.prepare("UPDATE v2_schedule_imports SET state=?,confirmed_at=CURRENT_TIMESTAMP,undo_until=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(state, undoUntil, id), env.DB.prepare("UPDATE v2_idempotency_operations SET state='completed',result_json=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND action='schedule-confirm' AND operation_id=?").bind(JSON.stringify(result), access.id, operationId)]); await updateJob(access, item.jobId, { state, stage: state, progress: state === "completed" ? 100 : 96, processed: completed + failed, total: rows.results.length, result, message: failed ? "部分失败，可修正后续跑" : "课表导入完成" }); return result;
+  const item = await env.DB.prepare("SELECT state FROM v2_schedule_imports WHERE id=? AND user_id=?").bind(id, access.id).first<{ state: string }>();
+  if (!item) return null;
+  const previous = await env.DB.prepare("SELECT id FROM v2_jobs WHERE user_id=? AND type='schedule-confirm' AND operation_id=?").bind(access.id, operationId).first<{ id: string }>();
+  if (previous) return { importId: id, operationId, queued: true, repeated: true, job: await getJob(access, previous.id) };
+  if (item.state === "completed") return { importId: id, operationId, queued: false, repeated: true, state: "completed" };
+  if (!["waiting_review", "partial"].includes(item.state)) throw new Error("当前导入任务不可确认");
+  const blocked = await env.DB.prepare("SELECT count(*) AS total FROM v2_schedule_rows WHERE import_id=? AND state='blocked'").bind(id).first<{ total: number }>();
+  if (Number(blocked?.total || 0)) throw new Error("仍有阻塞行，请修正或忽略后再确认");
+  const total = Number((await env.DB.prepare("SELECT count(*) AS total FROM v2_schedule_rows WHERE import_id=? AND state IN ('valid','warning','failed','processing')").bind(id).first<{ total: number }>())?.total || 0);
+  const created = await createJob(access, { type: "schedule-confirm", operationId, entityType: "schedule_import", entityId: id, state: "queued", stage: "write_queued", total, payload: { importId: id } });
+  if (created.repeated) return { importId: id, operationId, queued: true, repeated: true, job: created.job };
+  const claimed = await env.DB.prepare("UPDATE v2_schedule_imports SET job_id=?,state='confirming',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND state IN ('waiting_review','partial')").bind(created.job.id, id, access.id).run();
+  if (!Number(claimed.meta?.changes || 0)) {
+    await updateJob(access, created.job.id, { state: "cancelled", stage: "superseded", message: "另一项确认任务已开始" });
+    throw new Error("该导入已在确认中，请稍后刷新");
+  }
+  await env.DB.prepare("UPDATE v2_schedule_rows SET state='valid',updated_at=CURRENT_TIMESTAMP WHERE import_id=? AND state='failed'").bind(id).run();
+  return { importId: id, operationId, queued: true, repeated: false, job: created.job };
+}
+
+const CONFIRM_CHUNK_SIZE = 50;
+
+async function processScheduleConfirmationChunkV2(access: AccessContext, importId: string, jobId: string, leaseOwner?: string) {
+  await renewScheduleLease(jobId, leaseOwner);
+  const job = await getJob(access, jobId);
+  if (!job) throw new Error("课表确认任务不存在");
+  if (job.cancelRequested) {
+    const completed = Number((await env.DB.prepare("SELECT count(*) AS total FROM v2_schedule_rows WHERE import_id=? AND state IN ('created','updated','skipped')").bind(importId).first<{ total: number }>())?.total || 0);
+    const state = completed ? "partial" : "waiting_review";
+    await env.DB.prepare("UPDATE v2_schedule_imports SET state=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(state, importId).run();
+    await updateJob(access, jobId, { state: "cancelled", stage: "cancelled", processed: completed, total: job.total, message: "课表写入已取消，可稍后继续" });
+    return { cancelled: true, requeue: false };
+  }
+  const rows = await env.DB.prepare(`SELECT id,normalized_json AS normalizedJson,state,action,lesson_id AS lessonId FROM v2_schedule_rows WHERE import_id=? AND (state IN ('valid','warning') OR (state='processing' AND datetime(updated_at)<=datetime('now','-300 seconds'))) ORDER BY row_number,id LIMIT ${CONFIRM_CHUNK_SIZE}`).bind(importId).all<StoredRow>();
+  for (const row of rows.results) {
+    try {
+      await renewScheduleLease(jobId, leaseOwner);
+      const claimed = await env.DB.prepare("UPDATE v2_schedule_rows SET state='processing',updated_at=CURRENT_TIMESTAMP WHERE id=? AND (state IN ('valid','warning') OR (state='processing' AND datetime(updated_at)<=datetime('now','-300 seconds')))").bind(row.id).run();
+      if (Number(claimed.meta?.changes || 0) !== 1) continue;
+      await renewScheduleLease(jobId, leaseOwner);
+      const value = fromAi(parseJsonObject(row.normalizedJson)), issues = validateNormalizedSchedule(value);
+      if (issues.length) throw new Error(issues.join("；"));
+      if (row.action === "skip") { await renewScheduleLease(jobId, leaseOwner); await env.DB.prepare("UPDATE v2_schedule_rows SET state='skipped',issues_json='[]',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run(); continue; }
+      const conflict = await timeConflict(access, value, row.action === "update" ? row.lessonId : null);
+      if (conflict) {
+        const scope = lessonScope(access);
+        const exact = await env.DB.prepare(`SELECT l.id FROM lessons l JOIN classes c ON c.id=l.class_id WHERE l.id=? AND l.date=? AND l.start_time=? AND l.end_time=? AND l.course_name=? AND l.status='draft' AND ${scope.sql}`).bind(conflict.id, value.date, value.startTime, value.endTime, value.courseName, ...scope.bind).first<{ id: number }>();
+        if (row.action === "create" && exact) { await renewScheduleLease(jobId, leaseOwner); await reconcileLessonFinance(env.DB, exact.id, value); await renewScheduleLease(jobId, leaseOwner); await env.DB.prepare("UPDATE v2_schedule_rows SET state='created',lesson_id=?,issues_json='[]',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(exact.id, row.id).run(); continue; }
+        throw new Error(`该时段与“${conflict.courseName || "其他课程"}”冲突`);
+      }
+      await renewScheduleLease(jobId, leaseOwner);
+      const { classId, studentIds } = await classAndStudents(access, value);
+      await renewScheduleLease(jobId, leaseOwner);
+      if (row.action === "update" && row.lessonId) {
+        const before = await env.DB.prepare("SELECT * FROM lessons WHERE id=? AND status NOT IN ('completed','cancelled')").bind(row.lessonId).first<Record<string, unknown>>();
+        if (!before) throw new Error("原课时已锁定或不存在");
+        await env.DB.prepare("UPDATE lessons SET class_id=?,date=?,start_time=?,end_time=?,location=?,course_name=?,fee=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(classId, value.date, value.startTime, value.endTime, value.location || null, value.courseName, value.fee || null, row.lessonId).run();
+        await reconcileLessonFinance(env.DB, row.lessonId, value);
+        await renewScheduleLease(jobId, leaseOwner);
+        await env.DB.prepare("UPDATE v2_schedule_rows SET state='updated',previous_json=?,issues_json='[]',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify(before), row.id).run();
+      } else {
+        const lesson = await env.DB.prepare("INSERT INTO lessons(class_id,date,start_time,end_time,mode,location,course_name,stage,grade,fee,fee_status,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft') RETURNING id").bind(classId, value.date, value.startTime, value.endTime, "offline", value.location || null, value.courseName, "未设置", gradeFor(value.className), value.fee || null, value.fee ? "review" : "untracked").first<{ id: number }>();
+        if (!lesson) throw new Error("无法创建课时");
+        for (const studentId of studentIds) { await renewScheduleLease(jobId, leaseOwner); await env.DB.prepare("INSERT OR IGNORE INTO attendance(lesson_id,student_id,status) VALUES(?,?,'pending')").bind(lesson.id, studentId).run(); }
+        await reconcileLessonFinance(env.DB, lesson.id, value);
+        await renewScheduleLease(jobId, leaseOwner);
+        await env.DB.prepare("UPDATE v2_schedule_rows SET state='created',lesson_id=?,issues_json='[]',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(lesson.id, row.id).run();
+      }
+    } catch (error) {
+      if (error instanceof ScheduleLeaseLostError) throw error;
+      await env.DB.prepare("UPDATE v2_schedule_rows SET state='failed',issues_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify([error instanceof Error ? error.message : "写入失败"]), row.id).run();
+    }
+  }
+  await renewScheduleLease(jobId, leaseOwner);
+  const counts = await env.DB.prepare("SELECT count(*) AS total,sum(CASE WHEN state IN ('created','updated','skipped') THEN 1 ELSE 0 END) AS completed,sum(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failed,sum(CASE WHEN state IN ('valid','warning','processing') THEN 1 ELSE 0 END) AS remaining FROM v2_schedule_rows WHERE import_id=?").bind(importId).first<{ total: number; completed: number; failed: number; remaining: number }>();
+  const total = Number(counts?.total || 0), completed = Number(counts?.completed || 0), failed = Number(counts?.failed || 0), remaining = Number(counts?.remaining || 0), processed = completed + failed;
+  if (remaining) {
+    await updateJob(access, jobId, { state: "queued", stage: "writing", progress: 70 + Math.round(processed / Math.max(1, total) * 25), processed, total, checkpoint: { importId, processed }, message: `已写入 ${completed} 行，后台继续处理` });
+    return { requeue: true, completed, failed, remaining };
+  }
+  await renewScheduleLease(jobId, leaseOwner);
+  const state = failed ? "partial" : "completed", undoUntil = new Date(Date.now() + 86_400_000).toISOString(), result = { importId, completed, failed, state, undoUntil };
+  await env.DB.prepare("UPDATE v2_schedule_imports SET state=?,confirmed_at=CURRENT_TIMESTAMP,undo_until=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(state, undoUntil, importId).run();
+  await updateJob(access, jobId, { state, stage: state, progress: state === "completed" ? 100 : 96, processed, total, result, message: failed ? "部分失败，可修正后续跑" : "课表导入完成" });
+  return { ...result, requeue: false };
 }
 
 export async function undoScheduleImportV2(access: AccessContext, id: string, operationId: string) {

@@ -27,7 +27,7 @@ export default function TeacherLoginPage() {
         body: JSON.stringify({ account, password, returnTo: requestedReturnTo }),
       });
       if (!payload) throw new HttpError(200, "登录响应为空，请重试");
-      window.location.assign(payload.returnTo || "/workspace");
+      window.location.assign(payload.returnTo || "/v2");
     } catch (error) {
       setMessage(error instanceof HttpError ? error.message : "暂时无法登录，请稍后重试");
     } finally {

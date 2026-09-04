@@ -5,7 +5,7 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("class overview uses resilient requests and recoverable list states", async () => {
-  const page = await read("app/classes/page.tsx");
+  const page = await read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx");
 
   assert.match(page, /requestJson/);
   assert.match(page, /HttpError/);
@@ -18,7 +18,7 @@ test("class overview uses resilient requests and recoverable list states", async
 });
 
 test("class writes cannot overlap and always release busy state", async () => {
-  const page = await read("app/classes/page.tsx");
+  const page = await read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx");
 
   assert.match(page, /if \(busy\) return/);
   assert.match(page, /finally\s*\{\s*setBusy\(false\)/);
@@ -31,7 +31,7 @@ test("class writes cannot overlap and always release busy state", async () => {
 });
 
 test("class dialog restores focus and protects unsaved changes", async () => {
-  const page = await read("app/classes/page.tsx");
+  const page = await read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx");
 
   assert.match(page, /dialogRef/);
   assert.match(page, /previousFocusRef/);
@@ -42,7 +42,7 @@ test("class dialog restores focus and protects unsaved changes", async () => {
 });
 
 test("class overview uses shared teaching workspace primitives", async () => {
-  const page = await read("app/classes/page.tsx");
+  const page = await read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx");
 
   for (const component of ["Button", "EmptyState", "MetricCard", "Panel", "StatusBadge"]) {
     assert.match(page, new RegExp(component));
@@ -50,6 +50,19 @@ test("class overview uses shared teaching workspace primitives", async () => {
   assert.match(page, /classOverviewMetrics/);
   assert.match(page, /classRosterRail/);
   assert.match(page, /教师确认关注/);
+});
+
+test("class overview is V2-native and the legacy page is retired", async () => {
+  const [page, workspace] = await Promise.all([
+    read("app/v2/modules/[slug]/ClassOverviewWorkspace.tsx"),
+    read("app/v2/modules/[slug]/ModuleWorkspace.tsx"),
+  ]);
+
+  await assert.rejects(read("app/classes/page.tsx"), { code: "ENOENT" });
+  assert.match(workspace, /ClassOverviewWorkspace/);
+  assert.match(page, /\/api\/v2\/classes/);
+  assert.match(page, /\/v2\/detail\/classes\/\$\{row\.id\}/);
+  assert.doesNotMatch(page, /AppShell/);
 });
 
 test("class overview styles are readable touch-safe and mobile-first", async () => {
@@ -68,8 +81,8 @@ test("class overview styles are readable touch-safe and mobile-first", async () 
 
 test("class create and update share the same name length limit", async () => {
   const [collectionRoute, detailRoute] = await Promise.all([
-    read("app/api/classes/route.ts"),
-    read("app/api/classes/[id]/route.ts"),
+    read("app/api/v2/classes/route.ts"),
+    read("app/api/v2/classes/[id]/route.ts"),
   ]);
 
   assert.match(collectionRoute, /name\.length > 80/);

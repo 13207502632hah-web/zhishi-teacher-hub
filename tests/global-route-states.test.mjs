@@ -39,14 +39,14 @@ test("route errors expose safe recovery actions without rendering error details"
   assert.match(error, /typeof reset/);
   assert.match(error, /disabled=\{retrying\}/);
   assert.match(error, /正在重新加载/);
-  assert.match(error, /href="\/workspace"/);
+  assert.match(error, /href="\/v2"/);
   assert.match(error, /href="\/"/);
   assert.doesNotMatch(error, /error\.(message|stack|digest)/);
 
   assert.match(globalError, /reset/);
   assert.match(globalError, /typeof reset/);
   assert.match(globalError, /disabled=\{retrying\}/);
-  assert.match(globalError, /href="\/workspace"/);
+  assert.match(globalError, /href="\/v2"/);
   assert.match(globalError, /href="\/"/);
   assert.doesNotMatch(globalError, /error\.(message|stack|digest)/);
   assert.doesNotMatch(globalError, /JSON\.stringify|process\.env|request\./);
@@ -59,7 +59,7 @@ test("not-found keeps public and workspace recovery paths distinct", async () =>
   assert.match(notFound, /usePathname/);
   assert.match(notFound, /href="\/"/);
   assert.match(notFound, /href="\/resources"/);
-  assert.match(notFound, /href="\/workspace"/);
+  assert.match(notFound, /href="\/v2"/);
   assert.match(notFound, /没有找到/);
   assert.doesNotMatch(notFound, /error\.(message|stack)|process\.env|JSON\.stringify/);
 });

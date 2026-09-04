@@ -38,10 +38,10 @@ test("resource mutations are guarded, recoverable and preserve audit semantics",
   assert.match(page, /危险操作/);
   assert.match(page, /删除失败/);
   assert.match(page, /保存失败/);
-  assert.match(page, /requestJson[\s\S]*\/api\/audit/);
+  assert.match(page, /requestJson[\s\S]*\/api\/v2\/audit/);
   assert.match(page, /审计记录失败/);
   assert.match(page, /window\.print\(\)/);
-  assert.ok(page.indexOf("/api/audit") < page.indexOf("window.print"), "audit must complete before printing");
+  assert.ok(page.indexOf("/api/v2/audit") < page.indexOf("window.print"), "audit must complete before printing");
 });
 
 test("resource dialog protects focus, escape, unsaved content and public visibility boundaries", async () => {
@@ -61,7 +61,7 @@ test("resource dialog protects focus, escape, unsaved content and public visibil
 });
 
 test("external resource links are protocol-safe and keep new-tab isolation", async () => {
-  const [page, api] = await Promise.all([read("app/resources/page.tsx"), read("app/api/resources/route.ts")]);
+  const [page, api] = await Promise.all([read("app/resources/page.tsx"), read("app/api/v2/resources/route.ts")]);
 
   assert.match(page, /new URL/);
   assert.match(page, /protocol/);
@@ -88,14 +88,14 @@ test("resource page is isolated in a responsive CSS module", async () => {
 });
 
 test("resource detail API keeps public reads bounded and destructive misses explicit", async () => {
-  const api = await read("app/api/resources/[id]/route.ts");
+  const api = await read("app/api/v2/resources/[id]/route.ts");
 
   assert.match(api, /export async function GET/);
   assert.match(api, /resources:private/);
   assert.match(api, /eq\(resources\.visibility,\s*["`]public["`]\)/);
   assert.match(api, /canManage/);
   assert.match(api, /requirePermission\(["`]resources:write["`]\)/);
-  assert.match(api, /returning/);
+  assert.match(api, /RETURNING/);
   assert.match(api, /status:\s*404/);
   assert.match(api, /资源不存在/);
 });

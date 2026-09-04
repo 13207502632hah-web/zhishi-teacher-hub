@@ -8,7 +8,7 @@ import { callV2AiJson } from "./ai-router";
 import { createJob, getJob, updateJob } from "./job-service";
 import { parseJsonObject } from "./contracts";
 import { ensureLocalQuestionVectors } from "./vector-index";
-import { importQuestionSetForAccess } from "../../api/question-sets/import/route";
+import { importQuestionSetForAccess } from "../../api/v2/question-sets/import/route";
 
 type AiQuestion = Record<string, unknown> & { stem: string };
 const allowed = new Set(["docx", "pdf", "png", "jpg", "jpeg", "webp", "xlsx", "csv"]);
@@ -65,6 +65,6 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
 
 export async function getQuestionImportV2(access: AccessContext, id: string) {
   const job = await getJob(access, id); if (!job || job.type !== "question-import") return null; const questionSetId = Number(job.result.questionSetId || 0); if (!questionSetId) return { job, questionSet: null, questions: [] };
-  const questionSet = await env.DB.prepare("SELECT id,name,source_file AS sourceFile,import_report AS importReport,duplicate_report AS duplicateReport,parse_stage AS parseStage,review_progress AS reviewProgress,status,created_at AS createdAt FROM question_sets WHERE id=?").bind(questionSetId).first<Record<string, unknown>>(), rows = await env.DB.prepare("SELECT id,stem,material,question_type AS questionType,difficulty,answer,analysis,knowledge_points AS knowledgePoints,parse_confidence AS parseConfidence,review_status AS reviewStatus,status FROM questions WHERE question_set_id=? ORDER BY id LIMIT 300").bind(questionSetId).all<Record<string, unknown>>();
+  const questionSet = await env.DB.prepare("SELECT id,name,source_file AS sourceFile,import_report AS importReport,duplicate_report AS duplicateReport,parse_stage AS parseStage,review_progress AS reviewProgress,status,created_at AS createdAt FROM question_sets WHERE id=?").bind(questionSetId).first<Record<string, unknown>>(), rows = await env.DB.prepare("SELECT id,stem,material,question_type AS questionType,difficulty,answer,analysis,knowledge_points AS knowledgePoints,parse_confidence AS parseConfidence,review_status AS reviewStatus,status,updated_at AS updatedAt FROM questions WHERE question_set_id=? ORDER BY id LIMIT 300").bind(questionSetId).all<Record<string, unknown>>();
   return { job, questionSet: questionSet ? { ...questionSet, report: parseJsonObject(questionSet.importReport), duplicates: parseJsonObject(questionSet.duplicateReport) } : null, questions: rows.results };
 }

@@ -1,4 +1,4 @@
-import { GET as getRecognition, POST as mutateRecognition } from "../../../recognition/route";
+import { GET as getRecognition, POST as mutateRecognition } from "../route";
 
 const idFrom = async (context: { params: Promise<{ id: string }> }) => Number((await context.params).id);
 

@@ -1,66 +1,60 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("assessment list uses the resilient client and recoverable loading states", async () => {
-  const page = await read("app/assessments/page.tsx");
+test("V2 assessment list loads its evidence and recovers from request failures", async () => {
+  const workspace = await read("app/v2/operations/OperationsWorkspace.tsx");
 
-  assert.match(page, /requestJson/);
-  assert.match(page, /HttpError/);
-  assert.match(page, /AbortController/);
-  assert.match(page, /assessmentLoadError/);
-  assert.match(page, /重新读取测验/);
-  assert.match(page, /role="alert"/);
-  assert.doesNotMatch(page, /\bfetch\(/);
-  assert.doesNotMatch(page, /response\.json\(\)/);
-});
-
-test("assessment creation cannot double submit and always releases busy state", async () => {
-  const page = await read("app/assessments/page.tsx");
-
-  assert.match(page, /submitting/);
-  assert.match(page, /if \(submitting\) return/);
-  assert.match(page, /finally\s*\{\s*setSubmitting\(false\)/);
-  assert.match(page, /disabled=\{submitting\}/);
-  assert.match(page, /创建中…/);
-});
-
-test("assessment list uses shared metrics, panels and status language", async () => {
-  const page = await read("app/assessments/page.tsx");
-
-  for (const component of ["EmptyState", "MetricCard", "Panel", "StatusBadge"]) {
-    assert.match(page, new RegExp(component));
+  for (const endpoint of ["/api/v2/assessments", "/api/v2/classes?status=active&pageSize=200", "/api/v2/papers?status=all"]) {
+    assert.match(workspace, new RegExp(endpoint.replace(/[?]/g, "\\?")));
   }
-  assert.match(page, /assessmentMetrics/);
-  assert.match(page, /aria-label="筛选测验"/);
+  assert.match(workspace, /if \(!response\.ok\) throw new Error/);
+  assert.match(workspace, /教学运营数据暂时无法读取/);
+  assert.match(workspace, /↻ 刷新数据/);
 });
 
-test("assessment dialog restores focus and protects unsaved work", async () => {
-  const page = await read("app/assessments/page.tsx");
+test("assessment creation is single-flight and keeps optional paper and notes", async () => {
+  const workspace = await read("app/v2/operations/OperationsWorkspace.tsx");
 
-  assert.match(page, /useRef/);
-  assert.match(page, /formDirty/);
-  assert.match(page, /beforeunload/);
-  assert.match(page, /event\.key === "Escape"/);
-  assert.match(page, /event\.key === "Tab"/);
-  assert.match(page, /window\.confirm/);
-  assert.match(page, /previousFocusRef/);
-  assert.match(page, /tabIndex=\{-1\}/);
+  assert.match(workspace, /setBusy\(true\)/);
+  assert.match(workspace, /finally \{ setBusy\(false\); \}/);
+  assert.match(workspace, /paperId: fields\.paperId \? Number\(fields\.paperId\) : null/);
+  assert.match(workspace, /name="paperId"/);
+  assert.match(workspace, /name="notes"/);
+  assert.match(workspace, /disabled=\{busy\}/);
+  assert.match(workspace, /保存中…/);
 });
 
-test("assessment list styles are readable, touch-safe and mobile-first", async () => {
-  const [layout, css] = await Promise.all([
-    read("app/layout.tsx"),
-    read("app/assessments-list.css"),
+test("assessment list supports class and status filters, direct class context and CSV export", async () => {
+  const [workspace, page] = await Promise.all([
+    read("app/v2/operations/OperationsWorkspace.tsx"),
+    read("app/v2/operations/page.tsx"),
   ]);
 
-  assert.match(layout, /import "\.\/assessments-list\.css"/);
-  assert.match(css, /font-size:\s*1rem/);
-  assert.match(css, /font-size:\s*0\.875rem/);
-  assert.match(css, /min-height:\s*44px/);
-  assert.match(css, /z-index:\s*8\d/);
-  assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
-  assert.doesNotMatch(css, /#d8f16b/i);
+  assert.match(workspace, /classFilter/);
+  assert.match(workspace, /statusFilter/);
+  assert.match(workspace, /useMemo/);
+  assert.match(workspace, /\/api\/v2\/exports\/assessments/);
+  assert.match(workspace, /initialAssessmentClassId/);
+  assert.match(page, /classId/);
+  assert.match(page, /initialAssessmentClassId/);
+  assert.match(workspace, /\/v2\/operations\/assessments\/\$\{row\.id\}/);
+});
+
+test("retired assessment list route and dedicated CSS are removed", async () => {
+  await assert.rejects(access(new URL("../app/assessments/page.tsx", import.meta.url)));
+  await assert.rejects(access(new URL("../app/assessments-list.css", import.meta.url)));
+  const [layout, navigation] = await Promise.all([read("app/layout.tsx"), read("app/components/navigation.ts")]);
+  assert.doesNotMatch(layout, /assessments-list\.css/);
+  assert.match(navigation, /href:\s*"\/v2\/operations\?tab=assessments"/);
+  assert.doesNotMatch(navigation, /href:\s*"\/assessments"/);
+});
+
+test("V2 assessment filters and controls remain touch-safe on phones", async () => {
+  const css = await read("app/v2/v2.css");
+  assert.match(css, /\.v2-ops-filters/);
+  assert.match(css, /\.v2-score-sheet \.v2-table input\{min-height:44px\}/);
+  assert.match(css, /@media\(max-width:720px\)/);
 });

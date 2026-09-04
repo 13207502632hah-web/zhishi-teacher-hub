@@ -16,24 +16,22 @@
 - 默认单教师工作区；首位登录用户初始化为教师，后续账号由教师在设置中分配角色。
 - 助教必须被逐班授权（`staff_class_access`）后才能协助课时、学生、作业与
   反馈，且不能导出或查看监护人联系方式。
-- 学生、家长只进入只读门户，服务端仍按关联关系校验数据归属。
+- 学生、家长只使用微信小程序，服务端仍按绑定关系校验数据归属；网站不创建学生或家长会话。
 - 资源中心可公开访问；其余页面与接口要求登录，并在服务端检查权限。
 
 ### 当前 Web 登录边界
 
-当前 Web 登录只产生教师管理员会话（`teacher-admin@local.invalid` +
-`TEACHER_ADMIN_*` 配置）；`app/lib/access.ts` 中声明的助教/学生/家长角色
-尚未通过 Web 登录接通，小程序使用独立的 `MiniAccess` 会话且当前暂停。
-下面矩阵描述的是声明层与服务端校验应遵循的边界，不是当前 Web 可登录角色。
+当前 Web 登录只产生教师管理员或已启用助教会话；小程序使用独立的
+`MiniAccess` 学生/家长会话。两类会话不互换，学生和家长不能登录网站工作台。
 
 ### 权限矩阵
 
 | 角色 | 可访问页面/接口 | 权限点 | 说明 |
 | --- | --- | --- | --- |
-| teacher | 全部工作台页面与 API | `*` | 当前唯一可通过 Web 登录进入的角色；可管理账号、班级授权、演示数据与危险操作 |
-| assistant | dashboard、classes、students、lessons、questions、papers、feedback、resources 等已声明模块 | `dashboard:read`、`classes:read`、`students:read`、`lessons:read/write`、`questions:read/write`、`papers:read/write`、`feedback:read/write`、`resources:read/private/write` | 无 `analytics:read` 与 `academic-years:*`；访问 `/assessments`、`/exam-projects`、`/recognition`、`/finance`、`/academic-years` 的 API 会 403，导航已同步隐藏这些入口 |
-| student | `/portal` 只读 | `portal:read`、`resources:read` | 服务端按本人关联关系校验数据归属 |
-| parent | `/portal` 只读 | `portal:read`、`resources:read` | 仅可查看已确认且与本人关联的内容 |
+| teacher | 全部工作台页面与 API | `*` | 可管理账号、班级授权、演示数据与危险操作 |
+| assistant | dashboard、classes、students、lessons、questions、papers、feedback、resources 等已声明模块 | `dashboard:read`、`classes:read`、`students:read`、`lessons:read/write`、`questions:read/write`、`papers:read/write`、`feedback:read/write`、`resources:read/private/write` | 无 `analytics:read` 与 `academic-years:*`；V2 教学运营和财务入口仅主教师可见，服务端接口仍会逐次返回 403 |
+| student | 微信小程序 | 独立 `MiniAccess` | 只可查看本人绑定数据和教师确认发布内容 |
+| parent | 微信小程序 | 独立 `MiniAccess` | 只可查看已绑定孩子及教师确认发布内容，支持多孩子切换 |
 | anonymous | 登录页、公开资源入口与 `auth/login` 等公开接口 | 无 | 其余页面返回登录重定向，受保护 API 返回 401 |
 
 ## 数据保护

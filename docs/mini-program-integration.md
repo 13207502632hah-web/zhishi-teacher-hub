@@ -30,7 +30,7 @@ flowchart LR
 
 - `assignment-service.ts`：接收范围、发布、列表、统计、附件归属和同步事件。
 - `submission-service.ts`：提交草稿、最终提交、订正版、版本号、幂等和附件关联。
-- `mini-binding-service.ts`：账号状态、邀请码绑定申请、教师确认、停用和可访问学生。
+- `mini-binding-service.ts`：账号状态、自主注册申请、教师批准、停用和可访问学生。
 - `mini-sync-service.ts`：服务端游标、首次全量、增量事件和撤销标记。
 - `review-service.ts`：批改草稿、最终确认、订正状态和学情回流边界。
 
@@ -54,11 +54,11 @@ flowchart LR
 误配 `WECHAT_TEST_MODE=true` 与 AppID/AppSecret，小程序功能仍保持暂停。
 恢复正式接入前，必须先在开发/预发环境解除并验证该门禁。
 
-### 绑定流程
+### 注册与绑定流程
 
-1. 教师网站选择学生和身份，生成一次性邀请码；数据库只保存邀请码哈希。
-2. 学生或家长输入邀请码，形成 `pending` 绑定申请，不立即获得学生数据。
-3. 教师在网站确认后变为 `active`；拒绝或停用后为 `rejected` / `disabled`。
+1. 学生填写姓名和班级或年级；家长填写称呼、孩子姓名、班级或年级和关系。
+2. 注册申请进入 `pending`，小程序不公开学生名单，也不立即授予任何学生数据权限。
+3. 教师在网站选择既有学生档案并批准后建立 `active` 绑定；拒绝或停用后为 `rejected` / `disabled`。
 4. 旧会话每次访问都会重新读取有效绑定，因此停用后立即失去该学生权限。
 5. 一个家长可绑定多个学生，一个学生可有多位家长。
 
@@ -134,7 +134,8 @@ stateDiagram-v2
 ## 10. 接口清单
 
 - 身份：`POST /api/v2/mini/login`、`GET /api/v2/mini/me`、`POST /api/v2/mini/logout`
-- 绑定：`POST /api/v2/mini/bind`、`GET/POST /api/v2/mini/invites`、`POST /api/v2/mini/bindings/:id`
+- 注册：`GET/POST /api/v2/mini/registrations`、`POST /api/v2/mini/registrations/:id`
+- 绑定：`POST /api/v2/mini/bindings/:id`（仅停用）
 - 作业：`GET/POST /api/assignments`、`GET/POST /api/v2/mini/assignments`
 - 提交批改：`GET/POST /api/v2/mini/submissions`、`GET/POST /api/assignments/:id/submissions`
 - 文件：`POST /api/assignments/files`、`POST /api/v2/mini/files`、鉴权读取接口

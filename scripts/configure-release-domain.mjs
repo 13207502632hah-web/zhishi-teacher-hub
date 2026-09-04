@@ -28,8 +28,11 @@ export function normalizeRootDomain(input) {
 export function releaseTarget(rootDomain = "") {
   if (!rootDomain) return { rootDomain: "", webOrigin: PLACEHOLDER_ORIGIN, apiOrigin: PLACEHOLDER_ORIGIN };
   const normalized = normalizeRootDomain(rootDomain);
-  const origin = `https://${normalized}`;
-  return { rootDomain: normalized, webOrigin: origin, apiOrigin: origin };
+  return {
+    rootDomain: normalized,
+    webOrigin: `https://${normalized}`,
+    apiOrigin: `https://${normalized}`,
+  };
 }
 
 function miniSource(target) {
@@ -58,7 +61,7 @@ async function checkSynchronized() {
   };
   const mismatches = Object.keys(expected).filter((key) => expected[key] !== actual[key]);
   if (mismatches.length) throw new Error(`三端域名配置不同步：${mismatches.join("、")}；请重新运行 release:domain`);
-  console.log(manifest.rootDomain ? `✓ 三端统一使用 ${manifest.webOrigin}` : "✓ 三端仍使用不可访问占位域名，尚未误连生产环境");
+  console.log(manifest.rootDomain ? `✓ 网站使用 ${manifest.webOrigin}；客户端 API 使用 ${manifest.apiOrigin}` : "✓ 三端仍使用不可访问占位域名，尚未误连生产环境");
 }
 
 async function configure(input) {
@@ -81,7 +84,7 @@ async function configure(input) {
     "",
   ].join("\n");
   await writeFile(path.join(ARTIFACT_DIR, "domain-config.md"), report);
-  console.log(`✓ 网站、小程序和 iOS 已统一为 ${target.webOrigin}`);
+  console.log(`✓ 网站使用 ${target.webOrigin}；小程序和 iOS API 使用 ${target.apiOrigin}`);
   console.log("下一步：完成 DNS、HTTPS 和 ICP 后运行 npm run mobile:check -- --strict-external");
 }
 

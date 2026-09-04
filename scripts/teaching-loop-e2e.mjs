@@ -191,7 +191,7 @@ function cleanupBusinessCoverage() {
   const assetIds = listSql(created.assetIds);
   const assessmentIds = listSql(created.assessmentIds);
   const examProjectIds = listSql(created.examProjectIds);
-  const scheduleImportIds = listSql(created.scheduleImportIds);
+  const scheduleImportIds = created.scheduleImportIds.length ? created.scheduleImportIds.map(quote).join(",") : "NULL";
   const scheduleClassIds = listSql(created.scheduleClassIds);
   const scheduleStudentIds = listSql(created.scheduleStudentIds);
   const scheduleLessonIds = listSql(created.scheduleLessonIds);
@@ -206,6 +206,8 @@ function cleanupBusinessCoverage() {
     DELETE FROM recognition_jobs WHERE source_asset_id IN (${assetIds}) OR assessment_id IN (${assessmentIds});
     DELETE FROM assessment_question_results WHERE assessment_result_id IN (SELECT id FROM assessment_results WHERE assessment_id IN (${assessmentIds}) OR assessment_id IN (SELECT id FROM assessments WHERE exam_project_id IN (${examProjectIds})) OR student_id IN (${markerStudents}));
     DELETE FROM knowledge_evidence WHERE student_id IN (${markerStudents});
+    DELETE FROM grade_promotion_items WHERE student_id IN (${markerStudents});
+    DELETE FROM grade_promotion_runs WHERE academic_year='2026-2027' AND NOT EXISTS (SELECT 1 FROM grade_promotion_items WHERE run_id=grade_promotion_runs.id);
     DELETE FROM exam_project_students WHERE project_id IN (${examProjectIds}) OR student_id IN (${markerStudents});
     DELETE FROM assessment_results WHERE assessment_id IN (${assessmentIds}) OR assessment_id IN (SELECT id FROM assessments WHERE exam_project_id IN (${examProjectIds})) OR student_id IN (${markerStudents});
     DELETE FROM assessments WHERE id IN (${assessmentIds}) OR exam_project_id IN (${examProjectIds});
@@ -214,8 +216,10 @@ function cleanupBusinessCoverage() {
     DELETE FROM resources WHERE title LIKE ${quote(`${marker}%`)} OR source_ref LIKE ${quote(`reflection:${marker}%`)};
     DELETE FROM reflections WHERE tags LIKE ${quote(`${marker}%`)} OR expected_vs_actual LIKE ${quote(`${marker}%`)};
     DELETE FROM saved_question_views WHERE name LIKE ${quote(`${marker}%`)};
-    DELETE FROM schedule_import_rows WHERE lesson_id IN (${scheduleLessons}) OR import_id IN (${scheduleImportIds}) OR import_id IN (SELECT id FROM schedule_imports WHERE source_name='browser-synthetic.csv');
-    DELETE FROM schedule_imports WHERE id IN (${scheduleImportIds}) OR source_name='browser-synthetic.csv';
+    DELETE FROM v2_schedule_rows WHERE lesson_id IN (${scheduleLessons}) OR import_id IN (${scheduleImportIds});
+    DELETE FROM v2_schedule_imports WHERE id IN (${scheduleImportIds});
+    DELETE FROM v2_job_events WHERE job_id IN (SELECT id FROM v2_jobs WHERE entity_type='schedule_import' AND entity_id IN (${scheduleImportIds}));
+    DELETE FROM v2_jobs WHERE entity_type='schedule_import' AND entity_id IN (${scheduleImportIds});
     DELETE FROM feedback_evidence WHERE feedback_id IN (SELECT id FROM feedback WHERE lesson_id IN (${scheduleLessons}) OR student_id IN (${scheduleStudentIds}) OR student_id IN (${scheduleStudents}) OR class_id IN (${scheduleClassIds}));
     DELETE FROM ai_feedback_drafts WHERE lesson_id IN (${scheduleLessons});
     DELETE FROM lesson_completion_runs WHERE lesson_id IN (${scheduleLessons});
@@ -385,9 +389,9 @@ async function waitForServer() {
 }
 
 async function login() {
-  const unauthenticated = await request("/api/dashboard");
+  const unauthenticated = await request("/api/v2/dashboard");
   assert.equal(unauthenticated.response.status, 401);
-  const { response, data } = await request("/api/auth/login", { method: "POST", body: { account: marker, password: e2ePassword, returnTo: "/workspace" } });
+  const { response, data } = await request("/api/auth/login", { method: "POST", body: { account: marker, password: e2ePassword, returnTo: "/v2" } });
   assert.equal(response.status, 200, JSON.stringify(data));
   const cookie = response.headers.get("set-cookie")?.split(";")[0];
   assert.ok(cookie?.startsWith("zhishi_teacher_admin="));
@@ -404,18 +408,18 @@ async function exerciseAnonymousAiBoundary() {
     (SELECT COUNT(*) FROM audit_logs) AS audits`)[0];
   const providerCalls = aiMock.requests.length;
   const results = await Promise.all([
-    request("/api/ai/feedback-drafts", { method: "POST", body: { lessonId: 1, preview: true } }),
-    request("/api/ai/question-reviews"),
-    request("/api/ai/question-reviews", { method: "POST", body: { questionIds: [1] } }),
-    request("/api/ai/question-reviews/apply", { method: "POST", body: { reviewIds: [1], mode: "single", fields: ["analysis"] } }),
-    request("/api/ai/lesson-prep", { method: "POST", body: { lessonId: 1 } }),
-    request("/api/ai/paper-review", { method: "POST", body: { paperId: 1 } }),
-    request("/api/ai/reflection-drafts", { method: "POST", body: { lessonId: 1 } }),
-    request("/api/ai/wrong-question-remediation", { method: "POST", body: { studentId: 1 } }),
-    request("/api/ai/schedule-reschedule", { method: "POST", body: { lessonId: 1 } }),
-    request("/api/ai/usage"),
-    request("/api/settings/ai"),
-    request("/api/settings/ai", { method: "PATCH", body: { enabled: true, privacyAcknowledged: true } }),
+    request("/api/v2/ai/feedback-drafts", { method: "POST", body: { lessonId: 1, preview: true } }),
+    request("/api/v2/ai/question-reviews"),
+    request("/api/v2/ai/question-reviews", { method: "POST", body: { questionIds: [1] } }),
+    request("/api/v2/ai/question-reviews/apply", { method: "POST", body: { reviewIds: [1], mode: "single", fields: ["analysis"] } }),
+    request("/api/v2/ai/lesson-prep", { method: "POST", body: { lessonId: 1 } }),
+    request("/api/v2/ai/paper-review", { method: "POST", body: { paperId: 1 } }),
+    request("/api/v2/ai/reflection-drafts", { method: "POST", body: { lessonId: 1 } }),
+    request("/api/v2/ai/wrong-question-remediation", { method: "POST", body: { studentId: 1 } }),
+    request("/api/v2/ai/schedule-reschedule", { method: "POST", body: { lessonId: 1 } }),
+    request("/api/v2/ai/usage"),
+    request("/api/v2/settings/ai"),
+    request("/api/v2/settings/ai", { method: "PATCH", body: { enabled: true, privacyAcknowledged: true } }),
   ]);
   for (const result of results) {
     assert.equal(result.response.status, 401, JSON.stringify(result.data));
@@ -434,7 +438,8 @@ async function exerciseAnonymousAiBoundary() {
 }
 
 async function exerciseComprehensiveDemo(cookie) {
-  const first = await request("/api/settings/demo", { cookie, method: "POST" });
+  sql("DELETE FROM demo_records");
+  const first = await request("/api/v2/settings/demo", { cookie, method: "POST" });
   assert.ok([200, 201].includes(first.response.status), JSON.stringify({ status: first.response.status, data: first.data, logs: logs.slice(-20) }));
   assert.ok(first.data.summary.classes >= 2);
   assert.ok(first.data.summary.students >= 10);
@@ -449,13 +454,13 @@ async function exerciseComprehensiveDemo(cookie) {
   const repairTarget = rows("SELECT c.id FROM classes c JOIN demo_records d ON d.entity_type='class' AND d.entity_id=c.id ORDER BY c.id LIMIT 1")[0];
   assert.ok(repairTarget?.id);
   sql(`UPDATE classes SET course_type='' WHERE id=${Number(repairTarget.id)}`);
-  const repeated = await request("/api/settings/demo", { cookie, method: "POST" });
+  const repeated = await request("/api/v2/settings/demo", { cookie, method: "POST" });
   assert.equal(repeated.response.status, 200, JSON.stringify(repeated.data));
   assert.equal(repeated.data.mode, "verified");
   assert.deepEqual(repeated.data.summary, first.data.summary);
   const repairedClass = rows(`SELECT course_type AS courseType FROM classes WHERE id=${Number(repairTarget.id)}`)[0];
   assert.equal(repairedClass.courseType, "小班课");
-  const classesView = await request("/api/classes?status=active", { cookie });
+  const classesView = await request("/api/v2/classes?status=active", { cookie });
   assert.equal(classesView.response.status, 200, JSON.stringify(classesView.data));
   const demoClasses = classesView.data.classes.filter((item) => String(item.name || "").startsWith("【演示】"));
   assert.ok(demoClasses.length >= 2);
@@ -479,17 +484,17 @@ async function exerciseComprehensiveDemo(cookie) {
   assert.ok(coverage.questionTypes >= 9);
   assert.ok(coverage.privateResources >= 3);
 
-  for (const pathname of ["/api/dashboard", "/api/analytics?range=month", "/api/classes", "/api/students", "/api/lessons", "/api/assignments", "/api/questions?status=active", "/api/papers", "/api/feedback", "/api/assessments", "/api/finance", "/api/resources"]) {
+  for (const pathname of ["/api/v2/dashboard", "/api/v2/analytics?range=month", "/api/v2/classes", "/api/v2/students", "/api/v2/lessons", "/api/v2/assignments", "/api/v2/questions?status=active", "/api/v2/papers", "/api/v2/feedback", "/api/v2/assessments", "/api/v2/finance", "/api/v2/resources"]) {
     const result = await request(pathname, { cookie });
     assert.equal(result.response.status, 200, `${pathname}: ${JSON.stringify(result.data)}`);
   }
-  const dashboard = await request("/api/dashboard?days=30", { cookie });
+  const dashboard = await request("/api/v2/dashboard?days=30", { cookie });
   const displayedLesson = [...(dashboard.data.todayLessons || []), ...(dashboard.data.upcomingLessons || [])].find((item) => String(item.displaySubject || "").startsWith("【演示】"));
   assert.ok(displayedLesson?.studentNames?.length, JSON.stringify(displayedLesson));
   assert.ok(displayedLesson.displaySubject);
   assert.match(String(displayedLesson.displayTime || ""), /^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/);
   assert.ok(displayedLesson.displayLocation);
-  const calendarSubscription = await request("/api/calendar/subscription", { cookie, method: "POST" });
+  const calendarSubscription = await request("/api/v2/calendar/subscription", { cookie, method: "POST" });
   assert.equal(calendarSubscription.response.status, 200, JSON.stringify(calendarSubscription.data));
   const calendarFeed = await fetch(`${baseUrl}${String(calendarSubscription.data.path || "")}`), calendarText = await calendarFeed.text();
   assert.equal(calendarFeed.status, 200, calendarText.slice(0, 300));
@@ -498,7 +503,7 @@ async function exerciseComprehensiveDemo(cookie) {
   assert.match(calendarText, new RegExp(String(displayedLesson.displayLocation).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   const question = rows("SELECT q.id,q.answer,q.analysis FROM questions q JOIN demo_records d ON d.entity_type='question' AND d.entity_id=q.id WHERE TRIM(COALESCE(q.answer,''))<>'' AND TRIM(COALESCE(q.analysis,''))<>'' ORDER BY q.id LIMIT 1")[0];
   assert.ok(question?.id);
-  const content = await request(`/api/questions/${Number(question.id)}/content`, { cookie });
+  const content = await request(`/api/v2/questions/${Number(question.id)}/content`, { cookie });
   assert.equal(content.response.status, 200, JSON.stringify(content.data));
   assert.equal(content.data.content.answer, question.answer);
   assert.equal(content.data.content.analysis, question.analysis);
@@ -553,34 +558,34 @@ async function exerciseAiWorkflows(cookie) {
     assert.ok(remediationStudent?.id); assert.ok(rescheduleLesson?.id);
     const feedbackInput = { lessonId: Number(lesson.id), studentId: Number(student.id), audience: "private", tone: "温和鼓励", customInput: "仅作本地隐私测试：手机 13800138000，微信号 wxTeacher88，附件 /tmp/private.pdf" };
 
-    let result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: false } });
+    let result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: false } });
     assert.equal(result.response.status, 200, JSON.stringify(result.data));
     let providerCalls = aiMock.requests.length;
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     assert.equal(result.response.status, 409, JSON.stringify(result.data));
     assert.equal(result.data.code, "PRIVACY_ACK_REQUIRED");
     assert.equal(aiMock.requests.length, providerCalls);
 
-    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: false, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: true } });
+    result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { enabled: false, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false, privacyAcknowledged: true } });
     assert.equal(result.response.status, 200);
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     assert.equal(result.data.code, "AI_DISABLED");
     assert.equal(aiMock.requests.length, providerCalls);
-    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: true } });
+    result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: true } });
     assert.equal(result.response.status, 200);
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     assert.equal(result.data.code, "AI_DISABLED");
     assert.equal(aiMock.requests.length, providerCalls);
-    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false } });
+    result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 50, emergencyDisabled: false } });
     assert.equal(result.response.status, 200);
 
-    const preview = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: { ...feedbackInput, preview: true } });
+    const preview = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: { ...feedbackInput, preview: true } });
     assert.equal(preview.response.status, 200, JSON.stringify(preview.data));
     assert.equal(aiMock.requests.length, providerCalls);
     assert.ok(preview.data.sentFields.includes("学生姓名"));
     for (const label of ["监护人联系方式", "微信标识", "附件原件与文件地址", "登录、会话和密钥数据"]) assert.ok(preview.data.excludedFields.includes(label));
 
-    const generated = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    const generated = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     assert.equal(generated.response.status, 200, JSON.stringify(generated.data));
     const feedbackRequest = aiMock.requests.at(-1);
     assert.equal(feedbackRequest.body.model, "deepseek-v4-flash");
@@ -591,64 +596,64 @@ async function exerciseAiWorkflows(cookie) {
     const paper = rows("SELECT p.id FROM papers p JOIN demo_records d ON d.entity_type='paper' AND d.entity_id=p.id JOIN paper_questions pq ON pq.paper_id=p.id GROUP BY p.id ORDER BY p.id LIMIT 1")[0];
     assert.ok(paper?.id);
     const immutableBefore = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections,(SELECT GROUP_CONCAT(status) FROM wrong_questions WHERE student_id=${Number(remediationStudent.id)} ORDER BY id) AS wrongStatuses,(SELECT date||'|'||start_time||'|'||end_time FROM lessons WHERE id=${Number(rescheduleLesson.id)}) AS rescheduleSlot`)[0];
-    const lessonPrep = await request("/api/ai/lesson-prep", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
+    const lessonPrep = await request("/api/v2/ai/lesson-prep", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
     assert.equal(lessonPrep.response.status, 200, JSON.stringify(lessonPrep.data));
     assert.ok(lessonPrep.data.draft.teachingGoals);
     assert.ok(lessonPrep.data.excludedFields.includes("学生姓名和联系方式"));
     const lessonPrepRequest = aiMock.requests.at(-1);
     assert.doesNotMatch(JSON.stringify(lessonPrepRequest.payload), new RegExp(String(student.name)));
-    const paperReview = await request("/api/ai/paper-review", { cookie, method: "POST", body: { paperId: Number(paper.id) } });
+    const paperReview = await request("/api/v2/ai/paper-review", { cookie, method: "POST", body: { paperId: Number(paper.id) } });
     assert.equal(paperReview.response.status, 200, JSON.stringify(paperReview.data));
     assert.ok(paperReview.data.review.risks.length);
     const paperReviewRequest = aiMock.requests.at(-1);
     assert.ok(Array.isArray(paperReviewRequest.payload.questions));
     assert.ok(paperReviewRequest.payload.questions.every((item) => !("answer" in item) && !("analysis" in item)));
-    const reflectionDraft = await request("/api/ai/reflection-drafts", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
+    const reflectionDraft = await request("/api/v2/ai/reflection-drafts", { cookie, method: "POST", body: { lessonId: Number(lesson.id) } });
     assert.equal(reflectionDraft.response.status, 200, JSON.stringify(reflectionDraft.data));
     assert.ok(reflectionDraft.data.draft.nextAction);
     assert.ok(reflectionDraft.data.excludedFields.includes("学生姓名和联系方式"));
-    const remediationDraft = await request("/api/ai/wrong-question-remediation", { cookie, method: "POST", body: { studentId: Number(remediationStudent.id) } });
+    const remediationDraft = await request("/api/v2/ai/wrong-question-remediation", { cookie, method: "POST", body: { studentId: Number(remediationStudent.id) } });
     assert.equal(remediationDraft.response.status, 200, JSON.stringify(remediationDraft.data));
     assert.equal(remediationDraft.data.draft.tiers.length, 3);
     assert.ok(remediationDraft.data.excludedFields.includes("学生姓名和联系方式"));
     const remediationRequest = aiMock.requests.at(-1);
     assert.doesNotMatch(JSON.stringify(remediationRequest.payload), new RegExp(String(remediationStudent.name)));
-    const rescheduleDraft = await request("/api/ai/schedule-reschedule", { cookie, method: "POST", body: { lessonId: Number(rescheduleLesson.id) } });
+    const rescheduleDraft = await request("/api/v2/ai/schedule-reschedule", { cookie, method: "POST", body: { lessonId: Number(rescheduleLesson.id) } });
     assert.equal(rescheduleDraft.response.status, 200, JSON.stringify(rescheduleDraft.data));
     assert.ok(rescheduleDraft.data.draft.options.length > 0);
     const rescheduleRequest = aiMock.requests.at(-1), allowedCandidateIds = new Set(rescheduleRequest.payload.candidates.map((item) => item.candidateId));
     assert.ok(rescheduleDraft.data.draft.options.every((item) => allowedCandidateIds.has(item.candidateId)));
     const immutableAfter = rows(`SELECT (SELECT teaching_goals FROM lessons WHERE id=${Number(lesson.id)}) AS teachingGoals,(SELECT updated_at FROM papers WHERE id=${Number(paper.id)}) AS paperUpdatedAt,(SELECT COUNT(*) FROM reflections) AS reflections,(SELECT GROUP_CONCAT(status) FROM wrong_questions WHERE student_id=${Number(remediationStudent.id)} ORDER BY id) AS wrongStatuses,(SELECT date||'|'||start_time||'|'||end_time FROM lessons WHERE id=${Number(rescheduleLesson.id)}) AS rescheduleSlot`)[0];
     assert.deepEqual(immutableAfter, immutableBefore);
-    result = await request("/api/feedback", { cookie, method: "POST", body: { ...draft, lessonId: Number(lesson.id), studentId: Number(student.id), classId: Number(lesson.classId), aiDraftId: Number(draft.aiDraftId), aiReviewed: true, type: "lesson", audience: "private", tone: "温和鼓励", status: "draft", content: styleMarker, parentAdvice: styleMarker } });
+    result = await request("/api/v2/feedback", { cookie, method: "POST", body: { ...draft, lessonId: Number(lesson.id), studentId: Number(student.id), classId: Number(lesson.classId), aiDraftId: Number(draft.aiDraftId), aiReviewed: true, type: "lesson", audience: "private", tone: "温和鼓励", status: "draft", content: styleMarker, parentAdvice: styleMarker } });
     assert.equal(result.response.status, 201, JSON.stringify(result.data));
 
-    let settings = await request("/api/settings/ai", { cookie });
+    let settings = await request("/api/v2/settings/ai", { cookie });
     assert.equal(settings.response.status, 200);
     assert.ok(Number(settings.data.learning?.activeCount || 0) >= 1);
     const learningRecord = settings.data.learningRecords.find((item) => Number(item.feedbackId) === Number(result.data.feedback.id));
     assert.ok(learningRecord?.id);
 
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     assert.equal(result.response.status, 200, JSON.stringify(result.data));
     const learnedRequest = aiMock.requests.at(-1);
     assert.match(JSON.stringify(learnedRequest.payload.teacherStyleExamples || []), /本地风格/);
     assert.doesNotMatch(JSON.stringify(learnedRequest.payload.teacherStyleExamples || []), new RegExp(String(student.name)));
-    await request("/api/ai/feedback-drafts", { cookie, method: "DELETE", body: { id: result.data.draft.aiDraftId } });
+    await request("/api/v2/ai/feedback-drafts", { cookie, method: "DELETE", body: { id: result.data.draft.aiDraftId } });
 
-    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { action: "setLearningActive", id: Number(learningRecord.id), active: false } });
+    result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { action: "setLearningActive", id: Number(learningRecord.id), active: false } });
     assert.equal(result.response.status, 200);
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     assert.equal(result.response.status, 200, JSON.stringify(result.data));
     const disabledLearningRequest = aiMock.requests.at(-1);
     assert.doesNotMatch(JSON.stringify(disabledLearningRequest.payload.teacherStyleExamples || []), /本地风格/);
-    await request("/api/ai/feedback-drafts", { cookie, method: "DELETE", body: { id: result.data.draft.aiDraftId } });
-    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { action: "clearLearning" } });
+    await request("/api/v2/ai/feedback-drafts", { cookie, method: "DELETE", body: { id: result.data.draft.aiDraftId } });
+    result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { action: "clearLearning" } });
     assert.equal(Number(result.data.learning?.count || 0), 0);
 
     const unchangedBefore = rows(`SELECT (SELECT COUNT(*) FROM lessons) AS lessons,(SELECT COUNT(*) FROM assignments) AS assignments,(SELECT COUNT(*) FROM feedback) AS feedback`)[0];
     aiMock.mode = "http402";
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
     aiMock.mode = "ok";
     assert.equal(result.response.status, 502, JSON.stringify(result.data));
     assert.equal(result.data.code, "HTTP_402");
@@ -657,12 +662,12 @@ async function exerciseAiWorkflows(cookie) {
 
     const questionIds = rows("SELECT q.id FROM questions q JOIN demo_records d ON d.entity_type='question' AND d.entity_id=q.id LEFT JOIN ai_question_reviews r ON r.question_id=q.id WHERE r.id IS NULL ORDER BY q.id LIMIT 13").map((item) => Number(item.id));
     assert.equal(questionIds.length, 13);
-    const firstBatch = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { questionIds: questionIds.slice(0, 12) } });
+    const firstBatch = await request("/api/v2/ai/question-reviews", { cookie, method: "POST", body: { questionIds: questionIds.slice(0, 12) } });
     assert.equal(firstBatch.response.status, 200, JSON.stringify(firstBatch.data));
     assert.equal(firstBatch.data.processed, 10);
     assert.equal(firstBatch.data.task.status, "queued");
     taskIds.add(String(firstBatch.data.task.id));
-    const secondBatch = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { taskId: firstBatch.data.task.id } });
+    const secondBatch = await request("/api/v2/ai/question-reviews", { cookie, method: "POST", body: { taskId: firstBatch.data.task.id } });
     assert.equal(secondBatch.response.status, 200, JSON.stringify(secondBatch.data));
     assert.equal(secondBatch.data.processed, 2);
     assert.equal(secondBatch.data.task.status, "completed");
@@ -670,7 +675,7 @@ async function exerciseAiWorkflows(cookie) {
     assert.equal(batchRequests.length, 2);
     assert.ok(batchRequests.every((item) => item.body.thinking.type === "enabled" && item.payload.questions.length <= 10));
 
-    const deepReview = await request("/api/ai/question-reviews", { cookie, method: "POST", body: { questionIds: [questionIds[12]], deepReview: true } });
+    const deepReview = await request("/api/v2/ai/question-reviews", { cookie, method: "POST", body: { questionIds: [questionIds[12]], deepReview: true } });
     assert.equal(deepReview.response.status, 200, JSON.stringify(deepReview.data));
     assert.equal(deepReview.data.task.status, "completed");
     taskIds.add(String(deepReview.data.task.id));
@@ -679,7 +684,7 @@ async function exerciseAiWorkflows(cookie) {
     assert.equal(proRequest.body.thinking.type, "enabled");
     assert.equal(proRequest.payload.questions.length, 1);
 
-    const reviewList = await request("/api/ai/question-reviews", { cookie });
+    const reviewList = await request("/api/v2/ai/question-reviews", { cookie });
     assert.equal(reviewList.response.status, 200);
     const taskReviews = reviewList.data.reviews.filter((item) => String(item.taskId) === String(firstBatch.data.task.id));
     assert.equal(taskReviews.length, 12);
@@ -689,13 +694,13 @@ async function exerciseAiWorkflows(cookie) {
     assert.ok(safeColumn);
     restoreQuestion(Number(eligible.questionId), safeColumn);
     const beforeApply = rows(`SELECT ${safeColumn} AS safeValue,analysis FROM questions WHERE id=${Number(eligible.questionId)}`)[0];
-    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [eligible.id], mode: "batch" } });
+    result = await request("/api/v2/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [eligible.id], mode: "batch" } });
     assert.equal(result.response.status, 200, JSON.stringify(result.data));
     assert.equal(result.data.applied.length, 1);
     let afterApply = rows(`SELECT ${safeColumn} AS safeValue,analysis FROM questions WHERE id=${Number(eligible.questionId)}`)[0];
     assert.equal(afterApply.safeValue, eligible.safeSuggestions[safeField]);
     assert.equal(afterApply.analysis, beforeApply.analysis);
-    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [eligible.id], mode: "single", fields: ["analysis"] } });
+    result = await request("/api/v2/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [eligible.id], mode: "single", fields: ["analysis"] } });
     assert.equal(result.response.status, 200, JSON.stringify(result.data));
     afterApply = rows(`SELECT analysis FROM questions WHERE id=${Number(eligible.questionId)}`)[0];
     assert.equal(afterApply.analysis, eligible.sensitiveSuggestions.analysis);
@@ -705,24 +710,24 @@ async function exerciseAiWorkflows(cookie) {
     restoreQuestion(Number(staleReview.questionId));
     const staleBefore = rows(`SELECT analysis FROM questions WHERE id=${Number(staleReview.questionId)}`)[0];
     sql(`UPDATE questions SET updated_at='2099-01-01T00:00:00.000Z' WHERE id=${Number(staleReview.questionId)}`);
-    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [staleReview.id], mode: "single", fields: ["analysis"] } });
+    result = await request("/api/v2/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [staleReview.id], mode: "single", fields: ["analysis"] } });
     assert.ok(result.data.stale.includes(Number(staleReview.id)), JSON.stringify(result.data));
     assert.equal(rows(`SELECT analysis FROM questions WHERE id=${Number(staleReview.questionId)}`)[0].analysis, staleBefore.analysis);
 
     const deepPending = reviewList.data.reviews.find((item) => String(item.taskId) === String(deepReview.data.task.id));
     assert.ok(deepPending?.id);
-    result = await request("/api/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [deepPending.id], mode: "single", fields: ["analysis"], action: "reject" } });
+    result = await request("/api/v2/ai/question-reviews/apply", { cookie, method: "POST", body: { reviewIds: [deepPending.id], mode: "single", fields: ["analysis"], action: "reject" } });
     assert.equal(result.data.rejected, 1);
 
     providerCalls = aiMock.requests.length;
-    result = await request("/api/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 1, emergencyDisabled: false } });
+    result = await request("/api/v2/settings/ai", { cookie, method: "PATCH", body: { enabled: true, includeStudentName: true, dailyLimit: 1, emergencyDisabled: false } });
     assert.equal(result.response.status, 200);
-    result = await request("/api/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
-    assert.equal(result.response.status, 429, JSON.stringify(result.data));
-    assert.equal(result.data.code, "DAILY_LIMIT");
-    assert.equal(aiMock.requests.length, providerCalls);
+    assert.equal("dailyLimit" in result.data.settings, false);
+    result = await request("/api/v2/ai/feedback-drafts", { cookie, method: "POST", body: feedbackInput });
+    assert.equal(result.response.status, 200, JSON.stringify(result.data));
+    assert.equal(aiMock.requests.length, providerCalls + 1, "legacy AI bridge must not apply a cost or call-count limit");
 
-    const usage = await request("/api/ai/usage", { cookie });
+    const usage = await request("/api/v2/ai/usage", { cookie });
     assert.equal(usage.response.status, 200);
     assert.ok(Number(usage.data.today?.calls || 0) >= 6);
     assert.ok(Number(usage.data.month?.tokens || 0) > 0);
@@ -741,46 +746,46 @@ async function exerciseRound(round, cookie) {
   const { lessonId, studentIds, questionIds, topic, dueAt, today } = seed(round);
   assert.equal(questionIds.length, 2);
   for (const days of [7, 14, 30]) {
-    const dashboard = await request(`/api/dashboard?days=${days}`, { cookie });
+    const dashboard = await request(`/api/v2/dashboard?days=${days}`, { cookie });
     assert.equal(dashboard.response.status, 200);
     assert.equal(dashboard.data.horizonDays, days);
     assert.ok(dashboard.data.suggestedActions.length <= 3);
     assert.ok(dashboard.data.todayLessons.some((lesson) => lesson.id === lessonId && lesson.topic === topic));
   }
 
-  let result = await request(`/api/lessons/${lessonId}/workflow-state`, { cookie });
+  let result = await request(`/api/v2/lessons/${lessonId}/workflow-state`, { cookie });
   assert.equal(result.response.status, 200);
   assert.equal(result.data.state.revision, 0);
-  result = await request(`/api/lessons/${lessonId}/workflow-state`, { cookie, method: "PUT", body: { revision: 0, payload: { closure: { actualContent: `${marker}_autosave_${round}` } } } });
+  result = await request(`/api/v2/lessons/${lessonId}/workflow-state`, { cookie, method: "PUT", body: { revision: 0, payload: { closure: { actualContent: `${marker}_autosave_${round}` } } } });
   assert.equal(result.response.status, 200, JSON.stringify(result.data));
   assert.equal(result.data.revision, 1);
-  const conflict = await request(`/api/lessons/${lessonId}/workflow-state`, { cookie, method: "PUT", body: { revision: 0, payload: { closure: { actualContent: "旧页面覆盖" } } } });
+  const conflict = await request(`/api/v2/lessons/${lessonId}/workflow-state`, { cookie, method: "PUT", body: { revision: 0, payload: { closure: { actualContent: "旧页面覆盖" } } } });
   assert.equal(conflict.response.status, 409);
 
-  const prep = await request(`/api/lessons/${lessonId}/prep`, { cookie });
+  const prep = await request(`/api/v2/lessons/${lessonId}/prep`, { cookie });
   assert.equal(prep.response.status, 200, JSON.stringify(prep.data));
   assert.ok(prep.data.recommendedQuestions.some((question) => question.id === questionIds[0] && question.score === 100));
-  result = await request(`/api/lessons/${lessonId}/prep`, { cookie, method: "PATCH", body: { teachingGoals: "教师填写目标", keyPoints: "教师填写重点", difficultPoints: "教师填写难点", materials: "教材与既有讲义", knowledgePoints: "人民民主" } });
+  result = await request(`/api/v2/lessons/${lessonId}/prep`, { cookie, method: "PATCH", body: { teachingGoals: "教师填写目标", keyPoints: "教师填写重点", difficultPoints: "教师填写难点", materials: "教材与既有讲义", knowledgePoints: "人民民主" } });
   assert.equal(result.response.status, 200);
 
-  const stats = await request("/api/questions/stats?stage=高中&grade=高一&knowledge=人民民主", { cookie });
+  const stats = await request("/api/v2/questions/stats?stage=高中&grade=高一&knowledge=人民民主", { cookie });
   assert.equal(stats.response.status, 200);
   assert.ok(stats.data.summary.total >= 2);
-  const similar = await request(`/api/questions/${questionIds[0]}/similar`, { cookie });
+  const similar = await request(`/api/v2/questions/${questionIds[0]}/similar`, { cookie });
   assert.equal(similar.response.status, 200);
   assert.ok(similar.data.similar.some((question) => question.id === questionIds[1]));
 
-  result = await request(`/api/lessons/${lessonId}/questions/batch`, { cookie, method: "POST", body: { questionIds: [questionIds[0]], purpose: "课堂练习" } });
+  result = await request(`/api/v2/lessons/${lessonId}/questions/batch`, { cookie, method: "POST", body: { questionIds: [questionIds[0]], purpose: "课堂练习" } });
   assert.equal(result.response.status, 200);
   assert.equal(result.data.linked, 1);
-  result = await request(`/api/lessons/${lessonId}/questions/batch`, { cookie, method: "POST", body: { questionIds: [questionIds[0]], purpose: "课堂练习" } });
+  result = await request(`/api/v2/lessons/${lessonId}/questions/batch`, { cookie, method: "POST", body: { questionIds: [questionIds[0]], purpose: "课堂练习" } });
   assert.equal(result.response.status, 200);
   assert.equal(result.data.linked, 0);
 
-  const homework = await request(`/api/lessons/${lessonId}/homework-draft`, { cookie, method: "POST", body: { questionIds } });
+  const homework = await request(`/api/v2/lessons/${lessonId}/homework-draft`, { cookie, method: "POST", body: { questionIds } });
   assert.equal(homework.response.status, 200, JSON.stringify(homework.data));
   assert.equal(homework.data.added, 2);
-  const homeworkAgain = await request(`/api/lessons/${lessonId}/homework-draft`, { cookie, method: "POST", body: { questionIds } });
+  const homeworkAgain = await request(`/api/v2/lessons/${lessonId}/homework-draft`, { cookie, method: "POST", body: { questionIds } });
   assert.equal(homeworkAgain.response.status, 200);
   assert.equal(homeworkAgain.data.paperId, homework.data.paperId);
   assert.equal(homeworkAgain.data.assignmentId, homework.data.assignmentId);
@@ -788,33 +793,33 @@ async function exerciseRound(round, cookie) {
   let benchmarkMs = null;
   if (round === 1) {
     for (const mode of ["student", "analysis"]) {
-      const exported = await request(`/api/papers/${homework.data.paperId}/export?mode=${mode}`, { cookie });
+      const exported = await request(`/api/v2/papers/${homework.data.paperId}/export?mode=${mode}`, { cookie });
       assert.equal(exported.response.status, 200);
       assert.match(exported.response.headers.get("content-type") || "", /wordprocessingml/);
     }
   }
 
   const templateName = `${marker}_template_${round}`;
-  result = await request("/api/workflow-templates", { cookie, method: "POST", body: { type: "next_plan", name: templateName, payload: { nextPlan: "复习已有记录" } } });
+  result = await request("/api/v2/workflow-templates", { cookie, method: "POST", body: { type: "next_plan", name: templateName, payload: { nextPlan: "复习已有记录" } } });
   assert.equal(result.response.status, 201);
   const templateId = Number(result.data.id);
-  result = await request("/api/workflow-templates?type=next_plan", { cookie });
+  result = await request("/api/v2/workflow-templates?type=next_plan", { cookie });
   assert.ok(result.data.templates.some((item) => item.id === templateId));
 
   const baseRecords = [
     { studentId: studentIds[0], attendanceStatus: "present", participation: 5, understanding: 4, completion: 5 },
     { studentId: studentIds[1], attendanceStatus: "leave", participation: 3, understanding: 3, completion: 3 },
   ];
-  result = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "", records: baseRecords } });
+  result = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "", records: baseRecords } });
   assert.equal(result.response.status, 422);
-  result = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "人民民主专题", records: baseRecords.slice(0, 1) } });
+  result = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "completeLesson", actualContent: "人民民主专题", records: baseRecords.slice(0, 1) } });
   assert.equal(result.response.status, 422);
 
   const payload = {
     action: "saveDraft", actualContent: "人民民主专题", homework: "完成巩固练习", nextPlan: "",
     participation: 4, understanding: 4, completion: 4, discipline: 5, records: baseRecords,
   };
-  result = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: payload });
+  result = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: payload });
   assert.equal(result.response.status, 200, JSON.stringify(result.data));
   assert.equal(rows(`SELECT status FROM lessons WHERE id=${lessonId}`)[0].status, "scheduled");
 
@@ -823,18 +828,18 @@ async function exerciseRound(round, cookie) {
     assignment: { title: `${topic} 课后作业`, requirements: "完成合成练习", dueAt },
     feedback: { tone: "专业简洁", content: `${marker}_feedback_${round}` },
   };
-  const first = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
+  const first = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
   assert.equal(first.response.status, 200, JSON.stringify(first.data));
   assert.equal(first.data.status, "completed");
   assert.deepEqual(first.data.todos, ["补充下节课计划"]);
-  const undo = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "undoLatestCompletion" } });
+  const undo = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "undoLatestCompletion" } });
   assert.equal(undo.response.status, 200, JSON.stringify(undo.data));
   const afterUndo = rows(`SELECT l.status,l.actual_content AS actualContent,(SELECT COUNT(*) FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id WHERE a.lesson_id=l.id) AS submissions,(SELECT COUNT(*) FROM feedback WHERE lesson_id=l.id) AS feedback,(SELECT COUNT(*) FROM lesson_finance WHERE lesson_id=l.id) AS finance FROM lessons l WHERE l.id=${lessonId}`)[0];
   assert.deepEqual({ status: afterUndo.status, actualContent: afterUndo.actualContent, submissions: afterUndo.submissions, feedback: afterUndo.feedback, finance: afterUndo.finance }, { status: "scheduled", actualContent: "人民民主专题", submissions: 0, feedback: 0, finance: 0 });
 
-  const completedAgain = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
+  const completedAgain = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
   assert.equal(completedAgain.response.status, 200, JSON.stringify(completedAgain.data));
-  const second = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
+  const second = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: completion });
   assert.equal(second.response.status, 200, JSON.stringify(second.data));
   assert.equal(second.data.idempotent, true);
 
@@ -849,30 +854,28 @@ async function exerciseRound(round, cookie) {
   assert.deepEqual({ assignments: counts.assignments, submissions: counts.submissions, feedback: counts.feedback, finance: counts.finance, billing: counts.billing, attendance: counts.attendance }, { assignments: 1, submissions: 2, feedback: 1, finance: 1, billing: 2, attendance: 2 });
   assert.equal(Number(counts.expectedAmount), 150);
 
-  const financeOperationId = `${marker}_finance_${round}`;
-  const adjustmentWithoutReason = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", operationId: financeOperationId, lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 10 } });
+  const adjustmentWithoutReason = await request("/api/v2/finance/approvals", { cookie, method: "POST", body: { lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 10 } });
   assert.equal(adjustmentWithoutReason.response.status, 422);
-  const financePreview = await request("/api/finance", { cookie, method: "POST", body: { action: "preview", operationId: financeOperationId, lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
-  assert.equal(financePreview.response.status, 200, JSON.stringify(financePreview.data));
-  assert.equal(financePreview.data.context.canConfirm, true);
+  const financePreview = await request("/api/v2/finance/approvals", { cookie, method: "POST", body: { lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
+  assert.equal(financePreview.response.status, 201, JSON.stringify(financePreview.data));
   assert.equal(financePreview.data.preview.expectedAmount, 80);
-  const financeConfirm = await request("/api/finance", { cookie, method: "POST", body: { action: "confirm", operationId: financeOperationId, previewToken: financePreview.data.previewToken, lessonId, payerType: "parent", payerId: studentIds[0], adjustment: 0 } });
+  const financeConfirm = await request(`/api/v2/approvals/${financePreview.data.approval.id}`, { cookie, method: "POST", body: { decision: "approved", note: "财务端到端验收" } });
   assert.equal(financeConfirm.response.status, 200, JSON.stringify(financeConfirm.data));
-  assert.equal(financeConfirm.data.calculation.expectedAmount, 80);
+  assert.equal(financeConfirm.data.execution.calculation.expectedAmount, 80);
 
-  const feedbackSummary = await request(`/api/feedback/summary?studentId=${studentIds[0]}&start=${today}&end=${today}`, { cookie });
+  const feedbackSummary = await request(`/api/v2/feedback/summary?studentId=${studentIds[0]}&start=${today}&end=${today}`, { cookie });
   assert.equal(feedbackSummary.response.status, 200);
-  const noEvidence = await request("/api/feedback", { cookie, method: "POST", body: { type: "stage", studentId: studentIds[0], content: `${marker}_stage_${round}`, status: "confirmed" } });
+  const noEvidence = await request("/api/v2/feedback", { cookie, method: "POST", body: { type: "stage", studentId: studentIds[0], content: `${marker}_stage_${round}`, status: "confirmed" } });
   assert.equal(noEvidence.response.status, 422);
-  const evidenced = await request("/api/feedback", { cookie, method: "POST", body: { type: "stage", studentId: studentIds[0], content: `${marker}_stage_${round}`, status: "confirmed", evidenceRefs: feedbackSummary.data.draft.evidenceRefs } });
+  const evidenced = await request("/api/v2/feedback", { cookie, method: "POST", body: { type: "stage", studentId: studentIds[0], content: `${marker}_stage_${round}`, status: "confirmed", evidenceRefs: feedbackSummary.data.draft.evidenceRefs } });
   assert.equal(evidenced.response.status, 201, JSON.stringify(evidenced.data));
 
   sql(`UPDATE students SET risk_confirmed=1,risk_tags=${quote(`${marker}_teacher_confirmed`)} WHERE id=${studentIds[0]};
     UPDATE feedback SET status='confirmed',content=${quote(`${marker}_confirmed_${round}`)} WHERE lesson_id=${lessonId};`);
-  const protectedRun = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { ...completion, actualContent: "重复完成后的内容", feedback: { content: `${marker}_must_not_overwrite_${round}` } } });
+  const protectedRun = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { ...completion, actualContent: "重复完成后的内容", feedback: { content: `${marker}_must_not_overwrite_${round}` } } });
   assert.equal(protectedRun.response.status, 200, JSON.stringify(protectedRun.data));
   assert.equal(protectedRun.data.artifacts.financeLocked, true);
-  const blockedUndo = await request(`/api/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "undoLatestCompletion" } });
+  const blockedUndo = await request(`/api/v2/lessons/${lessonId}/activity`, { cookie, method: "POST", body: { action: "undoLatestCompletion" } });
   assert.equal(blockedUndo.response.status, 409);
   assert.ok(blockedUndo.data.blockers.length >= 1);
   const protectedRows = rows(`SELECT
@@ -887,28 +890,28 @@ async function exerciseRound(round, cookie) {
   assert.ok(protectedRows.pricingRuleId);
   assert.match(protectedRows.calculationSnapshot, /expectedAmount/);
 
-  const attention = await request("/api/students/attention", { cookie });
+  const attention = await request("/api/v2/students/attention", { cookie });
   assert.equal(attention.response.status, 200);
   assert.ok(attention.data.students.some((student) => student.id === studentIds[0]));
-  const insights = await request(`/api/students/${studentIds[0]}/insights?weeks=4`, { cookie });
+  const insights = await request(`/api/v2/students/${studentIds[0]}/insights?weeks=4`, { cookie });
   assert.equal(insights.response.status, 200);
   assert.ok(insights.data.timeline.some((item) => item.type === "出勤"));
   assert.ok(insights.data.timeline.some((item) => item.type === "已确认反馈"));
-  const month = today.slice(0, 7), monthly = await request(`/api/finance/monthly?month=${month}`, { cookie });
+  const month = today.slice(0, 7), monthly = await request(`/api/v2/finance/monthly?month=${month}`, { cookie });
   assert.equal(monthly.response.status, 200);
   assert.ok(monthly.data.items.some((item) => item.lessonId === lessonId && item.pricingRuleId));
   if (round === 1) {
-    const monthlyExport = await request(`/api/finance/export?mode=monthly&month=${month}`, { cookie });
+    const monthlyExport = await request(`/api/v2/finance/export?mode=monthly&month=${month}`, { cookie });
     assert.equal(monthlyExport.response.status, 200);
     assert.match(monthlyExport.response.headers.get("content-type") || "", /spreadsheetml/);
     sql(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<1000) INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status) SELECT ${quote(`${marker}_benchmark_`)}||n,'单选题','高中','高一','人民民主','A','合成检索性能样本','active' FROM seq;`);
-    const started = performance.now(), search = await request("/api/questions?stage=高中&grade=高一&knowledge=人民民主&sort=use_count_asc", { cookie }), elapsedMs = performance.now() - started;
+    const started = performance.now(), search = await request("/api/v2/questions?stage=高中&grade=高一&knowledge=人民民主&sort=use_count_asc", { cookie }), elapsedMs = performance.now() - started;
     benchmarkMs = Number(elapsedMs.toFixed(1));
     assert.equal(search.response.status, 200);
     assert.ok(search.data.total >= 1000);
     assert.ok(elapsedMs < 1000, `1000题组合检索耗时 ${elapsedMs.toFixed(1)}ms`);
   }
-  await request(`/api/workflow-templates?id=${templateId}`, { cookie, method: "DELETE" });
+  await request(`/api/v2/workflow-templates?id=${templateId}`, { cookie, method: "DELETE" });
   return { round, lessonId, studentIds, questionIds, topic, dueAt, today, idempotent: true, undoRestoredDraft: true, protectedArtifacts: true, pricingSnapshot: true, benchmarkMs };
 }
 
@@ -918,15 +921,14 @@ async function exerciseRecognitionBusiness(cookie) {
   const png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
   const uploadForm = new FormData();
   uploadForm.set("file", new File([png], `${marker}_answer.png`, { type: "image/png" }), `${marker}_answer.png`);
-  uploadForm.set("ownerType", "recognition");
-  uploadForm.set("purpose", "recognition");
-  const uploaded = await multipartRequest("/api/files", { cookie, form: uploadForm });
+  uploadForm.set("purpose", "answer-card");
+  const uploaded = await multipartRequest("/api/v2/files", { cookie, form: uploadForm });
   assert.equal(uploaded.response.status, 201, JSON.stringify(uploaded.data));
   const sourceAssetId = Number(uploaded.data.id);
   created.assetIds.push(sourceAssetId);
   checks.push("答题卡图片上传");
 
-  const assessment = await request("/api/assessments", { cookie, method: "POST", body: { classId, title: `${marker}_测验`, date: rounds[1].today, totalScore: 100 } });
+  const assessment = await request("/api/v2/assessments", { cookie, method: "POST", body: { classId, title: `${marker}_测验`, date: rounds[1].today, totalScore: 100 } });
   assert.equal(assessment.response.status, 201, JSON.stringify(assessment.data));
   const assessmentId = Number(assessment.data.assessment.id);
   created.assessmentIds.push(assessmentId);
@@ -945,54 +947,58 @@ async function exerciseRecognitionBusiness(cookie) {
     errorType: null,
     reviewStatus: "confirmed",
   }];
-  const job = await request("/api/recognition", { cookie, method: "POST", body: { action: "create", assessmentId, studentId: rounds[1].studentIds[0], sourceAssetId, items } });
+  const job = await request("/api/v2/recognition", { cookie, method: "POST", body: { action: "create", assessmentId, studentId: rounds[1].studentIds[0], sourceAssetId, items } });
   assert.equal(job.response.status, 201, JSON.stringify(job.data));
   const jobId = Number(job.data.id);
   checks.push("识别任务创建");
 
-  const list = await request(`/api/recognition?id=${jobId}`, { cookie });
+  const list = await request(`/api/v2/recognition/${jobId}`, { cookie });
   assert.equal(list.response.status, 200, JSON.stringify(list.data));
   assert.ok(list.data.items.length >= 1);
-  const saved = await request("/api/recognition", { cookie, method: "POST", body: { action: "save", jobId, items: list.data.items, progress: 100 } });
+  const saved = await request(`/api/v2/recognition/${jobId}`, { cookie, method: "PATCH", body: { action: "save", items: list.data.items, progress: 100 } });
   assert.equal(saved.response.status, 200, JSON.stringify(saved.data));
-  const confirmed = await request("/api/recognition", { cookie, method: "POST", body: { action: "confirm", jobId } });
+  const queueConfirmation = () => request("/api/v2/approvals", { cookie, method: "POST", body: { actionType: "recognition.confirm", entityType: "recognition_job", entityId: String(jobId), title: `确认答题卡校对任务 #${jobId}`, summary: "逐题校对已经完成，确认写入正式测评成绩与知识证据。", payload: { id: jobId }, evidence: [{ type: "recognition_job", id: jobId, itemCount: list.data.items.length }] } });
+  const queued = await queueConfirmation();
+  assert.equal(queued.response.status, 201, JSON.stringify(queued.data));
+  const confirmed = await request(`/api/v2/approvals/${queued.data.approval.id}`, { cookie, method: "POST", body: { decision: "approved", note: "答题卡端到端验收" } });
   assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
-  assert.equal(confirmed.data.count, 1);
-  const repeated = await request("/api/recognition", { cookie, method: "POST", body: { action: "confirm", jobId } });
+  assert.equal(confirmed.data.execution.count, 1);
+  const repeatedQueued = await queueConfirmation();
+  const repeated = await request(`/api/v2/approvals/${repeatedQueued.data.approval.id}`, { cookie, method: "POST", body: { decision: "approved", note: "答题卡幂等复确认" } });
   assert.equal(repeated.response.status, 200, JSON.stringify(repeated.data));
-  assert.equal(repeated.data.alreadyConfirmed, true);
+  assert.equal(repeated.data.execution.alreadyConfirmed, true);
   checks.push("逐题校对确认", "幂等复确认");
   return { checks, ok: true };
 }
 
 async function exerciseResourcesBusiness(cookie) {
-  const createdResource = await request("/api/resources", { cookie, method: "POST", body: { title: `${marker}_资源`, type: "教学策略", content: `${marker}_内容` } });
+  const createdResource = await request("/api/v2/resources", { cookie, method: "POST", body: { title: `${marker}_资源`, type: "教学策略", content: `${marker}_内容` } });
   assert.equal(createdResource.response.status, 201, JSON.stringify(createdResource.data));
   const resourceId = Number(createdResource.data.resource.id);
-  const list = await request("/api/resources", { cookie });
+  const list = await request("/api/v2/resources", { cookie });
   assert.equal(list.response.status, 200, JSON.stringify(list.data));
   assert.equal(list.data.canWrite, true);
   assert.ok(list.data.resources.some((resource) => resource.id === resourceId));
-  const removed = await request(`/api/resources/${resourceId}`, { cookie, method: "DELETE" });
+  const removed = await request(`/api/v2/resources/${resourceId}`, { cookie, method: "DELETE" });
   assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
   return { checks: ["资源新增", "教师可写列表", "资源删除"], ok: true };
 }
 
 async function exerciseReflectionsBusiness(cookie) {
   const checks = [];
-  const reflection = await request("/api/reflections", { cookie, method: "POST", body: { date: rounds[1].today, lessonId: rounds[1].lessonId, tags: `${marker}_反思`, expectedVsActual: `${marker}_预期与结果`, nextAction: "下次课继续巩固" } });
+  const reflection = await request("/api/v2/reflections", { cookie, method: "POST", body: { date: rounds[1].today, lessonId: rounds[1].lessonId, tags: `${marker}_反思`, expectedVsActual: `${marker}_预期与结果`, nextAction: "下次课继续巩固" } });
   assert.equal(reflection.response.status, 201, JSON.stringify(reflection.data));
   const reflectionId = Number(reflection.data.reflection.id);
   checks.push("普通反思新增");
-  const strategyDenied = await request("/api/reflections", { cookie, method: "POST", body: { date: rounds[1].today, isStrategy: true, tags: `${marker}_策略直传` } });
+  const strategyDenied = await request("/api/v2/reflections", { cookie, method: "POST", body: { date: rounds[1].today, isStrategy: true, tags: `${marker}_策略直传` } });
   assert.equal(strategyDenied.response.status, 409, JSON.stringify(strategyDenied.data));
   checks.push("策略反思入口校验");
-  const resource = await request("/api/resources", { cookie, method: "POST", body: { title: `${marker}_策略沉淀`, type: "教学策略", content: "沉淀为可复用策略", sourceRef: `reflection:${reflectionId}` } });
+  const resource = await request("/api/v2/resources", { cookie, method: "POST", body: { title: `${marker}_策略沉淀`, type: "教学策略", content: "沉淀为可复用策略", sourceRef: `reflection:${reflectionId}` } });
   assert.equal(resource.response.status, 201, JSON.stringify(resource.data));
-  const promoted = await request(`/api/reflections/${reflectionId}`, { cookie, method: "PUT", body: { date: rounds[1].today, lessonId: rounds[1].lessonId, tags: `${marker}_反思`, expectedVsActual: `${marker}_预期与结果`, nextAction: "下次课继续巩固", isStrategy: true } });
+  const promoted = await request(`/api/v2/reflections/${reflectionId}`, { cookie, method: "PUT", body: { date: rounds[1].today, lessonId: rounds[1].lessonId, tags: `${marker}_反思`, expectedVsActual: `${marker}_预期与结果`, nextAction: "下次课继续巩固", isStrategy: true } });
   assert.equal(promoted.response.status, 200, JSON.stringify(promoted.data));
   assert.equal(promoted.data.reflection.isStrategy, true);
-  const list = await request("/api/reflections", { cookie });
+  const list = await request("/api/v2/reflections", { cookie });
   assert.equal(list.response.status, 200, JSON.stringify(list.data));
   assert.ok(list.data.reflections.some((item) => item.id === reflectionId && item.isStrategy === true));
   checks.push("资源沉淀", "反思转策略", "策略列表可见");
@@ -1001,57 +1007,60 @@ async function exerciseReflectionsBusiness(cookie) {
 
 async function exerciseQuestionViewsBusiness(cookie) {
   const name = `${marker}_筛选方案`;
-  const first = await request("/api/question-views", { cookie, method: "POST", body: { name, filters: { grade: "高一", knowledge: "人民民主" } } });
+  const first = await request("/api/v2/question-views", { cookie, method: "POST", body: { name, filters: { grade: "高一", knowledge: "人民民主" } } });
   assert.equal(first.response.status, 201, JSON.stringify(first.data));
   const viewId = Number(first.data.view.id);
-  const second = await request("/api/question-views", { cookie, method: "POST", body: { name, filters: { grade: "高一", knowledge: "人民民主" } } });
+  const second = await request("/api/v2/question-views", { cookie, method: "POST", body: { name, filters: { grade: "高一", knowledge: "人民民主" } } });
   assert.equal(second.response.status, 200, JSON.stringify(second.data));
   assert.equal(Number(second.data.view.id), viewId);
-  const list = await request("/api/question-views", { cookie });
+  const list = await request("/api/v2/question-views", { cookie });
   assert.equal(list.response.status, 200, JSON.stringify(list.data));
   assert.ok(list.data.views.some((view) => view.id === viewId));
-  const removed = await request(`/api/question-views/${viewId}`, { cookie, method: "DELETE" });
+  const removed = await request(`/api/v2/question-views/${viewId}`, { cookie, method: "DELETE" });
   assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
   return { checks: ["筛选方案新建", "同名更新", "方案删除"], ok: true };
 }
 
 async function exerciseScheduleImportsBusiness(cookie) {
   const checks = [];
+  const waitForImport = async (id, states) => {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const detail = await request(`/api/v2/schedule-imports/${id}`, { cookie });
+      assert.equal(detail.response.status, 200, JSON.stringify(detail.data));
+      if (states.includes(detail.data.state)) return detail.data;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(`课表任务 ${id} 未在时限内进入 ${states.join("/")}`);
+  };
   const csv = String(await readFile(path.join(root, "tests", "fixtures", "schedule-import", "browser-synthetic.csv"), "utf8")).replace(/^\uFEFF/, "");
   const form = new FormData();
   form.set("file", new File([csv], "browser-synthetic.csv", { type: "text/csv" }), "browser-synthetic.csv");
-  const imported = await multipartRequest("/api/schedule-imports", { cookie, form });
-  assert.equal(imported.response.status, 201, JSON.stringify(imported.data));
-  const importId = Number(imported.data.id);
+  const imported = await multipartRequest("/api/v2/schedule-imports", { cookie, form });
+  assert.equal(imported.response.status, 202, JSON.stringify(imported.data));
+  const importId = String(imported.data.id);
   created.scheduleImportIds.push(importId);
-  assert.equal(imported.data.report.total, 1);
+  const reviewed = await waitForImport(importId, ["waiting_review"]);
+  assert.equal(reviewed.report.total, 1);
   checks.push("课表 CSV 导入");
-  const history = await request("/api/schedule-imports", { cookie });
+  const history = await request("/api/v2/schedule-imports", { cookie });
   assert.equal(history.response.status, 200, JSON.stringify(history.data));
   assert.ok(
     Array.isArray(history.data.imports) &&
-      history.data.imports.some((item) => Number(item.id) === importId),
+      history.data.imports.some((item) => String(item.id) === importId),
     JSON.stringify(history.data),
   );
   checks.push("课表导入历史列表");
-  const confirmed = await request(`/api/schedule-imports/${importId}/confirm`, { cookie, method: "POST" });
-  assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
-  assert.equal(confirmed.data.report.created, 1);
-  assert.equal(confirmed.data.report.studentsCreated, 1);
-  assert.ok(Array.isArray(confirmed.data.rows), JSON.stringify(confirmed.data));
-  const confirmedRow = confirmed.data.rows.find((row) => row.action === "created");
+  const confirmed = await request(`/api/v2/schedule-imports/${importId}/confirm`, { cookie, method: "POST", body: { operationId: crypto.randomUUID() } });
+  assert.equal(confirmed.response.status, 202, JSON.stringify(confirmed.data));
+  const confirmedDetail = await waitForImport(importId, ["completed"]);
+  const confirmedRow = confirmedDetail.rows.find((row) => row.state === "created");
   assert.ok(confirmedRow?.lessonId, JSON.stringify(confirmed.data));
   checks.push("课表确认落库");
-  const detail = await request(`/api/schedule-imports/${importId}`, { cookie });
-  assert.equal(detail.response.status, 200, JSON.stringify(detail.data));
-  assert.equal(Number(detail.data.import.id), importId);
-  assert.ok(detail.data.import.report?.created === 1, JSON.stringify(detail.data));
-  assert.ok(
-    detail.data.rows.some((row) => row.action === "created" && row.lessonId),
-    JSON.stringify(detail.data),
-  );
+  assert.equal(String(confirmedDetail.id), importId);
+  assert.ok(confirmedDetail.rows.some((row) => row.state === "created" && row.lessonId), JSON.stringify(confirmedDetail));
   checks.push("课表历史报告逐行可查");
-  const lessonRow = rows(`SELECT lesson_id AS lessonId FROM schedule_import_rows WHERE import_id=${importId} AND action='created' LIMIT 1`)[0];
+  const lessonRow = rows(`SELECT lesson_id AS lessonId FROM v2_schedule_rows WHERE import_id=${quote(importId)} AND state='created' LIMIT 1`)[0];
   assert.ok(lessonRow?.lessonId);
   const lessonId = Number(lessonRow.lessonId);
   created.scheduleLessonIds.push(lessonId);
@@ -1065,36 +1074,34 @@ async function exerciseScheduleImportsBusiness(cookie) {
   const retryCsv = "日期,上课时间,结束时间,学生姓名,课程名称,地点,底薪,每生提成\n2030-01-13,09:00,10:30,__e2e__课表学生,政治,__e2e__教室,100,20\n2030-01-13,09:30,11:00,__e2e__课表学生,政治,__e2e__教室,100,20\n";
   const retryForm = new FormData();
   retryForm.set("file", new File([retryCsv], "browser-synthetic-retry.csv", { type: "text/csv" }), "browser-synthetic-retry.csv");
-  const retryImport = await multipartRequest("/api/schedule-imports", { cookie, form: retryForm });
-  assert.equal(retryImport.response.status, 201, JSON.stringify(retryImport.data));
-  const retryImportId = Number(retryImport.data.id);
+  const retryImport = await multipartRequest("/api/v2/schedule-imports", { cookie, form: retryForm });
+  assert.equal(retryImport.response.status, 202, JSON.stringify(retryImport.data));
+  const retryImportId = String(retryImport.data.id);
   created.scheduleImportIds.push(retryImportId);
-  assert.equal(retryImport.data.report.total, 2);
-  assert.equal(retryImport.data.report.create, 2);
+  const retryReviewed = await waitForImport(retryImportId, ["waiting_review"]);
+  assert.equal(retryReviewed.report.total, 2);
+  assert.equal(retryReviewed.report.create, 2);
 
-  const partial = await request(`/api/schedule-imports/${retryImportId}/confirm`, { cookie, method: "POST" });
-  assert.equal(partial.response.status, 200, JSON.stringify(partial.data));
-  assert.equal(partial.data.status, "partial", JSON.stringify(partial.data));
-  assert.equal(partial.data.report.created, 1);
-  assert.equal(partial.data.report.blocked, 1);
-  assert.equal(partial.data.report.remaining, 1);
+  const partialRequest = await request(`/api/v2/schedule-imports/${retryImportId}/confirm`, { cookie, method: "POST", body: { operationId: crypto.randomUUID() } });
+  assert.equal(partialRequest.response.status, 202, JSON.stringify(partialRequest.data));
+  const partial = await waitForImport(retryImportId, ["partial"]);
+  assert.equal(partial.rows.filter((row) => row.state === "created").length, 1);
+  assert.equal(partial.rows.filter((row) => row.state === "failed").length, 1);
   checks.push("课表部分完成状态");
 
-  const partialRows = rows(`SELECT id,lesson_id AS lessonId,action FROM schedule_import_rows WHERE import_id=${retryImportId} ORDER BY row_number`);
-  const createdRetryRow = partialRows.find((item) => item.action === "created");
-  const blockedRetryRow = partialRows.find((item) => item.action === "blocked");
-  assert.ok(createdRetryRow?.lessonId && blockedRetryRow?.lessonId, JSON.stringify(partialRows));
+  const partialRows = rows(`SELECT id,lesson_id AS lessonId,state FROM v2_schedule_rows WHERE import_id=${quote(retryImportId)} ORDER BY row_number`);
+  const createdRetryRow = partialRows.find((item) => item.state === "created");
+  const failedRetryRow = partialRows.find((item) => item.state === "failed");
+  assert.ok(createdRetryRow?.lessonId && failedRetryRow, JSON.stringify(partialRows));
   created.scheduleLessonIds.push(Number(createdRetryRow.lessonId));
   sql(`UPDATE lessons SET status='cancelled' WHERE id=${Number(createdRetryRow.lessonId)}`);
 
-  const retried = await request(`/api/schedule-imports/${retryImportId}/confirm`, { cookie, method: "POST" });
-  assert.equal(retried.response.status, 200, JSON.stringify(retried.data));
-  assert.equal(retried.data.status, "confirmed", JSON.stringify(retried.data));
-  assert.equal(retried.data.report.created, 1);
-  assert.equal(retried.data.report.blocked, 0);
-  assert.equal(retried.data.report.remaining, 0);
-  const retriedRows = rows(`SELECT id,lesson_id AS lessonId,action FROM schedule_import_rows WHERE import_id=${retryImportId} ORDER BY row_number`);
-  const retriedCreated = retriedRows.find((item) => item.action === "created" && Number(item.id) !== Number(createdRetryRow.id));
+  const retriedRequest = await request(`/api/v2/schedule-imports/${retryImportId}/confirm`, { cookie, method: "POST", body: { operationId: crypto.randomUUID() } });
+  assert.equal(retriedRequest.response.status, 202, JSON.stringify(retriedRequest.data));
+  const retried = await waitForImport(retryImportId, ["completed"]);
+  assert.equal(retried.rows.filter((row) => row.state === "failed").length, 0);
+  const retriedRows = rows(`SELECT id,lesson_id AS lessonId,state FROM v2_schedule_rows WHERE import_id=${quote(retryImportId)} ORDER BY row_number`);
+  const retriedCreated = retriedRows.find((item) => item.state === "created" && Number(item.id) !== Number(createdRetryRow.id));
   assert.ok(retriedCreated?.lessonId, JSON.stringify(retriedRows));
   created.scheduleLessonIds.push(Number(retriedCreated.lessonId));
   checks.push("课表失败任务重试只补剩余行");
@@ -1103,9 +1110,9 @@ async function exerciseScheduleImportsBusiness(cookie) {
 
 async function exerciseExamProjectsBusiness(cookie) {
   const checks = [];
-  const createdProject = await request("/api/exam-projects", { cookie, method: "POST", body: { academicYear: "2026-2027" } });
+  const createdProject = await request("/api/v2/exam-projects", { cookie, method: "POST", body: { academicYear: "2026-2027" } });
   assert.equal(createdProject.response.status, 201, JSON.stringify(createdProject.data));
-  const projects = await request("/api/exam-projects", { cookie });
+  const projects = await request("/api/v2/exam-projects", { cookie });
   assert.equal(projects.response.status, 200, JSON.stringify(projects.data));
   const yearProjects = projects.data.projects.filter((project) => String(project.academic_year || project.academicYear || "") === "2026-2027");
   assert.ok(yearProjects.length > 0);
@@ -1113,15 +1120,15 @@ async function exerciseExamProjectsBusiness(cookie) {
   checks.push("考试项目学年生成");
   const project = yearProjects.find((item) => item.grade === "高一");
   assert.ok(project?.id, JSON.stringify(yearProjects));
-  const studentsView = await request(`/api/exam-projects/${project.id}/results`, { cookie });
+  const studentsView = await request(`/api/v2/exam-projects/${project.id}/results`, { cookie });
   assert.equal(studentsView.response.status, 200, JSON.stringify(studentsView.data));
   assert.ok(studentsView.data.students.length >= 2);
   const results = studentsView.data.students.slice(0, 2).map((student, index) => ({ studentId: Number(student.studentId), score: index === 0 ? 82 : 91, questions: [{ questionNumber: "1", questionId: rounds[1].questionIds[0], answer: index === 0 ? "A" : "B", score: index === 0 ? 1 : 2, maxScore: 2, knowledgePoints: "人民民主" }] }));
-  const recorded = await request(`/api/exam-projects/${project.id}/results`, { cookie, method: "PUT", body: { results } });
+  const recorded = await request(`/api/v2/exam-projects/${project.id}/results`, { cookie, method: "PUT", body: { results } });
   assert.equal(recorded.response.status, 200, JSON.stringify(recorded.data));
   assert.equal(recorded.data.updated, 2);
   checks.push("考试成绩录入");
-  const analytics = await request(`/api/exam-projects/${project.id}/analytics`, { cookie });
+  const analytics = await request(`/api/v2/exam-projects/${project.id}/analytics`, { cookie });
   assert.equal(analytics.response.status, 200, JSON.stringify(analytics.data));
   assert.equal(analytics.data.dataStatus, "ready");
   assert.ok(analytics.data.summary.recorded >= 2);
@@ -1133,13 +1140,13 @@ async function exerciseQuestionSetsBusiness(cookie) {
   const checks = [];
   const sourceForm = new FormData();
   sourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0])], "e2e-questions.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-questions.docx");
-  const source = await multipartRequest("/api/question-sets/source", { cookie, form: sourceForm });
+  const source = await multipartRequest("/api/v2/question-sets/source", { cookie, form: sourceForm });
   assert.equal(source.response.status, 200, JSON.stringify(source.data));
-  const sourceDownload = await fetch(`${baseUrl}/api/question-sets/source?key=${encodeURIComponent(source.data.key)}`, { headers: { cookie } });
+  const sourceDownload = await fetch(`${baseUrl}/api/v2/question-sets/source?key=${encodeURIComponent(source.data.key)}`, { headers: { cookie } });
   assert.equal(sourceDownload.status, 200, `source download: ${sourceDownload.status}`);
   assert.deepEqual([...new Uint8Array(await sourceDownload.arrayBuffer())], [0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
   checks.push("原始文件断点下载");
-  const missingSource = await request(`/api/question-sets/source?key=${encodeURIComponent("question-sources/2026-08-07/__e2e__missing.docx")}`, { cookie });
+  const missingSource = await request(`/api/v2/question-sets/source?key=${encodeURIComponent("question-sources/2026-08-07/__e2e__missing.docx")}`, { cookie });
   assert.equal(missingSource.response.status, 404, JSON.stringify(missingSource.data));
   assert.match(String(missingSource.data.error || ""), /重新上传/);
   checks.push("原始文件缺失提示重新上传");
@@ -1157,7 +1164,7 @@ async function exerciseQuestionSetsBusiness(cookie) {
     reviewed: true,
     status: "review",
   }];
-  const imported = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, sourceKey: source.data.key, sourceFingerprint: source.data.fingerprint, reviewed: true, questions } });
+  const imported = await request("/api/v2/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, sourceKey: source.data.key, sourceFingerprint: source.data.fingerprint, reviewed: true, questions } });
   assert.equal(imported.response.status, 201, JSON.stringify(imported.data));
   const questionSetId = Number(imported.data.questionSet.id);
   created.questionSetIds.push(questionSetId);
@@ -1165,28 +1172,28 @@ async function exerciseQuestionSetsBusiness(cookie) {
   checks.push("Word 题库导入");
   assert.ok(imported.data.report.typeCounts?.["单选题"] >= 1);
   checks.push("导入报告题型分布");
-  const resumedByFile = await request(`/api/question-sets/import?sourceFingerprint=${encodeURIComponent(source.data.fingerprint)}`, { cookie });
+  const resumedByFile = await request(`/api/v2/question-sets/import?sourceFingerprint=${encodeURIComponent(source.data.fingerprint)}`, { cookie });
   assert.equal(resumedByFile.response.status, 200, JSON.stringify(resumedByFile.data));
   assert.equal(Number(resumedByFile.data.existing?.id), questionSetId);
   checks.push("按文件指纹恢复导入任务");
-  const sameFileAgain = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组重传`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, sourceKey: source.data.key, sourceFingerprint: source.data.fingerprint, reviewed: true, questions } });
+  const sameFileAgain = await request("/api/v2/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_题组重传`, sourceFile: "e2e-questions.docx", sourceDocument: source.data.key, sourceKey: source.data.key, sourceFingerprint: source.data.fingerprint, reviewed: true, questions } });
   assert.equal(sameFileAgain.response.status, 409, JSON.stringify(sameFileAgain.data));
   assert.equal(Number(sameFileAgain.data.existing?.id), questionSetId);
   checks.push("同文件重复导入按原任务拦截");
   const otherSourceForm = new FormData();
   otherSourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 1])], "e2e-questions-copy.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-questions-copy.docx");
-  const otherSource = await multipartRequest("/api/question-sets/source", { cookie, form: otherSourceForm });
+  const otherSource = await multipartRequest("/api/v2/question-sets/source", { cookie, form: otherSourceForm });
   assert.equal(otherSource.response.status, 200, JSON.stringify(otherSource.data));
-  const copyImport = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_同题不同文件`, sourceFile: "e2e-questions-copy.docx", sourceDocument: otherSource.data.key, sourceKey: otherSource.data.key, sourceFingerprint: otherSource.data.fingerprint, reviewed: true, questions } });
+  const copyImport = await request("/api/v2/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_同题不同文件`, sourceFile: "e2e-questions-copy.docx", sourceDocument: otherSource.data.key, sourceKey: otherSource.data.key, sourceFingerprint: otherSource.data.fingerprint, reviewed: true, questions } });
   assert.equal(copyImport.response.status, 409, JSON.stringify(copyImport.data));
   assert.ok(Number(copyImport.data.duplicates) >= 1);
   assert.ok(!copyImport.data.existing?.id);
   checks.push("不同文件相同题按内容提示重复");
   const incompleteSourceForm = new FormData();
   incompleteSourceForm.set("file", new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 9])], "e2e-incomplete.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "e2e-incomplete.docx");
-  const incompleteSource = await multipartRequest("/api/question-sets/source", { cookie, form: incompleteSourceForm });
+  const incompleteSource = await multipartRequest("/api/v2/question-sets/source", { cookie, form: incompleteSourceForm });
   assert.equal(incompleteSource.response.status, 200, JSON.stringify(incompleteSource.data));
-  const incompleteImport = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_待补充报告`, sourceFile: "e2e-incomplete.docx", sourceDocument: incompleteSource.data.key, sourceKey: incompleteSource.data.key, sourceFingerprint: incompleteSource.data.fingerprint, reviewed: true, questions: [{ stem: `${marker}_完整补充题`, answer: "A", analysis: `${marker}_完整解析`, knowledgePoints: "人民民主", questionType: "单选题", stage: "高中", grade: "高一", reviewed: true, status: "review" }, { stem: `${marker}_缺字段题`, sourceQuestionNumber: 7, questionType: "材料题", stage: "高中", grade: "高一", parseConfidence: 0.4, reviewed: false, status: "review" }] } });
+  const incompleteImport = await request("/api/v2/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_待补充报告`, sourceFile: "e2e-incomplete.docx", sourceDocument: incompleteSource.data.key, sourceKey: incompleteSource.data.key, sourceFingerprint: incompleteSource.data.fingerprint, reviewed: true, questions: [{ stem: `${marker}_完整补充题`, answer: "A", analysis: `${marker}_完整解析`, knowledgePoints: "人民民主", questionType: "单选题", stage: "高中", grade: "高一", reviewed: true, status: "review" }, { stem: `${marker}_缺字段题`, sourceQuestionNumber: 7, questionType: "材料题", stage: "高中", grade: "高一", parseConfidence: 0.4, reviewed: false, status: "review" }] } });
   assert.equal(incompleteImport.response.status, 201, JSON.stringify(incompleteImport.data));
   assert.ok(incompleteImport.data.report.typeCounts?.["单选题"] >= 1);
   assert.ok(incompleteImport.data.report.typeCounts?.["材料题"] >= 1);
@@ -1212,26 +1219,29 @@ async function exerciseQuestionSetsBusiness(cookie) {
     reviewed: true,
     status: "review",
   }));
-  const rejected = await request("/api/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_超量文件`, sourceFile: "e2e-overflow.docx", questions: overflowQuestions } });
+  const rejected = await request("/api/v2/question-sets/import", { cookie, method: "POST", body: { name: `${marker}_超量文件`, sourceFile: "e2e-overflow.docx", questions: overflowQuestions } });
   assert.equal(rejected.response.status, 422, JSON.stringify(rejected.data));
   assert.match(String(rejected.data.error || ""), /300/);
   assert.match(String(rejected.data.error || ""), /301/);
   checks.push("题库导入超量明确拒绝");
-  const detail = await request(`/api/question-sets/${questionSetId}`, { cookie });
+  const detail = await request(`/api/v2/question-sets/${questionSetId}`, { cookie });
   assert.equal(detail.response.status, 200, JSON.stringify(detail.data));
   assert.ok(detail.data.questions.length >= 1);
-  const confirmed = await request(`/api/question-sets/${questionSetId}/confirm`, { cookie, method: "POST" });
+  const questionIds = detail.data.questions.map((item) => Number(item.id)).filter((id) => Number.isInteger(id) && id > 0);
+  const queued = await request("/api/v2/approvals", { cookie, method: "POST", body: { actionType: "question.promote", entityType: "question", entityId: String(questionIds[0]), title: `${marker}_题组确认入库`, summary: `确认将题组 #${questionSetId} 中已完成校对的题目转入正式题库`, payload: { ids: questionIds }, evidence: [] } });
+  assert.equal(queued.response.status, 201, JSON.stringify(queued.data));
+  const confirmed = await request(`/api/v2/approvals/${queued.data.approval.id}`, { cookie, method: "POST", body: { decision: "approved", note: "题库端到端验收" } });
   assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.data));
-  assert.ok(confirmed.data.promoted >= 1);
-  checks.push("题组确认入库");
-  const sourceView = await request(`/api/question-sets/${questionSetId}/source`, { cookie });
+  assert.ok(Number(confirmed.data.execution?.promoted) >= 1);
+  checks.push("题组经待确认中心正式入库");
+  const sourceView = await request(`/api/v2/question-sets/${questionSetId}/source`, { cookie });
   assert.equal(sourceView.response.status, 200, JSON.stringify(sourceView.data));
   checks.push("原始 Word 溯源");
   return { checks, ok: true };
 }
 
 async function exerciseFinanceContext(cookie) {
-  const context = await request(`/api/finance/context?lessonId=${rounds[1].lessonId}&payerType=parent&payerId=${rounds[1].studentIds[0]}`, { cookie });
+  const context = await request(`/api/v2/finance/context?lessonId=${rounds[1].lessonId}&payerType=parent&payerId=${rounds[1].studentIds[0]}`, { cookie });
   assert.equal(context.response.status, 200, JSON.stringify(context.data));
   assert.equal(context.data.canConfirm, true);
   assert.equal(context.data.calculation.expectedAmount, 80);
@@ -1240,7 +1250,7 @@ async function exerciseFinanceContext(cookie) {
 
 async function exerciseFinanceExceptions(cookie) {
   const month = rounds[1].today.slice(0, 7);
-  const result = await request(`/api/finance/exceptions?month=${month}`, { cookie });
+  const result = await request(`/api/v2/finance/exceptions?month=${month}`, { cookie });
   assert.equal(result.response.status, 200, JSON.stringify(result.data));
   assert.ok(Array.isArray(result.data.exceptions));
   return { checks: ["月度财务异常扫描"], ok: true };
@@ -1370,13 +1380,13 @@ async function exerciseMobileSyncBusiness(cookie) {
 }
 
 async function exercisePaperWorkbenchPagination(cookie) {
-  const first = await request("/api/questions?status=active&page=1", { cookie });
+  const first = await request("/api/v2/questions?status=active&page=1", { cookie });
   assert.equal(first.response.status, 200, JSON.stringify(first.data));
   assert.ok(Array.isArray(first.data.questions));
   assert.ok(Number(first.data.total) > 0);
   assert.ok(Number(first.data.page) === 1);
   assert.ok(Number(first.data.pageCount) >= 1);
-  const second = await request("/api/questions?status=active&page=2", { cookie });
+  const second = await request("/api/v2/questions?status=active&page=2", { cookie });
   assert.equal(second.response.status, 200, JSON.stringify(second.data));
   const firstIds = new Set(first.data.questions.map((item) => Number(item.id)));
   assert.equal(Number(second.data.pageCount), Number(first.data.pageCount));
@@ -1396,7 +1406,7 @@ async function exerciseQuestionFacetCounts(cookie) {
   const facetKnowledge = `${marker}_facet_法治`;
   sql(`INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status)
     VALUES(${quote(`${marker}_facet计数题`)},'单选题','高中','高一',${quote(facetKnowledge)},'A','facet','active');`);
-  const facets = await request("/api/questions/facets?status=active", { cookie });
+  const facets = await request("/api/v2/questions/facets?status=active", { cookie });
   assert.equal(facets.response.status, 200, JSON.stringify(facets.data));
   const knowledgeFacets = facets.data?.facets?.knowledge_points || [];
   const match = knowledgeFacets.find((item) => String(item.value) === facetKnowledge);
@@ -1418,23 +1428,23 @@ async function exerciseQuestionKnowledgeMultiKeyword(cookie) {
     (${quote(`${marker}_跨列命中`)},'单选题','高中','高一',${quote(kwA)},${quote(kwB)},'A','x','active'),
     (${quote(`${marker}_百分号字面量`)},'单选题','高中','高一',${quote(`${kwA}%${kwB}`)},NULL,'A','x','active'),
     (${quote(`${marker}_下划线字面量`)},'单选题','高中','高一',${quote(`${kwA}_${kwB}`)},NULL,'A','x','active');`);
-  const andSpace = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(`${kwA} ${kwB}`)}`, { cookie });
+  const andSpace = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent(`${kwA} ${kwB}`)}`, { cookie });
   assert.equal(andSpace.response.status, 200, JSON.stringify(andSpace.data));
   const spaceStems = andSpace.data.questions.map((item) => String(item.stem));
   assert.ok(spaceStems.includes(`${marker}_双词主知识点`), JSON.stringify(spaceStems));
   assert.ok(spaceStems.includes(`${marker}_跨列命中`), JSON.stringify(spaceStems));
   assert.ok(!spaceStems.includes(`${marker}_单词主知识点`), JSON.stringify(spaceStems));
-  const andDun = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(`${kwA}、${kwB}`)}`, { cookie });
+  const andDun = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent(`${kwA}、${kwB}`)}`, { cookie });
   assert.equal(andDun.response.status, 200, JSON.stringify(andDun.data));
   assert.equal(andDun.data.total, andSpace.data.total, "空格与、分隔应等价");
   checks.push("知识点多关键词 AND 命中", "空格与、分隔等价");
-  const percent = await request(`/api/questions?status=active&knowledge=${encodeURIComponent("%")}`, { cookie });
+  const percent = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent("%")}`, { cookie });
   assert.equal(percent.response.status, 200, JSON.stringify(percent.data));
   const percentStems = percent.data.questions.map((item) => String(item.stem));
   assert.ok(percentStems.includes(`${marker}_百分号字面量`), JSON.stringify(percentStems));
   assert.ok(!percentStems.includes(`${marker}_下划线字面量`), JSON.stringify(percentStems));
   assert.ok(percent.data.questions.every((item) => String(item.knowledgePoints || "").includes("%") || String(item.secondaryKnowledge || "").includes("%")), JSON.stringify(percent.data.questions));
-  const underscore = await request(`/api/questions?status=active&knowledge=${encodeURIComponent("_")}`, { cookie });
+  const underscore = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent("_")}`, { cookie });
   assert.equal(underscore.response.status, 200, JSON.stringify(underscore.data));
   const underscoreStems = underscore.data.questions.map((item) => String(item.stem));
   assert.ok(underscoreStems.includes(`${marker}_下划线字面量`), JSON.stringify(underscoreStems));
@@ -1451,7 +1461,7 @@ async function exercisePaperRecommendationAllCandidates(cookie) {
     `(${quote(`${marker}_候选全集${String(index + 1).padStart(3, "0")}`)},'单选题','高中','高一',${quote(candidateKnowledge)},'A','候选全集','active')`
   ).join(",");
   sql(`INSERT INTO questions(stem,question_type,stage,grade,knowledge_points,answer,analysis,status) VALUES ${rowsSql};`);
-  const result = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(candidateKnowledge)}&candidate=1`, { cookie });
+  const result = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent(candidateKnowledge)}&candidate=1`, { cookie });
   assert.equal(result.response.status, 200, JSON.stringify(result.data));
   const allIds = Array.isArray(result.data.allIds) ? result.data.allIds.map(Number) : [];
   const total = Number(result.data.total);
@@ -1487,7 +1497,7 @@ async function exercise15kMatchPagination(cookie) {
 
   for (const position of requestedPositions) {
     const page = Math.ceil(position / 50);
-    const result = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&page=${page}`, { cookie });
+    const result = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&page=${page}`, { cookie });
     assert.equal(result.response.status, 200, JSON.stringify(result.data));
     assert.equal(Number(result.data.total), total, `page ${page} total=${result.data.total}`);
     assert.equal(Number(result.data.page), page);
@@ -1501,7 +1511,7 @@ async function exercise15kMatchPagination(cookie) {
     checks.push(`普通分页可访问第 ${position} 条匹配题`);
   }
 
-  const first = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&page=1`, { cookie });
+  const first = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&page=1`, { cookie });
   assert.equal(first.response.status, 200, JSON.stringify(first.data));
   assert.equal(Number(first.data.total), total);
   const firstIds = first.data.questions.map((item) => Number(item.id));
@@ -1509,7 +1519,7 @@ async function exercise15kMatchPagination(cookie) {
   assert.equal(new Set(firstIds).size, 50, "第一页 50 条不应重复");
   checks.push("普通分页第一页 50 条无重复");
 
-  const candidate = await request(`/api/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&candidate=1&page=1`, { cookie });
+  const candidate = await request(`/api/v2/questions?status=active&knowledge=${encodeURIComponent(knowledge)}&candidate=1&page=1`, { cookie });
   assert.equal(candidate.response.status, 200, JSON.stringify(candidate.data));
   assert.equal(Number(candidate.data.total), total);
   assert.equal(Number(candidate.data.candidateTotal), total);

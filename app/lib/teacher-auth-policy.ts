@@ -6,13 +6,13 @@ export function passwordStrengthError(password: string) {
 }
 
 export function safeReturnPath(value: string) {
-  if (!value.startsWith("/") || value.startsWith("//")) return "/workspace";
+  if (!value.startsWith("/") || value.startsWith("//")) return "/v2";
   try {
     const url = new URL(value, "https://teacher.local");
     return url.origin === "https://teacher.local" && !url.pathname.startsWith("/api/auth/") && url.pathname !== "/teacher-login"
       ? `${url.pathname}${url.search}${url.hash}`
-      : "/workspace";
+      : "/v2";
   } catch {
-    return "/workspace";
+    return "/v2";
   }
 }

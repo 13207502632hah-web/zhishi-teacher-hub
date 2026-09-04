@@ -6,7 +6,7 @@
     "pages/notices/index",
     "pages/assignment/index",
     "pages/submit/index",
-    "pages/bind/index",
+    "pages/register/index",
     "pages/portal/index",
     "pages/excellent/index"
   ],

@@ -11,26 +11,31 @@ test("mini integration documents one D1 and R2 source with manual confirmation b
 });
 
 test("migration adds binding, targets, idempotency, sync, leases and confirmed reviews without deleting old fields", async () => {
-  const [migration, schema] = await Promise.all([read("drizzle/0020_mini_integration.sql"), read("db/schema.ts")]);
+  const [migration, registrationMigration, schema] = await Promise.all([read("drizzle/0020_mini_integration.sql"), read("drizzle/0037_mini_self_registration.sql"), read("db/schema.ts")]);
   for (const table of ["mini_bindings", "assignment_targets", "assignment_settings", "idempotency_operations", "sync_events", "file_leases", "submission_reviews", "reminder_tasks"]) {
     assert.match(migration, new RegExp("CREATE TABLE IF NOT EXISTS `" + table + "`"));
   }
   assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM|ALTER TABLE/);
+  assert.match(registrationMigration, /CREATE TABLE IF NOT EXISTS `mini_registration_requests`/);
+  assert.doesNotMatch(registrationMigration, /mini_invites|DROP TABLE|DELETE FROM|ALTER TABLE/);
   for (const entity of ["miniBindings", "assignmentTargets", "idempotencyOperations", "syncEvents", "fileLeases", "submissionReviews"]) assert.match(schema, new RegExp(`export const ${entity}`));
+  assert.match(schema, /export const miniRegistrationRequests/);
+  assert.doesNotMatch(schema, /export const miniInvites/);
 });
 
 test("website creates assignments while mini only reads the shared assignment service", async () => {
-  const [website, mini, service, page, navigation] = await Promise.all(["app/api/assignments/route.ts", "app/api/v2/mini/assignments/route.ts", "app/lib/services/assignment-service.ts", "app/assignments/page.tsx", "app/components/navigation.ts"].map(read));
+  const [website, mini, service, page, navigation] = await Promise.all(["app/api/v2/assignments/route.ts", "app/api/v2/mini/assignments/route.ts", "app/lib/services/assignment-service.ts", "app/v2/modules/[slug]/ModuleWorkspace.tsx", "app/components/navigation.ts"].map(read));
   assert.match(website, /createAssignment/); assert.match(mini, /listAssignments/); assert.doesNotMatch(mini, /createAssignment|export async function POST/);
   assert.match(service, /assignment_targets/); assert.match(service, /studentIds/); assert.match(service, /idempotency/);
-  for (const label of ["作业中心", "指定学生", "保存批改草稿", "确认批改并回传"]) assert.match(page, new RegExp(label));
-  assert.match(navigation, /href: "\/assignments"/);
+  for (const label of ["作业教学闭环", "指定学生", "保存批改草稿", "提交到待确认中心"]) assert.match(page, new RegExp(label));
+  assert.match(navigation, /href: "\/v2\/modules\/assignments"/);
 });
 
-test("binding is two-step and disabled links are rechecked server-side", async () => {
-  const [binding, settings, me, auth] = await Promise.all(["app/lib/services/mini-binding-service.ts", "app/mini-settings/page.tsx", "app/api/v2/mini/me/route.ts", "app/lib/mini-auth.ts"].map(read));
-  assert.match(binding, /status='pending'/); assert.match(binding, /decision === "confirm"/); assert.match(binding, /status='disabled'/);
-  assert.match(settings, /一期仅服务学生与家长/); assert.match(settings, /教师确认学生或家长绑定/); assert.match(settings, /停用后旧会话/); assert.match(me, /miniAccountState/);
+test("self registration requires teacher approval and disabled links are rechecked server-side", async () => {
+  const [binding, settings, me, auth] = await Promise.all(["app/lib/services/mini-binding-service.ts", "app/v2/settings/SettingsWorkspace.tsx", "app/api/v2/mini/me/route.ts", "app/lib/mini-auth.ts"].map(read));
+  assert.match(binding, /mini_registration_requests/); assert.match(binding, /decision === "reject"/); assert.match(binding, /status='disabled'/);
+  assert.match(settings, /待审批注册申请/); assert.match(settings, /选择学生档案/); assert.match(settings, /停用后旧会话/); assert.match(me, /miniAccountState/);
+  assert.doesNotMatch(binding + settings, /mini_invites|createInvite|\/mini\/invites/);
   assert.doesNotMatch(settings + auth, /关联小程序教师端|linkTeacher|教师小程序账号/);
 });
 
@@ -55,15 +60,17 @@ test("private assignment and paper files enforce target-aware access and no-stor
 });
 
 test("mini client contains only student and parent pages, session expiry and recoverable drafts", async () => {
-  const [config, api, app, home, submit, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/submit/index.js", "mini-program/README.md"].map(read));
+  const [config, api, app, home, homeLogic, submit, readme] = await Promise.all(["mini-program/config.js", "mini-program/utils/api.js", "mini-program/app.json", "mini-program/pages/home/index.wxml", "mini-program/pages/home/index.js", "mini-program/pages/submit/index.js", "mini-program/README.md"].map(read));
   assert.match(config, /develop/); assert.match(config, /trial/); assert.match(config, /release/); assert.match(config, /testLoginEnabled/);
   assert.match(api, /MINI_SESSION_EXPIRED|statusCode === 401/); assert.match(api, /onProgressUpdate/); assert.match(api, /mini-sync-cursor/);
   assert.match(api, /WX_LOGIN_TIMEOUT/); assert.match(api, /wxLoginOnce/); assert.match(api, /code = await wxLoginOnce\(\)/);
-  for (const page of ["pages/bind/index", "pages/portal/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index"]) assert.match(app, new RegExp(page));
+  for (const marker of ["wx.login", "wx.request", "MINI_NETWORK_FAILED", "stage", "detail"]) assert.match(api, new RegExp(marker.replace(".", "\\.")));
+  for (const page of ["pages/register/index", "pages/portal/index", "pages/dictation/index", "pages/class-files/index", "pages/notices/index", "pages/assignment/index", "pages/submit/index"]) assert.match(app, new RegExp(page));
   for (const teacherOnlyPage of ["pages/review/index", "pages/publish/index", "pages/inbox/index", "pages/annotate/index"]) assert.doesNotMatch(app, new RegExp(teacherOnlyPage));
   assert.match(api, /\/api\/v2\/mini/);
   assert.doesNotMatch(api, /v2Path|\/api\/mini/);
-  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /微信账号编号/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
+  assert.match(home, /showTestLogin/); assert.match(home, /重新微信登录/); assert.match(home, /申请注册/); assert.match(home, /诊断信息/); assert.match(homeLogic, /2\.0\.6/); assert.match(homeLogic, /diagnosticText/); assert.match(submit, /submission-draft-/); assert.match(submit, /operationId/);
+  assert.doesNotMatch(home + homeLogic, /pages\/bind|\/mini\/bind/);
   assert.doesNotMatch(home, /教师端|测试教师/);
   for (const page of ["review", "publish", "inbox", "annotate"]) await assert.rejects(read(`mini-program/pages/${page}/index.js`), { code: "ENOENT" });
   assert.match(readme, /不是已经提交审核或正式发布/);

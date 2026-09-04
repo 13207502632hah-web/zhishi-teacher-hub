@@ -71,10 +71,13 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
   const requestFingerprint = await fingerprint({ capability: input.capability, payload: anonymized.value, promptVersion: input.promptVersion });
   const errors: string[] = [];
 
-  for (const route of routes) {
+  for (const [routeIndex, route] of routes.entries()) {
     const runId = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO v2_ai_runs(id,user_id,job_id,capability,provider,model,prompt_version,input_fingerprint,input_summary,evidence_json) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .bind(runId, input.access.id, input.jobId || null, input.capability, route.provider, route.model, input.promptVersion, requestFingerprint, safeInputSummary(anonymized.value), JSON.stringify(input.evidence || [])).run();
+    const insert = routeIndex === 0
+      ? env.DB.prepare("INSERT INTO v2_ai_runs(id,user_id,job_id,capability,provider,model,prompt_version,input_fingerprint,input_summary,evidence_json) SELECT ?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM v2_ai_runs WHERE user_id=? AND created_at>=datetime('now','-60 seconds'))<30 RETURNING id").bind(runId, input.access.id, input.jobId || null, input.capability, route.provider, route.model, input.promptVersion, requestFingerprint, safeInputSummary(anonymized.value), JSON.stringify(input.evidence || []), input.access.id)
+      : env.DB.prepare("INSERT INTO v2_ai_runs(id,user_id,job_id,capability,provider,model,prompt_version,input_fingerprint,input_summary,evidence_json) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id").bind(runId, input.access.id, input.jobId || null, input.capability, route.provider, route.model, input.promptVersion, requestFingerprint, safeInputSummary(anonymized.value), JSON.stringify(input.evidence || []));
+    const created = await insert.first<{ id: string }>();
+    if (!created) throw new V2AiError("短时间请求过多，系统已阻止可能的重复循环，请稍后再试", "AI_BURST_GUARD", 429);
     try {
       const userContent: unknown = input.images?.length
         ? [{ type: "text", text: JSON.stringify(anonymized.value) }, ...input.images.map((url) => ({ type: "image_url", image_url: { url } }))]

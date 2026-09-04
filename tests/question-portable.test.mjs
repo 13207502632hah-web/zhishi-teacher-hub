@@ -36,7 +36,6 @@ test("portable CSV template round-trips with quoted commas and newlines", async 
   assert.match(rows[0].options, /\n/);
   assert.equal(rows[0].sourceQuestionNumber, "1");
 });
-
 test("portable CSV accepts Chinese aliases and quoted commas", async () => {
   const { parseQuestionCsv } = await loadTsModule("app/lib/question-portable.ts");
   const rows = parseQuestionCsv(`\uFEFF题号,题干,材料,答案,解析,知识点,题型,难度,年份
@@ -62,9 +61,9 @@ test("portable template JSON keeps schema and example rows", async () => {
 
 test("portable route exposes template downloads and CSV import path", async () => {
   const [route, page, importRoute] = await Promise.all([
-    readFile(new URL("../app/api/questions/portable/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/questions/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/question-sets/import/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/v2/questions/portable/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/v2/questions/QuestionLibraryWorkspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/v2/question-sets/import/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(route, /template\s*=\s*params\.get\("template"\)\s*===\s*"1"/);
   assert.match(route, /portableTemplateCsv\(\)/);

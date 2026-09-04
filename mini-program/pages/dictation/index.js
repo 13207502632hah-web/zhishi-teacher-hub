@@ -9,7 +9,7 @@ Page({
     this.setData({ loading: true, error: "" });
     try {
       const me = await api.request("/api/v2/mini/me"), studentId = this.data.studentId || me.currentStudentId;
-      if (!studentId) { this.setData({ me, loading: false, error: me.bindingStatus === "pending" ? "绑定申请待教师确认" : "请先绑定学生" }); return; }
+      if (!studentId) { this.setData({ me, loading: false, error: me.bindingStatus === "pending" ? "注册申请待教师批准" : "请先申请注册" }); return; }
       const data = await api.request(`/api/v2/mini/dictations?studentId=${studentId}`), studentIndex = Math.max(0, me.students.findIndex((item) => Number(item.studentId) === Number(studentId)));
       const items = data.assignments || [], selected = items.find((item) => Number(item.id) === Number(this.data.selected && this.data.selected.id)) || null;
       this.setData({ me, studentId, studentIndex, items, selected, loading: false });

@@ -4,38 +4,25 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("academic year promotion is a four-stage preview-first workflow", async () => {
-  const page = await read("app/academic-years/page.tsx");
-
-  for (const stage of ["选择学年", "生成预览", "核对影响", "最终确认"]) {
-    assert.match(page, new RegExp(stage));
-  }
-  assert.match(page, /data-stage/);
-  assert.match(page, /stage/);
-  assert.match(page, /previewData/);
-  assert.match(page, /confirmationOpen/);
-  assert.match(page, /进入最终确认/);
-  assert.match(page, /我已阅读影响，确认执行学年晋升/);
-  assert.doesNotMatch(page, /确认未排除学生/);
+test("academic year promotion is preview-first and enters the approval center", async () => {
+  const page = await read("app/v2/operations/OperationsWorkspace.tsx");
+  for (const marker of ["学年晋升", "查看晋升预览", "晋升影响快照", "本次排除", "待确认中心"]) assert.match(page, new RegExp(marker));
+  assert.match(page, /previewPromotion/);
+  assert.match(page, /requestPromotionApproval/);
+  assert.match(page, /actionType: "academic_year\.promote"/);
+  assert.doesNotMatch(page, /confirmation: "确认晋升"/);
 });
 
-test("promotion preview uses the resilient JSON client and recoverable states", async () => {
-  const page = await read("app/academic-years/page.tsx");
-
-  assert.match(page, /requestJson/);
-  assert.match(page, /HttpError/);
-  assert.match(page, /AbortController/);
-  assert.match(page, /previewLoadError/);
-  assert.match(page, /重新生成预览/);
-  assert.match(page, /role="alert"/);
-  assert.match(page, /role="status"/);
-  assert.match(page, /本学年没有可生成晋升的学生/);
-  assert.doesNotMatch(page, /\bfetch\(/);
-  assert.doesNotMatch(page, /response\.json\(\)/);
+test("promotion preview uses the shared V2 JSON client and recoverable states", async () => {
+  const page = await read("app/v2/operations/OperationsWorkspace.tsx");
+  assert.match(page, /json\(`\/api\/v2\/academic-years/);
+  assert.match(page, /晋升预览生成失败/);
+  assert.match(page, /v2-alert v2-error/);
+  assert.match(page, /暂无记录/);
 });
 
-test("promotion preview exposes impact counts and stale-data protection", async () => {
-  const page = await read("app/academic-years/page.tsx");
+test("promotion preview exposes impact counts, skipped rows and stale-data evidence", async () => {
+  const page = await read("app/v2/operations/OperationsWorkspace.tsx");
 
   for (const field of [
     "affectedStudentCount",
@@ -45,72 +32,53 @@ test("promotion preview exposes impact counts and stale-data protection", async 
     "conflictCount",
     "previewToken",
     "previewExpiresAt",
-    "requiresPreview",
   ]) {
     assert.match(page, new RegExp(field));
   }
-  assert.match(page, /预览已过期或数据已变化，请重新生成预览/);
-  assert.match(page, /previewExpired \|\| hasConflicts/);
-  assert.match(page, /预览已过期，请重新生成预览后再确认/);
+  assert.match(page, /系统跳过项/);
+  assert.match(page, /previewExpiresAt/);
+  assert.match(page, /快照过期或有冲突会自动中止/);
   assert.match(page, /冲突/);
   assert.match(page, /跳过/);
   assert.match(page, /毕业/);
 });
 
-test("promotion confirmation is teacher-only, explicit, and cannot overlap", async () => {
-  const page = await read("app/academic-years/page.tsx");
-
-  assert.match(page, /useSessionState/);
-  assert.match(page, /session\.role === "teacher"/);
-  assert.match(page, /只有教师可以执行学年晋升/);
-  assert.match(page, /if \(busyAction\)/);
-  assert.match(page, /busyActionRef/);
-  assert.match(page, /finally\s*\{[\s\S]*setBusyAction\(null\)/);
-  assert.match(page, /confirmation: "确认晋升"/);
-  assert.match(page, /confirmPhrase/);
-  assert.match(page, /disabled=\{[^}]*confirmPhrase/);
+test("promotion confirmation is teacher-only, explicit, and cannot bypass approval", async () => {
+  const [page, workspace] = await Promise.all([read("app/v2/operations/page.tsx"), read("app/v2/operations/OperationsWorkspace.tsx")]);
+  assert.match(page, /role !== "teacher"/);
+  assert.match(workspace, /disabled=\{busy \|\| count\(summary\.conflictCount\) > 0/);
+  assert.match(workspace, /previewToken/);
+  assert.match(workspace, /\/api\/v2\/approvals/);
+  assert.match(workspace, /当前学生与班级尚未变更/);
 });
 
-test("confirmation dialog supports escape, focus trapping, and focus restoration", async () => {
-  const page = await read("app/academic-years/page.tsx");
-
-  assert.match(page, /dialogRef/);
-  assert.match(page, /previousFocusRef/);
-  assert.match(page, /event\.key === "Escape"/);
-  assert.match(page, /event\.key === "Tab"/);
-  assert.match(page, /role="dialog"/);
-  assert.match(page, /aria-modal="true"/);
-  assert.match(page, /tabIndex=\{-1\}/);
-  assert.match(page, /不可轻易撤销/);
+test("confirmed promotion exposes a second explicit path for safe undo", async () => {
+  const page = await read("app/v2/operations/OperationsWorkspace.tsx");
+  assert.match(page, /runStatus === "confirmed"/);
+  assert.match(page, /undoAvailable/);
+  assert.match(page, /申请安全撤销本次晋升/);
+  assert.match(page, /批准并再次核对前不会修改学生年级/);
 });
 
-test("带学年查询参数的初次预览不会因忙碌状态变化被 effect 中止", async () => {
-  const page = await read("app/academic-years/page.tsx");
-
-  assert.match(page, /const beginAction = useCallback\(\(action: Exclude<BusyAction, null>\) => \{\s*if \(busyActionRef\.current\) return false;/s);
-  assert.match(page, /setBusyAction\(action\);\s*return true;\s*\}, \[\]\);/s);
-  assert.match(page, /async \(selectedYear: string, signal\?: AbortSignal\)/);
-  assert.match(page, /\[beginAction\],\s*\);\s*\n\s*useEffect\(\(\) => \{/s);
+test("带学年查询参数会直接打开 V2 学年页签并生成对应预览", async () => {
+  const [page, workspace, dashboard] = await Promise.all([read("app/v2/operations/page.tsx"), read("app/v2/operations/OperationsWorkspace.tsx"), read("app/api/v2/dashboard/route.ts")]);
+  assert.match(page, /query\.year/);
+  assert.match(page, /initialAcademicYear/);
+  assert.match(workspace, /initialTab === "academic" && initialAcademicYear/);
+  assert.match(dashboard, /\/v2\/operations\?tab=academic&year=/);
 });
 
-test("academic year promotion page uses a CSS Module with readable touch-safe mobile-first styles", async () => {
-  const [page, css] = await Promise.all([
-    read("app/academic-years/page.tsx"),
-    read("app/academic-years/academic-years.module.css"),
-  ]);
-
-  assert.match(page, /academic-years\.module\.css/);
-  assert.match(css, /font-size:\s*1rem/);
-  assert.match(css, /font-size:\s*0\.875rem/);
-  assert.match(css, /min-height:\s*44px/);
-  assert.match(css, /\.table input[\s\S]*width:\s*2\.75rem[\s\S]*height:\s*2\.75rem/);
-  assert.match(css, /@media\s*\(min-width:\s*40rem\)/);
-  assert.match(css, /@media\s*\(min-width:\s*64rem\)/);
-  assert.match(css, /overflow-x:\s*auto/);
+test("academic year promotion uses the shared responsive V2 workbench", async () => {
+  const [page, css] = await Promise.all([read("app/v2/operations/OperationsWorkspace.tsx"), read("app/v2/v2.css")]);
+  assert.match(page, /v2-promotion-preview/);
+  assert.match(page, /v2-promotion-students/);
+  assert.match(page, /v2-promotion-skipped/);
+  assert.match(css, /@media\(max-width:720px\)/);
+  assert.match(css, /v2-promotion-skipped/);
 });
 
 test("promotion API separates teacher confirmation from preview access and rejects stale confirmations", async () => {
-  const route = await read("app/api/academic-years/[year]/promotion/route.ts");
+  const route = await read("app/api/v2/academic-years/[year]/promotion/route.ts");
 
   assert.match(route, /academicYearDates/);
   assert.match(route, /requirePermission\("academic-years:read"\)/);
@@ -128,7 +96,7 @@ test("promotion API separates teacher confirmation from preview access and rejec
 });
 
 test("promotion API guards the batch and does not report repeated requests as success", async () => {
-  const route = await read("app/api/academic-years/[year]/promotion/route.ts");
+  const route = await read("app/api/v2/academic-years/[year]/promotion/route.ts");
 
   assert.match(route, /status='confirming'/);
   assert.match(route, /status='preview'/);
@@ -143,7 +111,7 @@ test("promotion API guards the batch and does not report repeated requests as su
 
 test("confirmed promotion has a teacher-approved 24-hour conflict-safe undo", async () => {
   const [route, undo, migration, approvals, executor, operations] = await Promise.all([
-    read("app/api/academic-years/[year]/promotion/route.ts"),
+    read("app/api/v2/academic-years/[year]/promotion/route.ts"),
     read("app/api/v2/academic-years/[year]/promotion/undo/route.ts"),
     read("drizzle/0032_promotion_safe_undo.sql"),
     read("app/api/v2/approvals/route.ts"),

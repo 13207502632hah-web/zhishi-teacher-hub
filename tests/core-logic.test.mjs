@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
@@ -200,11 +200,12 @@ test("assessment validation and statistics stay explainable", async () => {
 });
 
 test("teacher daily loop exposes assessment, completion and CSV contracts", async () => {
-  const paths = ["app/api/assessments/route.ts", "app/api/assessments/[id]/route.ts", "app/api/lessons/[id]/activity/route.ts", "app/api/exports/[type]/route.ts", "app/assessments/page.tsx", "app/assessments/[id]/page.tsx"];
+  const paths = ["app/api/v2/assessments/route.ts", "app/api/v2/assessments/[id]/route.ts", "app/api/v2/lessons/[id]/activity/route.ts", "app/api/v2/exports/[type]/route.ts", "app/v2/operations/OperationsWorkspace.tsx", "app/v2/operations/[kind]/[id]/OperationDetail.tsx"];
   const [listApi, detailApi, activity, exportsApi, listPage, detailPage] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(listApi, /INSERT INTO assessments/); assert.match(detailApi, /ON CONFLICT\(assessment_id,student_id\)/); assert.match(detailApi, /requireAssessmentAccess/);
   assert.match(activity, /saveDraft/); assert.match(activity, /completeLesson/); assert.match(activity, /status: 422/); assert.match(activity, /financeLocked/); assert.match(activity, /NOT EXISTS/); assert.match(exportsApi, /\\uFEFF/); assert.match(exportsApi, /Content-Disposition/); assert.match(exportsApi, /safeCell/);
-  assert.match(listPage, /新建测验/); assert.match(detailPage, /批量录入/); assert.match(detailPage, /薄弱知识点/);
+  assert.match(listPage, /新建测评草稿/); assert.match(detailPage, /保存成绩草稿/); assert.match(detailPage, /薄弱点证据/);
+  await assert.rejects(access(new URL("../app/api/exports/[type]/route.ts", import.meta.url)));
 });
 
 test("lesson completion requires real content and explicit attendance", async () => {
@@ -234,13 +235,13 @@ test("teacher administrator password policy rejects weak passwords", async () =>
   assert.match(passwordStrengthError("weak-pass"), /至少需要 12 位|过于简单/);
   assert.match(passwordStrengthError("abcdefghijklm"), /字母和数字/);
   assert.equal(passwordStrengthError("Politics2026Secure"), null);
-  assert.equal(safeReturnPath("https://evil.example/steal"), "/workspace");
-  assert.equal(safeReturnPath("//evil.example/steal"), "/workspace");
+  assert.equal(safeReturnPath("https://evil.example/steal"), "/v2");
+  assert.equal(safeReturnPath("//evil.example/steal"), "/v2");
   assert.equal(safeReturnPath("/papers?tab=draft"), "/papers?tab=draft");
 });
 
 test("teacher administrator security invalidates old sessions and rate-limits failures", async () => {
-  const [auth, login, changePassword, settings, settingsPage] = await Promise.all(["app/lib/teacher-auth.ts", "app/api/auth/login/route.ts", "app/api/auth/change-password/route.ts", "app/api/settings/route.ts", "app/settings/page.tsx"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const [auth, login, changePassword, settings, accountPage] = await Promise.all(["app/lib/teacher-auth.ts", "app/api/auth/login/route.ts", "app/api/auth/change-password/route.ts", "app/api/v2/settings/route.ts", "app/v2/account/AccountWorkspace.tsx"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(auth, /sessionVersion/);
   assert.match(auth, /PBKDF2/);
   assert.match(auth, /teacher_login_attempts/);
@@ -248,12 +249,13 @@ test("teacher administrator security invalidates old sessions and rate-limits fa
   assert.match(login, /Retry-After/);
   assert.match(changePassword, /otherSessionsInvalidated/);
   assert.match(settings, /accountLabel/);
-  assert.doesNotMatch(settingsPage, /ChatGPT 登录邮箱/);
-  assert.match(settingsPage, /修改教师管理员密码/);
+  assert.doesNotMatch(accountPage, /ChatGPT 登录邮箱/);
+  assert.match(accountPage, /修改登录密码/);
+  assert.match(accountPage, /api\/auth\/change-password/);
 });
 
 test("sensitive child routes enforce server-side class, student and lesson access", async () => {
-  const [access, students, lessons, activity, lessonQuestions, feedback, confirm] = await Promise.all(["app/lib/access.ts", "app/api/students/[id]/route.ts", "app/api/lessons/[id]/route.ts", "app/api/lessons/[id]/activity/route.ts", "app/api/lessons/[id]/questions/route.ts", "app/api/feedback/[id]/route.ts", "app/api/question-sets/[id]/confirm/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const [access, students, lessons, activity, lessonQuestions, feedback, approvals, executor] = await Promise.all(["app/lib/access.ts", "app/api/v2/students/[id]/route.ts", "app/api/v2/lessons/[id]/route.ts", "app/api/v2/lessons/[id]/activity/route.ts", "app/api/v2/lessons/[id]/questions/route.ts", "app/api/v2/feedback/[id]/route.ts", "app/api/v2/approvals/route.ts", "app/lib/v2/approval-executor.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(access, /staff_class_access/);
   assert.match(access, /requireStudentAccess/);
   assert.match(access, /requireLessonAccess/);
@@ -262,12 +264,12 @@ test("sensitive child routes enforce server-side class, student and lesson acces
   assert.match(activity, /requireLessonAccess/);
   assert.match(lessonQuestions, /requireLessonAccess/);
   assert.match(feedback, /requireFeedbackAccess/);
-  assert.match(confirm, /requirePermission\("questions:write"\)/);
-  assert.match(confirm, /reviewedIds/);
+  assert.match(approvals, /question\.promote/);
+  assert.match(executor, /reviewQuestions\(ids, "confirm"\)/);
 });
 
 test("student wrong-question records and feedback delivery stay reviewable", async () => {
-  const [schema, route, studentRoute, studentPage, demo, batch, feedbackPage, sentRoute] = await Promise.all(["db/schema.ts", "app/api/students/[id]/wrong-questions/route.ts", "app/api/students/[id]/route.ts", "app/students/[id]/page.tsx", "app/api/settings/demo/route.ts", "app/api/questions/batch/route.ts", "app/feedback/page.tsx", "app/api/feedback/[id]/sent/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const [schema, route, studentRoute, studentPage, demo, batch, feedbackPage, sentExecutor] = await Promise.all(["db/schema.ts", "app/api/v2/students/[id]/wrong-questions/route.ts", "app/api/v2/students/[id]/route.ts", "app/v2/detail/[kind]/[id]/StudentDetailWorkspace.tsx", "app/api/v2/settings/demo/route.ts", "app/api/v2/questions/batch/route.ts", "app/v2/modules/[slug]/ModuleWorkspace.tsx", "app/lib/v2/approval-executor.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(schema, /export const wrongQuestions/);
   assert.match(route, /requireStudentAccess/);
   assert.match(route, /requireLessonAccess/);
@@ -282,14 +284,15 @@ test("student wrong-question records and feedback delivery stay reviewable", asy
   assert.match(batch, /action === "delete"/);
   assert.match(batch, /paper_questions/);
   assert.match(schema, /sentAt/);
-  assert.match(feedbackPage, /使用.*反馈模板/);
-  assert.match(feedbackPage, /标记已发送/);
-  assert.match(sentRoute, /requireFeedbackAccess/);
-  assert.match(sentRoute, /sent_at/);
+  assert.match(feedbackPage, /保存当前话术风格/);
+  assert.match(feedbackPage, /actionType: "feedback\.send"/);
+  assert.match(feedbackPage, /提交发送确认/);
+  assert.match(sentExecutor, /approval\.actionType === "feedback\.send"/);
+  assert.match(sentExecutor, /sent_at/);
 });
 
 test("Word review tasks resume from D1 and demo data covers the teaching loop", async () => {
-  const [importRoute, setRoute, sourceRoute, questionsPage, demo, masteryRoute] = await Promise.all(["app/api/question-sets/import/route.ts", "app/api/question-sets/[id]/route.ts", "app/api/question-sets/source/route.ts", "app/questions/page.tsx", "app/api/settings/demo/route.ts", "app/api/students/[id]/mastery/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const [importRoute, setRoute, sourceRoute, questionsPage, demo, masteryRoute] = await Promise.all(["app/api/v2/question-sets/import/route.ts", "app/api/v2/question-sets/[id]/route.ts", "app/api/v2/question-sets/source/route.ts", "app/v2/questions/QuestionLibraryWorkspace.tsx", "app/api/v2/settings/demo/route.ts", "app/api/v2/students/[id]/mastery/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(importRoute, /insertedQuestions/);
   assert.match(importRoute, /env\.FILES\.get\(sourceKey\)/);
   assert.match(importRoute, /sourceFingerprint/);
@@ -304,7 +307,7 @@ test("Word review tasks resume from D1 and demo data covers the teaching loop", 
   assert.match(questionsPage, /sourceKey:\s*sourceDocument,\s*sourceFingerprint/);
   assert.match(questionsPage, /文件已上传，可继续处理/);
   assert.match(questionsPage, /刷新后浏览器不保留本地文件，请重新选择同名文件/);
-  assert.match(questionsPage, /api\/question-sets\/source\?key=/);
+  assert.match(questionsPage, /api\/v2\/question-sets\/source\?key=/);
   assert.match(questionsPage, /item\.file \|\| item\.sourceKey/);
   assert.match(questionsPage, /beforeunload/);
   assert.match(questionsPage, /自动保存复核进度失败/);
@@ -317,8 +320,8 @@ test("Word review tasks resume from D1 and demo data covers the teaching loop", 
 test("comprehensive demo data is idempotent and covers end-to-end operating states", async () => {
   const scenario = await loadTsModule("app/lib/demo-scenario.ts");
   const [route, settingsPage] = await Promise.all([
-    readFile(new URL("../app/api/settings/demo/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/settings/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/v2/settings/demo/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/v2/settings/SettingsWorkspace.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(scenario.DEMO_SCENARIO_VERSION, "demo-comprehensive-v2");
   assert.ok(scenario.demoLessonScenarios.length >= 12);
@@ -336,10 +339,10 @@ test("comprehensive demo data is idempotent and covers end-to-end operating stat
   assert.doesNotMatch(route, /if \(completed\) return/);
   assert.match(route, /course_type=COALESCE\(NULLIF\(TRIM\(course_type\),''\),'小班课'\)/);
   assert.match(route, /trackOnce/);
-  assert.match(settingsPage, /核验并补齐演示数据/);
+  assert.match(settingsPage, /创建或补齐演示数据/);
   assert.doesNotMatch(settingsPage, /disabled=\{Boolean\(demoRuns\.length\)\}/);
-  assert.match(settingsPage, /logs\.slice\(0, logLimit\)/);
-  assert.match(settingsPage, /再显示 30 条/);
+  assert.match(settingsPage, /data\.logs/);
+  assert.match(settingsPage, /最近审计记录/);
 });
 
 test("display helpers keep demo identities and due dates readable", async () => {
@@ -357,27 +360,27 @@ test("display helpers keep demo identities and due dates readable", async () => 
 });
 
 test("class list API returns the camel-case fields consumed by the UI", async () => {
-  const route = await readFile(new URL("../app/api/classes/route.ts", import.meta.url), "utf8");
+  const route = await readFile(new URL("../app/api/v2/classes/route.ts", import.meta.url), "utf8");
   assert.match(route, /c\.course_type AS courseType/);
   assert.match(route, /c\.start_date AS startDate/);
   assert.doesNotMatch(route, /SELECT c\.\*/);
 });
 
 test("student list does not render numeric zero for false database flags", async () => {
-  const page = await readFile(new URL("../app/students/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/v2/modules/[slug]/StudentOverviewWorkspace.tsx", import.meta.url), "utf8");
   assert.match(page, /Boolean\(student\.riskConfirmed\) &&/);
   assert.doesNotMatch(page, /\}\{student\.riskConfirmed &&/);
 });
 
 test("paper, lesson and public-resource regressions remain covered", async () => {
   const [questionPage, questionApi, paperPage, paperDetail, printCss, lessonRoute, resourceApi, resourcePage] = await Promise.all([
-    "app/questions/page.tsx",
-    "app/api/questions/route.ts",
-    "app/papers/page.tsx",
-    "app/papers/[id]/page.tsx",
+    "app/v2/questions/QuestionLibraryWorkspace.tsx",
+    "app/api/v2/questions/route.ts",
+    "app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx",
+    "app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx",
     "app/content-guide.css",
-    "app/api/lessons/route.ts",
-    "app/api/resources/route.ts",
+    "app/api/v2/lessons/route.ts",
+    "app/api/v2/resources/route.ts",
     "app/resources/page.tsx",
   ].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(questionPage, /value=\{String\(item\)\}>\{item\}级/);
@@ -412,9 +415,9 @@ test("professional political question import preserves review structure", async 
 
 test("Word import persists original question numbers and uncertainty notes", async () => {
   const [values, importRoute, exportRoute] = await Promise.all([
-    "app/api/questions/values.ts",
-    "app/api/question-sets/import/route.ts",
-    "app/api/papers/[id]/export/route.ts",
+    "app/lib/services/question-values.ts",
+    "app/api/v2/question-sets/import/route.ts",
+    "app/api/v2/papers/[id]/export/route.ts",
   ].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(values, /sourceQuestionNumber/);
   assert.match(values, /importNotes/);
@@ -428,7 +431,7 @@ test("Word import persists original question numbers and uncertainty notes", asy
 });
 
 test("question portability, batch review and document export contracts exist", async () => {
-  const paths = ["app/api/questions/portable/route.ts", "app/api/questions/batch/route.ts", "app/lib/question-readiness.ts", "app/api/papers/[id]/export/route.ts", "app/papers/[id]/page.tsx", "drizzle/0013_eminent_banshee.sql"];
+  const paths = ["app/api/v2/questions/portable/route.ts", "app/api/v2/questions/batch/route.ts", "app/lib/question-readiness.ts", "app/api/v2/papers/[id]/export/route.ts", "app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx", "drizzle/0013_eminent_banshee.sql"];
   const [portable, batch, readiness, docxExport, paperDetail, migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   for (const format of ["csv", "markdown", "json"]) assert.match(portable, new RegExp(format));
   assert.match(portable, /answerIncluded/); assert.match(portable, /import_questions/); assert.match(portable, /status:\s*"review"/);
@@ -472,7 +475,6 @@ test("schedule import expands a horizontal calendar matrix without inventing emp
   assert.deepEqual(normalized[1].studentNames, ["__e2e__学生"]);
   assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
 });
-
 test("schedule import prefers the calendar sheet with WPS short dates and inferred course names", async () => {
   const { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
   const detail = [
@@ -573,9 +575,9 @@ test("recognition blocks uncertain scores and uses four explainable mastery leve
 });
 
 test("new teacher workflows keep private files, mini binding and audit boundaries", async () => {
-  const paths = ["db/schema.ts","app/api/files/[id]/route.ts","app/api/schedule-imports/[id]/confirm/route.ts","app/lib/schedule-import-preview.ts","app/api/finance/route.ts","app/api/recognition/route.ts","app/api/v2/mini/bind/route.ts","app/api/v2/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
-  const [schema,files,scheduleConfirm,schedulePreview,finance,recognition,bind,excellent,miniReadme,migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
-  const schedule = `${scheduleConfirm}\n${schedulePreview}`;
+  const paths = ["db/schema.ts","app/api/v2/files/[id]/route.ts","app/api/v2/schedule-imports/[id]/confirm/route.ts","app/lib/v2/schedule-import-service.ts","app/lib/schedule-import-preview.ts","app/api/v2/finance/approvals/route.ts","app/lib/services/recognition-confirmation.ts","app/api/v2/mini/registrations/route.ts","app/api/v2/mini/excellent/route.ts","mini-program/README.md","drizzle/0015_teacher_operations.sql"];
+  const [schema,files,scheduleConfirm,scheduleService,schedulePreview,finance,recognition,bind,excellent,miniReadme,migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
+  const schedule = `${scheduleConfirm}\n${scheduleService}\n${schedulePreview}`;
   for (const entity of ["scheduleImports","lessonFinance","packageLedger","recognitionJobs","assessmentQuestionResults","parentStudentLinks","submissionVersions","excellentSubmissions"]) assert.match(schema,new RegExp(entity));
-  assert.match(files,/requirePermission/); assert.match(files,/private, no-store/); assert.match(schedule,/同名档案/); assert.match(finance,/preview/); assert.match(finance,/confirm/); assert.match(recognition,/仍有.*题存疑/); assert.match(bind,/邀请码无效或已过期/); assert.match(excellent,/masking_status='confirmed'/); assert.match(miniReadme,/生产环境禁止开启/); assert.match(migration,/lesson_finance/);
+  assert.match(files,/requirePermission/); assert.match(files,/private, no-store/); assert.match(schedule,/同名档案/); assert.match(finance,/preview/); assert.match(finance,/confirm/); assert.match(recognition,/仍有.*题存疑/); assert.match(bind,/requestMiniRegistration/); assert.match(excellent,/masking_status='confirmed'/); assert.match(miniReadme,/生产环境禁止开启/); assert.match(migration,/lesson_finance/);
 });

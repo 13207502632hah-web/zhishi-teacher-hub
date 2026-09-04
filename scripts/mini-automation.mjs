@@ -291,6 +291,25 @@ async function findDatabase() {
   return files[0];
 }
 
+async function initializeDatabaseBinding() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/v2/mini/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        testCode: "mini-e2e-bootstrap",
+        role: "student",
+        displayName: "小程序验收初始化",
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    await response.text();
+  } catch {
+    // A fresh database has no schema yet, so the bootstrap request may fail
+    // after Miniflare creates the local D1 file. The file is checked below.
+  }
+}
+
 function sqlite(db, sql, label = "本地 D1") {
   const database = new DatabaseSync(db);
   try {
@@ -340,9 +359,9 @@ async function applyMigration(db, filename, applied) {
 
 async function verifySchema(db) {
   const tables = [
-    "users", "classes", "students", "assignments", "wechat_accounts", "mini_sessions", "mini_invites",
+    "users", "classes", "students", "assignments", "wechat_accounts", "mini_sessions", "mini_registration_requests",
     "parent_student_links", "mini_bindings", "assignment_targets", "assignment_settings", "idempotency_operations",
-    "sync_events", "file_leases", "submission_reviews", "reminder_tasks", "class_files", "class_notices", "notice_receipts",
+    "sync_events", "file_leases", "submission_reviews", "reminder_tasks", "v2_mobile_records", "class_files", "class_notices", "notice_receipts",
   ];
   const missingTables = [];
   for (const table of tables) if (!await hasTable(db, table)) missingTables.push(table);
@@ -367,6 +386,7 @@ async function prepareDatabase() {
   let db = await findDatabase();
   if (!db) {
     const bootstrap = await startServer();
+    await initializeDatabaseBinding();
     await stopServer(bootstrap);
     db = await findDatabase();
   }
@@ -381,7 +401,8 @@ async function prepareDatabase() {
     && await hasColumn(db, "assignments", "paper_id")
     && await hasColumn(db, "assignments", "kind")
     && await hasTable(db, "class_files")
-    && await hasTable(db, "class_notices");
+    && await hasTable(db, "class_notices")
+    && await hasTable(db, "mini_registration_requests");
   if (running.valid && !schemaReady) throw new Error("本地服务正在使用缺少迁移的 D1；请先停止服务后再运行 mini:prepare");
 
   await mkdir(path.join(ARTIFACT_ROOT, "backups"), { recursive: true });
@@ -389,7 +410,7 @@ async function prepareDatabase() {
   await backupLocalDatabase(db, backup);
 
   if (!await hasTable(db, "users")) {
-    const migrations = (await readdir(DRIZZLE_ROOT)).filter((name) => /^00(?:0\d|1[0-4])_.*\.sql$/.test(name)).sort();
+    const migrations = (await readdir(DRIZZLE_ROOT)).filter((name) => /^00\d\d_.*\.sql$/.test(name)).sort();
     for (const migration of migrations) await applyMigration(db, migration, applied);
   }
   const migration0014Checks = [
@@ -413,9 +434,11 @@ async function prepareDatabase() {
   let needs0020 = false;
   for (const table of newTables) if (!await hasTable(db, table)) needs0020 = true;
   if (needs0020) await applyMigration(db, "0020_mini_integration.sql", applied);
+  if (!await hasTable(db, "v2_mobile_records")) await applyMigration(db, "0030_mobile_records_and_sync.sql", applied);
   if (!await hasColumn(db, "assignments", "kind")) await applyMigration(db, "0034_assignment_learning_modes.sql", applied);
   if (!await hasTable(db, "class_files")) await applyMigration(db, "0035_class_files.sql", applied);
   if (!await hasTable(db, "class_notices")) await applyMigration(db, "0036_class_notices.sql", applied);
+  if (!await hasTable(db, "mini_registration_requests")) await applyMigration(db, "0037_mini_self_registration.sql", applied);
 
   await verifySchema(db);
   stage("本地 D1", "passed", { summary: applied.length ? `已备份并应用 ${applied.join("、")}` : "已备份，0015–0020 均已就绪", backup: path.relative(ROOT, backup) });
@@ -439,6 +462,7 @@ DELETE FROM assignment_targets WHERE assignment_id IN (SELECT id FROM assignment
 DELETE FROM assignment_settings WHERE assignment_id IN (SELECT id FROM assignments WHERE title LIKE '${E2E_PREFIX}%');
 DELETE FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE title LIKE '${E2E_PREFIX}%');
 DELETE FROM assignments WHERE title LIKE '${E2E_PREFIX}%';
+DELETE FROM mini_registration_requests WHERE account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE 'test:%preview' OR open_id LIKE 'test:${E2E_PREFIX}%') OR applicant_name LIKE '${E2E_PREFIX}%';
 DELETE FROM parent_student_links WHERE parent_account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE 'test:%preview' OR open_id LIKE 'test:${E2E_PREFIX}%') OR student_id IN (SELECT id FROM students WHERE name LIKE '${E2E_PREFIX}%');
 DELETE FROM mini_bindings WHERE account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE 'test:%preview' OR open_id LIKE 'test:${E2E_PREFIX}%') OR student_id IN (SELECT id FROM students WHERE name LIKE '${E2E_PREFIX}%');
 DELETE FROM mini_sessions WHERE account_id IN (SELECT id FROM wechat_accounts WHERE open_id LIKE 'test:%preview' OR open_id LIKE 'test:${E2E_PREFIX}%');
@@ -527,7 +551,17 @@ async function apiRegression(db, fixture) {
 
   const unbound = await login("student", `${E2E_PREFIX}unbound`);
   assert.equal(unbound.bindingRequired, true);
-  results.push({ case: "未绑定账号", status: 200, bindingRequired: true });
+  const registration = await jsonRequest("/api/v2/mini/registrations", {
+    method: "POST", headers: unbound.headers,
+    body: JSON.stringify({ role: "student", studentName: `${E2E_PREFIX}申请学生`, classOrGrade: "九年级1班" }),
+  });
+  assert.equal(registration.status, 202);
+  const pendingRegistration = await sqliteRows(db, `SELECT status,student_name AS studentName FROM mini_registration_requests WHERE account_id=${Number(unbound.accountId)} ORDER BY id DESC LIMIT 1;`);
+  assert.equal(pendingRegistration[0]?.status, "pending");
+  assert.equal(pendingRegistration[0]?.studentName, `${E2E_PREFIX}申请学生`);
+  const pendingState = await jsonRequest("/api/v2/mini/me", { headers: unbound.headers });
+  assert.equal(pendingState.data.bindingStatus, "pending");
+  results.push({ case: "自主注册申请待教师批准", status: 202, bindingRequired: true });
 
   const student = await login("student");
   const studentAgain = await login("student");
@@ -751,7 +785,7 @@ async function runChecks() {
   const checks = [
     ["TypeScript", "pnpm", ["typecheck"]],
     ["ESLint", "pnpm", ["lint"]],
-    ["自动测试", process.execPath, ["--test", "tests/rendered-html.test.mjs", "tests/core-logic.test.mjs", "tests/mini-integration.test.mjs", "tests/mini-automation.test.mjs"]],
+    ["自动测试", process.execPath, ["--test", "tests/rendered-html.test.mjs", "tests/core-logic.test.mjs", "tests/mini-integration.test.mjs", "tests/mini-automation.test.mjs", "tests/mini-api-edge.test.mjs"]],
     ["生产构建", "pnpm", ["build"]],
   ];
   for (const [name, program, args] of checks) {

@@ -62,7 +62,7 @@ transpile 后执行 `app/lib/*`。
 - 端口 3000 未被占用。
 - 使用 Node.js `>=22.13.0`（项目引擎要求），脚本使用 `node:sqlite`。
 
-e2e 依赖设置页的演示数据接口（`/api/settings/demo`）生成合成教学数据，
+e2e 依赖设置页的演示数据接口（`/api/v2/settings/demo`）生成合成教学数据，
 创建、重复执行与清除的边界见 [演示数据说明](demo-data.md)。
 
 ## API 清单与测试引用

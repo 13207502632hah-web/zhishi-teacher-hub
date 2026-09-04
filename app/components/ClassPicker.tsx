@@ -23,6 +23,7 @@ type ClassPickerProps = {
   allowClear?: boolean;
   refreshKey?: number;
   onError?: (message: string) => void;
+  endpoint?: string;
 };
 
 type MenuPosition = { top: number; left: number; width: number };
@@ -40,6 +41,7 @@ export function ClassPicker({
   allowClear = false,
   refreshKey = 0,
   onError,
+  endpoint = "/api/v2/classes/options",
 }: ClassPickerProps) {
   const generatedId = useId();
   const inputId = id || `class-picker-${generatedId}`;
@@ -84,7 +86,7 @@ export function ClassPicker({
         if (query.trim()) params.set("q", query.trim());
         if (numericValue) params.set("ids", numericValue);
         const data = await requestJson<{ classes?: ClassOption[] }>(
-          `/api/classes/options?${params.toString()}`,
+          `${endpoint}?${params.toString()}`,
           { signal: controller.signal },
         );
         setOptions(data?.classes ?? []);
@@ -108,7 +110,7 @@ export function ClassPicker({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [numericValue, onError, query, refreshKey, status]);
+  }, [endpoint, numericValue, onError, query, refreshKey, status]);
 
   useEffect(() => {
     setHighlighted(-1);

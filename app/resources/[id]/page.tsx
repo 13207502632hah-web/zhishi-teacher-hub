@@ -49,7 +49,7 @@ export default function PublicResourceDetailPage() {
     setStatus("loading");
     setMessage("");
     try {
-      const payload = await requestJson<DetailPayload>(`/api/resources/${encodeURIComponent(id)}`, { signal });
+      const payload = await requestJson<DetailPayload>(`/api/v2/resources/${encodeURIComponent(id)}`, { signal });
       if (!payload?.resource) throw new HttpError(200, "资源详情返回了无法识别的数据");
       setResource(payload.resource);
       setStatus("ready");

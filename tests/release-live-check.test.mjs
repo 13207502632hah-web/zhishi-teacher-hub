@@ -65,7 +65,10 @@ test("production probe uses browser and WeChat identities without accepting HTML
   const source = await readFile(new URL("../scripts/release-live-check.mjs", import.meta.url), "utf8");
   assert.match(source, /options\.userAgent \|\| "Mozilla\/5\.0/);
   assert.match(source, /MicroMessenger\/8\.0\.50 ZhishiReleaseReadiness\/2\.0/);
+  assert.match(source, /targets\.apiOrigin/);
+  assert.match(source, /new URL\("\/api\/v2\/mini\/login", apiOrigin\)/);
   assert.match(source, /status === 403\s*&& \/text\\\/html\/i/);
   assert.match(source, /requestWithSystemNetwork\(url, options\)/);
+  assert.match(source, /catch \{\s*return requestWithSystemNetwork\(url, options\);\s*\}/);
   assert.match(source, /transport: "system-network-fallback"/);
 });

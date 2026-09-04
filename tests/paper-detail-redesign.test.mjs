@@ -5,7 +5,7 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("paper detail uses resilient JSON requests and recoverable load states", async () => {
-  const page = await read("app/papers/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx");
 
   assert.match(page, /requestJson/);
   assert.match(page, /HttpError/);
@@ -17,7 +17,7 @@ test("paper detail uses resilient JSON requests and recoverable load states", as
 });
 
 test("paper detail mutations cannot overlap and always release busy state", async () => {
-  const page = await read("app/papers/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx");
 
   assert.match(page, /actionBusy/);
   assert.match(page, /if \(actionBusy\) return/);
@@ -28,7 +28,7 @@ test("paper detail mutations cannot overlap and always release busy state", asyn
 });
 
 test("paper assignment dialog restores focus and protects unsaved work", async () => {
-  const page = await read("app/papers/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx");
 
   assert.match(page, /dialogRef/);
   assert.match(page, /previousFocusRef/);
@@ -39,7 +39,7 @@ test("paper assignment dialog restores focus and protects unsaved work", async (
 });
 
 test("paper detail uses shared panels, metrics and status language", async () => {
-  const page = await read("app/papers/[id]/page.tsx");
+  const page = await read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx");
 
   for (const component of ["EmptyState", "MetricCard", "Panel", "StatusBadge"]) {
     assert.match(page, new RegExp(component));
@@ -47,6 +47,16 @@ test("paper detail uses shared panels, metrics and status language", async () =>
   assert.match(page, /paperDetailMetrics/);
   assert.match(page, /paperDetailModeSwitch/);
   assert.match(page, /paperDetailNotice/);
+});
+
+test("paper detail publishes assignments only through the V2 approval center", async () => {
+  const page = await read("app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx");
+
+  assert.match(page, /\/api\/v2\/assignments/);
+  assert.match(page, /\/api\/v2\/approvals/);
+  assert.match(page, /assignment\.publish/);
+  assert.match(page, /批准后才会同步给学生/);
+  assert.doesNotMatch(page, /method:\s*"POST"[\s\S]{0,200}`\/api\/papers\/\$\{id\}\/files`/);
 });
 
 test("paper detail styles are readable, touch-safe and mobile-first", async () => {

@@ -10,6 +10,7 @@ test("one root domain deterministically configures website mini and iOS", async 
   assert.deepEqual(target, { rootDomain: "example.cn", webOrigin: "https://example.cn", apiOrigin: "https://example.cn" });
   const generated = generatedSources(target);
   assert.match(generated.manifest, /https:\/\/example\.cn/);
+  assert.doesNotMatch(generated.manifest, /https:\/\/api\.example\.cn/);
   assert.match(generated.mini, /configured: true/);
   assert.match(generated.ios, /static let configured = true/);
 
