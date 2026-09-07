@@ -84,7 +84,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
     const insertedQuestions = Array.isArray(result.questions) ? result.questions as Record<string, unknown>[] : [];
     await ensureLocalQuestionVectors(insertedQuestions.map((item) => ({ id: Number(item.id), text: [item.stem, item.material, item.questionType, item.stage, item.grade, item.topic, item.knowledgePoints, item.source].filter(Boolean).join("\n") })).filter((item) => item.id > 0));
     const questionSet = result.questionSet as Record<string, unknown>, report = parseJsonObject(result.report), output = { importId: jobId, questionSetId: Number(questionSet?.id || 0), report, recognized: questions.length, vectorsIndexed: insertedQuestions.length, storageKey };
-    const job = await updateJob(access, jobId, { state: "waiting_review", stage: "review", progress: 78, processed: questions.length, total: questions.length, result: output, message: "拆题完成，等待逐题校对" }); return { ...output, job, questions: result.questions };
+    const job = await updateJob(access, jobId, { state: "completed", stage: "completed", progress: 100, processed: questions.length, total: questions.length, result: output, message: "已自动检查并入库，缺失字段保留提示" }); return { ...output, job, questions: result.questions };
   } catch (error) { throw error instanceof Error ? error : new Error("题库导入失败"); }
 }
 

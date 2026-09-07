@@ -3,7 +3,7 @@ import { getDb } from "../../../../../db";
 import { questions } from "../../../../../db/schema";
 import { audit, isDenied, requirePermission } from "../../../../lib/access";
 import { PORTABLE_COLUMNS, parseQuestionCsv, portableTemplateCsv, portableTemplateJson, quoteCsvCell } from "../../../../lib/question-portable";
-import { questionValues } from "../../../../lib/services/question-values";
+import { autoImportedQuestionValues } from "../../../../lib/services/question-values";
 import { BRAND_NAME } from "../../../../lib/brand";
 
 const columns = PORTABLE_COLUMNS;
@@ -48,8 +48,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "题库文件格式无法解析；请使用导出的 JSON 或 CSV 模板" }, { status: 400 });
   }
   if (!input.length) return Response.json({ error: "文件中没有可导入的题目；请填写题干并保留表头" }, { status: 400 });
-  const db = getDb(), prepared = input.map((item) => questionValues({ ...item, id: undefined, status: "review", reviewed: false, reviewStatus: "pending", recordedBy: access.name })), fingerprints = [...new Set(prepared.map((item) => item.fingerprint))], existing = new Set((await db.select({ fingerprint: questions.fingerprint }).from(questions).where(inArray(questions.fingerprint, fingerprints))).map((item) => item.fingerprint)), unique = prepared.filter((item) => !existing.has(item.fingerprint));
+  const db = getDb(), prepared = input.map((item) => autoImportedQuestionValues({ ...item, id: undefined, recordedBy: access.name })), fingerprints = [...new Set(prepared.map((item) => item.fingerprint))], existing = new Set((await db.select({ fingerprint: questions.fingerprint }).from(questions).where(inArray(questions.fingerprint, fingerprints))).map((item) => item.fingerprint)), unique = prepared.filter((item) => !existing.has(item.fingerprint));
   for (let index = 0; index < unique.length; index += 20) await db.insert(questions).values(unique.slice(index, index + 20));
   await audit(access, "import_questions", "question", undefined, { schema, format: isCsv ? "csv" : "json", total: input.length, imported: unique.length, duplicates: input.length - unique.length });
-  return Response.json({ imported: unique.length, duplicates: input.length - unique.length, status: "review" }, { status: 201 });
+  return Response.json({ imported: unique.length, duplicates: input.length - unique.length, status: "active" }, { status: 201 });
 }

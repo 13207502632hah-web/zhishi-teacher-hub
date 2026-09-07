@@ -1,6 +1,11 @@
 import { questionFingerprint } from "../question-fingerprint";
 import { TEACHER_DISPLAY_NAME } from "../brand";
 
+/** Import admission is automatic; it never attests that a teacher checked the answer. */
+export const autoImportedQuestionValues = (payload: Record<string, unknown>) => questionValues({
+  ...payload, status: "active", reviewed: false, reviewStatus: "auto_checked",
+});
+
 const jsonField = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value || []);
 
 const importNotesField = (payload: Record<string, unknown>) => {

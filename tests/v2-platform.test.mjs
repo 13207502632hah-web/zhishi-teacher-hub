@@ -79,7 +79,7 @@ test("V2 question workflow exposes progressive hybrid search and intelligent mul
   for (const marker of ["v2_questions_fts", "keywordScore", "semanticScore", "rerankScore", "matchReasons", "cosineSimilarity", "parsedFilters", "coverage"]) assert.match(search, new RegExp(marker));
   assert.match(vectors, /json_each\(\?\)/); assert.match(vectors, /JSON\.stringify\(unique\.map/); assert.match(vectors, /Promise\.all\(unique\.map/);
   for (const extension of ["docx", "pdf", "png", "xlsx", "csv"]) assert.match(intake, new RegExp(`"${extension}"`));
-  assert.match(intake, /parsePoliticsDocx/); assert.match(intake, /callV2AiJson/); assert.match(intake, /waiting_review/);
+  assert.match(intake, /parsePoliticsDocx/); assert.match(intake, /callV2AiJson/); assert.match(intake, /state: "completed"/);
   assert.match(ui, /phase: "lexical"/); assert.match(ui, /phase: "semantic"/); assert.match(ui, /为什么命中|matchReasons/); assert.match(ui, /api\/v2\/questions\/imports/);
 });
 
@@ -193,13 +193,13 @@ test("V2 finance recomputes evidence before approval execution", async () => {
   assert.match(workspace, /提交到待确认中心/);
 });
 
-test("V2 imported questions can be edited but only approvals promote them", async () => {
+test("V2 imports automatically enter the library while manual draft approvals remain available", async () => {
   const [route, search, executor] = await Promise.all([read("app/api/v2/questions/[id]/review-draft/route.ts"), read("app/v2/questions/QuestionSearch.tsx"), read("app/lib/v2/approval-executor.ts")]);
   assert.match(route, /existing\.status === "active"/);
   assert.match(route, /review_status='pending'/);
-  assert.match(search, /\/review-draft/);
-  assert.match(search, /question\.promote/);
-  assert.match(search, /提交正式入库确认/);
+  assert.match(search, /已自动入库/);
+  assert.doesNotMatch(search, /提交正式入库确认/);
+  assert.doesNotMatch(search, /question\.promote/);
   assert.match(executor, /reviewQuestions\(ids, "confirm"\)/);
 });
 

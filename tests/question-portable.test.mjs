@@ -59,6 +59,32 @@ test("portable template JSON keeps schema and example rows", async () => {
   assert.equal(template.questions[0].questionType, "单选题");
 });
 
+test("automatic import enables questions without inventing answers or claiming human review", async () => {
+  const { autoImportedQuestionValues } = await loadTsModule("app/lib/services/question-values.ts");
+  const result = autoImportedQuestionValues({ stem: "原始题干", answer: "", analysis: "", knowledgePoints: "", reviewed: true, reviewStatus: "confirmed", status: "review", parseConfidence: 0.4, importNotes: ["缺少答案"] });
+  assert.equal(result.status, "active");
+  assert.equal(result.reviewStatus, "auto_checked");
+  assert.equal(result.reviewed, false);
+  assert.equal(result.answer, "");
+  assert.equal(result.analysis, "");
+  assert.equal(result.parseConfidence, 0.4);
+  assert.match(result.notes, /缺少答案/);
+});
+
+test("all import entries use automatic admission and the import UI no longer requires review", async () => {
+  const readSource = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+  for (const path of ["app/api/v2/question-sets/import/route.ts", "app/api/v2/questions/portable/route.ts"]) assert.match(await readSource(path), /autoImportedQuestionValues/);
+  const intake = await readSource("app/lib/v2/question-import-service.ts");
+  assert.match(intake, /state: "completed", stage: "completed", progress: 100/);
+  const ui = await readSource("app/v2/questions/QuestionLibraryWorkspace.tsx");
+  assert.doesNotMatch(ui, /const confirmSet|const storeReview|本题题干、答案、解析和知识点已经人工核对/);
+  assert.match(ui, /将已导入题目直接入库/);
+  const route = await readSource("app/api/v2/question-sets/[id]/route.ts");
+  assert.match(route, /requirePermission\("questions:write"\)/);
+  assert.match(route, /status='review' AND trim\(stem\)!=''/);
+  assert.match(route, /auto_admit_import/);
+});
+
 test("portable route exposes template downloads and CSV import path", async () => {
   const [route, page, importRoute] = await Promise.all([
     readFile(new URL("../app/api/v2/questions/portable/route.ts", import.meta.url), "utf8"),

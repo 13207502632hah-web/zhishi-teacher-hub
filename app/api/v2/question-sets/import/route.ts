@@ -12,7 +12,7 @@ import {
   scanSimilarityCandidates,
   uniqueSourceRefs,
 } from "../../../../lib/question-import-candidates";
-import { questionValues } from "../../../../lib/services/question-values";
+import { autoImportedQuestionValues } from "../../../../lib/services/question-values";
 
 export const QUESTION_SET_IMPORT_LIMIT = 300;
 type QuestionImportBody = { name?: string; sourceFile?: string; sourceDocument?: string; sourceKey?: string; sourceFingerprint?: string; questions?: Array<Record<string, unknown>> };
@@ -45,8 +45,7 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   const [previous] = await db.select({ id: questionSets.id, name: questionSets.name, status: questionSets.status }).from(questionSets).where(eq(questionSets.sourceFingerprint, sourceFingerprint)).limit(1);
   if (previous) return Response.json({ error: "这份 Word 文件已经导入过，避免重复入库", existing: previous }, { status: 409 });
   const sourceRefs = buildSourceQuestionRefs(input, (question) => ({
-    ...questionValues({ ...question, source: question.source || body.sourceFile || "Word 试卷导入", sourceFile: body.sourceFile || "", status: "review", recordedBy: access.name }),
-    reviewed: Boolean(question.reviewed),
+    ...autoImportedQuestionValues({ ...question, source: question.source || body.sourceFile || "Word 试卷导入", sourceFile: body.sourceFile || "", recordedBy: access.name }),
   }));
   const prepared = sourceRefs.map((ref) => ref.prepared);
   const fingerprints = [...new Set(prepared.map((question) => question.fingerprint))];
@@ -75,8 +74,8 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   let paper: typeof papers.$inferSelect;
   let set: typeof questionSets.$inferSelect;
   try {
-    [paper] = await db.insert(papers).values({ title: String(body.name || "Word 试卷导入"), type: String(first.examType || "完整试卷"), stage: String(first.stage || ""), grade: String(first.grade || ""), textbookVersion: String(first.textbookVersion || ""), year: Number(first.year || 0) || null, academicYear, examCategory: String(first.examType || ""), region: String(first.region || ""), source: String(body.sourceDocument || body.sourceFile || ""), parseStatus: "review", status: "draft" }).returning();
-    [set] = await db.insert(questionSets).values({ paperId: paper.id, name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "review", reviewProgress: report.reviewed, status: "review" }).returning();
+    [paper] = await db.insert(papers).values({ title: String(body.name || "Word 试卷导入"), type: String(first.examType || "完整试卷"), stage: String(first.stage || ""), grade: String(first.grade || ""), textbookVersion: String(first.textbookVersion || ""), year: Number(first.year || 0) || null, academicYear, examCategory: String(first.examType || ""), region: String(first.region || ""), source: String(body.sourceDocument || body.sourceFile || ""), parseStatus: "completed", status: "draft" }).returning();
+    [set] = await db.insert(questionSets).values({ paperId: paper.id, name: String(body.name || "Word 试卷导入"), sourceFile: String(body.sourceFile || ""), sourceDocument: String(body.sourceDocument || ""), sourceFingerprint, importReport: JSON.stringify(report), duplicateReport: JSON.stringify(duplicateReport), parseStage: "completed", reviewProgress: 0, status: "active" }).returning();
   } catch (error) {
     throw importStageError("导入任务建档失败", error);
   }
