@@ -75,8 +75,9 @@ test("long imports run in a leased background consumer with retry cancel and sch
 });
 
 test("V2 question workflow exposes progressive hybrid search and intelligent multi-format intake", async () => {
-  const [search, intake, ui] = await Promise.all([read("app/lib/v2/question-search.ts"), read("app/lib/v2/question-import-service.ts"), read("app/v2/questions/QuestionSearch.tsx")]);
+  const [search, vectors, intake, ui] = await Promise.all([read("app/lib/v2/question-search.ts"), read("app/lib/v2/vector-index.ts"), read("app/lib/v2/question-import-service.ts"), read("app/v2/questions/QuestionSearch.tsx")]);
   for (const marker of ["v2_questions_fts", "keywordScore", "semanticScore", "rerankScore", "matchReasons", "cosineSimilarity", "parsedFilters", "coverage"]) assert.match(search, new RegExp(marker));
+  assert.match(vectors, /json_each\(\?\)/); assert.match(vectors, /JSON\.stringify\(unique\.map/); assert.match(vectors, /Promise\.all\(unique\.map/);
   for (const extension of ["docx", "pdf", "png", "xlsx", "csv"]) assert.match(intake, new RegExp(`"${extension}"`));
   assert.match(intake, /parsePoliticsDocx/); assert.match(intake, /callV2AiJson/); assert.match(intake, /waiting_review/);
   assert.match(ui, /phase: "lexical"/); assert.match(ui, /phase: "semantic"/); assert.match(ui, /为什么命中|matchReasons/); assert.match(ui, /api\/v2\/questions\/imports/);

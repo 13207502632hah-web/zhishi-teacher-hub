@@ -310,6 +310,7 @@ function cleanup() {
     DELETE FROM pricing_rules WHERE student_id IN (${studentIds});
     DELETE FROM workflow_templates WHERE name LIKE ${quote(`${marker}%`)};
     DELETE FROM idempotency_operations WHERE operation_id LIKE ${quote(`${marker}%`)};
+    DELETE FROM v2_question_vectors WHERE question_id IN (${questionIds});
     DELETE FROM questions WHERE id IN (${questionIds});
     DELETE FROM students WHERE id IN (${studentIds});
     DELETE FROM classes WHERE id IN (${classIds});`);
@@ -1454,6 +1455,25 @@ async function exerciseQuestionKnowledgeMultiKeyword(cookie) {
   return { checks, ok: true };
 }
 
+async function exerciseQuestionSearchWidePool(cookie) {
+  const result = await request("/api/v2/questions/search", {
+    cookie,
+    method: "POST",
+    body: {
+      query: marker,
+      mode: "hybrid",
+      phase: "semantic",
+      filters: { status: "active" },
+      pageSize: 20,
+      useCase: "browse",
+    },
+  });
+  assert.equal(result.response.status, 200, JSON.stringify(result.data));
+  assert.ok(Array.isArray(result.data.results));
+  assert.ok(Number(result.data.coverage?.compared || 0) >= 800, JSON.stringify(result.data.coverage));
+  return { checks: ["混合检索 800 题候选池单参数读取本地向量"], ok: true };
+}
+
 async function exercisePaperRecommendationAllCandidates(cookie) {
   const checks = [];
   const candidateKnowledge = `${marker}_all_candidates`;
@@ -1549,6 +1569,7 @@ async function exerciseBusinessCoverage(cookie) {
     ["questionFacetCounts", exerciseQuestionFacetCounts],
     ["questionKnowledgeMultiKeyword", exerciseQuestionKnowledgeMultiKeyword],
     ["paperRecommendationAllCandidates", exercisePaperRecommendationAllCandidates],
+    ["questionSearchWidePool", exerciseQuestionSearchWidePool],
     ["15kMatchPagination", exercise15kMatchPagination],
   ];
   const results = {};
