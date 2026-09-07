@@ -37,7 +37,6 @@ export const QUESTION_SIMILARITY_THRESHOLD = 0.82;
 export const QUESTION_SIMILARITY_TOP = 3;
 const STEM_TOKEN_BUDGET = 12;
 const TEXT_SIGNATURE_LENGTH = 8;
-const TEXT_PATTERN_CHUNK = 50;
 const TEXT_PATTERN_ROW_LIMIT = 25;
 const TEXT_CANDIDATE_BUDGET = 400;
 
@@ -145,14 +144,6 @@ function representativeStemTokens(refs: SourceQuestionRef[]): string[] {
   return selected;
 }
 
-const chunkValues = <T>(values: T[], size: number): T[][] => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
-};
-
 /**
  * 把题干前 8 个规范化字符展开为容忍空格/标点穿插的 LIKE 模式，
  * 让文本源能直接命中规范化后相同、原始字符串不同的旧题行。
@@ -168,8 +159,6 @@ function stemTextPatterns(refs: SourceQuestionRef[]): string[] {
   }
   return [...patterns];
 }
-
-const sqlStringLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
 
 /**
  * 两阶段候选检索：先按 fingerprint / question_type / stage / grade 用一条廉价 SQL
@@ -201,37 +190,41 @@ export async function collectSimilarityCandidates(
   const where = conditions.length ? ` WHERE ${conditions.join(" OR ")}` : "";
 
   const textPatterns = stemTextPatterns(refs);
-  const textSubquery = `SELECT id, stem, fingerprint FROM (SELECT id, stem, fingerprint FROM questions WHERE stem LIKE ? ORDER BY id DESC LIMIT ${TEXT_PATTERN_ROW_LIMIT})`;
-  const textChunkSql = (patterns: string[]) => patterns.map(() => textSubquery).join(" UNION ALL ");
-  const textChunkResults = await Promise.all(
-    chunkValues(textPatterns, TEXT_PATTERN_CHUNK).map((patterns) =>
-      db.prepare(textChunkSql(patterns)).bind(...patterns.map((pattern) => `%${pattern}%`)).all<{ id: number; stem: string; fingerprint: string | null }>(),
-    ),
-  );
+  const textChunkResult = textPatterns.length
+    ? await db.prepare(`WITH text_patterns AS (
+        SELECT CAST(key AS INTEGER) AS pattern_index, CAST(value AS TEXT) AS pattern FROM json_each(?)
+      ), ranked AS (
+        SELECT q.id,q.stem,q.fingerprint,text_patterns.pattern_index,
+          ROW_NUMBER() OVER (PARTITION BY text_patterns.pattern_index ORDER BY q.id DESC) AS pattern_rank
+        FROM questions q JOIN text_patterns ON q.stem LIKE '%' || text_patterns.pattern || '%'
+      )
+      SELECT id,stem,fingerprint FROM ranked WHERE pattern_rank<=? ORDER BY id DESC LIMIT ?`)
+      .bind(JSON.stringify(textPatterns), TEXT_PATTERN_ROW_LIMIT, Math.min(TEXT_CANDIDATE_BUDGET, budget))
+      .all<{ id: number; stem: string; fingerprint: string | null }>()
+    : { results: [] as Array<{ id: number; stem: string; fingerprint: string | null }> };
   const textCandidatesById = new Map<number, SimilarityCandidate>();
-  for (const chunkResult of textChunkResults) {
-    for (const row of chunkResult.results || []) {
-      const id = Number(row.id);
-      if (textCandidatesById.has(id)) continue;
-      textCandidatesById.set(id, {
-        id,
-        stem: String(row.stem || ""),
-        fingerprint: String(row.fingerprint || ""),
-      });
-    }
+  for (const row of textChunkResult.results || []) {
+    const id = Number(row.id);
+    if (textCandidatesById.has(id)) continue;
+    textCandidatesById.set(id, {
+      id,
+      stem: String(row.stem || ""),
+      fingerprint: String(row.fingerprint || ""),
+    });
   }
   const textCandidates = [...textCandidatesById.values()]
     .sort((left, right) => right.id - left.id)
     .slice(0, Math.min(TEXT_CANDIDATE_BUDGET, budget));
 
-  const unionConditions = [...conditions];
+  const unionConditions = [...conditions], unionParams = [...params];
   if (textPatterns.length) {
-    unionConditions.push(`(${textPatterns.map((pattern) => `stem LIKE ${sqlStringLiteral(`%${pattern}%`)}`).join(" OR ")})`);
+    unionConditions.push("EXISTS (SELECT 1 FROM json_each(?) AS text_pattern WHERE questions.stem LIKE '%' || CAST(text_pattern.value AS TEXT) || '%')");
+    unionParams.push(JSON.stringify(textPatterns));
   }
   const unionWhere = unionConditions.length ? ` WHERE ${unionConditions.join(" OR ")}` : "";
   const remaining = Math.max(0, budget - textCandidates.length);
   const [totalRow, poolResult] = await Promise.all([
-    db.prepare(`SELECT COUNT(DISTINCT id) AS count FROM questions${unionWhere}`).bind(...params).first<{ count: number }>(),
+    db.prepare(`SELECT COUNT(DISTINCT id) AS count FROM questions${unionWhere}`).bind(...unionParams).first<{ count: number }>(),
     remaining > 0
       ? db.prepare(`SELECT id, stem, fingerprint FROM questions${where} ORDER BY id DESC LIMIT ?`).bind(...params, remaining).all<{ id: number; stem: string; fingerprint: string | null }>()
       : Promise.resolve({ results: [] as Array<{ id: number; stem: string; fingerprint: string | null }> }),

@@ -193,6 +193,21 @@ test("candidate collection marks full coverage when the whole bank fits the budg
   assert.equal(coverage.complete, true);
 });
 
+test("multi-question imports do not build a compound SELECT per stem", { skip: !sqlite }, async () => {
+  const db = setupDatabase(5000);
+  const refs = helpers.buildSourceQuestionRefs(
+    Array.from({ length: 31 }, (_, index) => ({
+      stem: `天津道德与法治模拟题材料 ${index + 1}`,
+      fingerprint: `incoming-${index + 1}`,
+      sourceQuestionNumber: index + 1,
+    })),
+    prepareQuestion,
+  );
+  const { candidates, coverage } = await helpers.collectSimilarityCandidates(db, refs);
+  assert.ok(candidates.length <= helpers.QUESTION_SIMILARITY_BUDGET);
+  assert.ok(coverage.compared <= helpers.QUESTION_SIMILARITY_BUDGET);
+});
+
 test("token retrieval recalls a near-duplicate outside the old first-2000 pool", { skip: !sqlite }, async () => {
   const db = setupDatabase(5000, {
     index: 3500,

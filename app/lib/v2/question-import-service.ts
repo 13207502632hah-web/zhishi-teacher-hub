@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
+import { Buffer } from "node:buffer";
 import ExcelJS from "exceljs";
 import mammoth from "mammoth";
 import type { AccessContext } from "../access";
-import { parsePoliticsDocx } from "../question-import";
+import { enrichQuestionsFromHtml, parsePoliticsDocx } from "../question-import";
 import { cellValueToText } from "../xlsx-compat";
 import { callV2AiJson } from "./ai-router";
 import { createJob, getJob, updateJob } from "./job-service";
@@ -16,11 +17,34 @@ const fingerprint = async (buffer: ArrayBuffer) => [...new Uint8Array(await cryp
 function dataUrl(buffer: ArrayBuffer, mime: string) { const bytes = new Uint8Array(buffer); let binary = ""; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000)); return `data:${mime};base64,${btoa(binary)}`; }
 function csvLine(line: string) { const output: string[] = []; let value = "", quoted = false; for (let index = 0; index < line.length; index++) { const character = line[index]; if (character === '"' && line[index + 1] === '"') { value += '"'; index++; } else if (character === '"') quoted = !quoted; else if (character === "," && !quoted) { output.push(value); value = ""; } else value += character; } output.push(value); return output; }
 
-async function textOf(file: File, buffer: ArrayBuffer, extension: string) {
-  if (extension === "docx") return (await mammoth.extractRawText({ arrayBuffer: buffer })).value;
-  if (extension === "csv") return new TextDecoder().decode(buffer).split(/\r?\n/).filter(Boolean).map((line) => csvLine(line).join(" | ")).join("\n");
-  if (extension === "xlsx") { const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never); return workbook.worksheets.map((sheet) => { const rows: string[] = []; sheet.eachRow({ includeEmpty: false }, (row) => rows.push((row.values as unknown[]).slice(1).map(cellValueToText).join(" | "))); return `【工作表：${sheet.name}】\n${rows.join("\n")}`; }).join("\n\n"); }
-  return "";
+async function contentOf(file: File, buffer: ArrayBuffer, extension: string) {
+  if (extension === "docx") {
+    const input = Buffer.from(buffer), [raw, rendered] = await Promise.all([
+      mammoth.extractRawText({ buffer: input }),
+      mammoth.convertToHtml({ buffer: input }),
+    ]);
+    return { text: raw.value, html: rendered.value };
+  }
+  if (extension === "csv") return { text: new TextDecoder().decode(buffer).split(/\r?\n/).filter(Boolean).map((line) => csvLine(line).join(" | ")).join("\n"), html: "" };
+  if (extension === "xlsx") { const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer as never); return { text: workbook.worksheets.map((sheet) => { const rows: string[] = []; sheet.eachRow({ includeEmpty: false }, (row) => rows.push((row.values as unknown[]).slice(1).map(cellValueToText).join(" | "))); return `【工作表：${sheet.name}】\n${rows.join("\n")}`; }).join("\n\n"), html: "" }; }
+  return { text: "", html: "" };
+}
+
+function preserveDocxVisuals(questions: AiQuestion[], localQuestions: AiQuestion[]) {
+  if (!localQuestions.length) return questions;
+  const byNumber = new Map(localQuestions.map((item) => [Number(item.sourceQuestionNumber || 0), item]));
+  return questions.map((question, index) => {
+    const local = byNumber.get(Number(question.sourceQuestionNumber || 0)) || localQuestions[index];
+    if (!local) return question;
+    const attachments = Array.isArray(local.attachments) ? local.attachments : [];
+    const tables = Array.isArray(local.tables) ? local.tables : [];
+    if (!attachments.length && !tables.length) return question;
+    const notes = [...new Set([
+      ...(Array.isArray(question.importNotes) ? question.importNotes.map(String) : []),
+      ...(Array.isArray(local.importNotes) ? local.importNotes.map(String).filter((note) => /图片|表格|存疑/.test(note)) : []),
+    ])];
+    return { ...question, attachments, tables, importNotes: notes, parseConfidence: Math.min(Number(question.parseConfidence ?? .65), Number(local.parseConfidence ?? .65)) };
+  });
 }
 
 function validateQuestions(value: unknown) {
@@ -43,14 +67,15 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
   const buffer = await object.arrayBuffer(), file = new File([buffer], fileName, { type: String(payload.mimeType || object.httpMetadata?.contentType || "application/octet-stream") });
   try {
     await updateJob(access, jobId, { state: "running", stage: "recognizing", progress: 18, message: "正在拆题并识别结构" });
-    const sourceText = await textOf(file, buffer, extension), localQuestions = extension === "docx" ? parsePoliticsDocx(sourceText, { source: file.name, sourceFile: file.name, sourceDocument: storageKey, status: "review", reviewed: false }) : [];
+    const source = await contentOf(file, buffer, extension), sourceText = source.text;
+    const localQuestions = extension === "docx" ? enrichQuestionsFromHtml(source.html, parsePoliticsDocx(sourceText, { source: file.name, sourceFile: file.name, sourceDocument: storageKey, status: "review", reviewed: false })) : [];
     let questions: AiQuestion[] = [];
     try {
       const visual = ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension);
       const ai = await callV2AiJson({ access, capability: visual ? "vision" : "reasoning", jobId, promptVersion: "question-import-v2.1", maxTokens: 16000,
         system: "你是中小学试题结构化引擎。完整拆分材料、题干、选项、小问、答案与解析，识别原题号异常，分类教材、年级、章节、知识点、题型、难度、地区、年份和来源。不可补造缺失答案；缺失项写入 importNotes 并降低 parseConfidence。输出 {questions:[{sourceQuestionNumber,questionGroup,material,stem,options,subQuestions,answer,answerPoints,analysis,questionType,difficulty,score,stage,grade,textbookVersion,volume,unit,topic,knowledgePoints,secondaryKnowledge,coreCompetencies,source,year,region,examType,parseConfidence,importNotes}]}。",
         payload: visual ? { fileName: file.name, instruction: "逐页识别全部题目，包括材料共用关系和小问" } : { fileName: file.name, sourceText: sourceText.slice(0, 120_000), deterministicCandidates: localQuestions.slice(0, 120).map((item) => ({ ...item, attachments: undefined, tables: undefined })) },
-        images: visual ? [dataUrl(buffer, file.type || (extension === "pdf" ? "application/pdf" : "image/jpeg"))] : undefined, validate: validateQuestions }); questions = ai.data;
+        images: visual ? [dataUrl(buffer, file.type || (extension === "pdf" ? "application/pdf" : "image/jpeg"))] : undefined, validate: validateQuestions }); questions = extension === "docx" ? preserveDocxVisuals(ai.data, localQuestions as AiQuestion[]) : ai.data;
     } catch (error) { if (!localQuestions.length) throw error; questions = localQuestions as AiQuestion[]; }
     if (!questions.length) throw new Error("没有识别到可校对的题目");
     const current = await getJob(access, jobId); if (current?.cancelRequested) { await updateJob(access, jobId, { state: "cancelled", stage: "cancelled", progress: current.progress, message: "任务已按请求取消" }); return { cancelled: true }; }

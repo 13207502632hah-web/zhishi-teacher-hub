@@ -83,6 +83,17 @@ test("V2 question workflow exposes progressive hybrid search and intelligent mul
   assert.match(ui, /phase: "lexical"/); assert.match(ui, /phase: "semantic"/); assert.match(ui, /为什么命中|matchReasons/); assert.match(ui, /api\/v2\/questions\/imports/);
 });
 
+test("V2 DOCX intake gives Mammoth the server-side Buffer input it requires", async () => {
+  const intake = await read("app/lib/v2/question-import-service.ts");
+  assert.match(intake, /import \{ Buffer \} from "node:buffer"/);
+  assert.match(intake, /const input = Buffer\.from\(buffer\)/);
+  assert.match(intake, /mammoth\.extractRawText\(\{ buffer: input \}\)/);
+  assert.match(intake, /mammoth\.convertToHtml\(\{ buffer: input \}\)/);
+  assert.match(intake, /enrichQuestionsFromHtml\(source\.html/);
+  assert.match(intake, /preserveDocxVisuals\(ai\.data/);
+  assert.doesNotMatch(intake, /mammoth\.extractRawText\(\{ arrayBuffer: buffer \}\)/);
+});
+
 test("student and parent mini program uses the versioned contract and excludes teacher-only pages", async () => {
   const [app, api] = await Promise.all([read("mini-program/app.json"), read("mini-program/utils/api.js")]);
   assert.match(api, /\/api\/v2\/mini/); assert.doesNotMatch(api, /v2Path|\/api\/mini/); assert.match(api, /onProgressUpdate/); assert.match(api, /mini-sync-cursor/);
