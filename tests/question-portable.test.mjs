@@ -95,6 +95,7 @@ test("all import entries use automatic admission and the import UI no longer req
   assert.match(route, /status='review' AND trim\(stem\)!=''/);
   assert.match(route, /auto_admit_import/);
   assert.match(await readSource("app/api/v2/question-sets/import/route.ts"), /backfill_import_duplicates/);
+  assert.doesNotMatch(await readSource("app/api/v2/question-sets/import/route.ts"), /if \(previous\) return Response\.json/);
   assert.match(route, /RETURNING id/);
   assert.match(route, /results\[0\]\?\.results\?\.length/);
 });

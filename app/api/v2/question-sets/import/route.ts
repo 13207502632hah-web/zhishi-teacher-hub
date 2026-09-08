@@ -43,7 +43,7 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   if (!sourceFingerprint) sourceFingerprint = questionFingerprint({ stem: body.sourceFile || body.name || "Word 导入", material: input.map((question) => questionFingerprint(question)).join("|") });
   const db = getDb();
   const [previous] = await db.select({ id: questionSets.id, name: questionSets.name, status: questionSets.status }).from(questionSets).where(eq(questionSets.sourceFingerprint, sourceFingerprint)).limit(1);
-  if (previous) return Response.json({ error: "这份 Word 文件已经导入过，避免重复入库", existing: previous }, { status: 409 });
+  // Reprocessing the same source is allowed so a later answer edition can fill blanks idempotently.
   const sourceRefs = buildSourceQuestionRefs(input, (question) => ({
     ...autoImportedQuestionValues({ ...question, source: question.source || body.sourceFile || "Word 试卷导入", sourceFile: body.sourceFile || "", recordedBy: access.name }),
   }));
@@ -68,7 +68,7 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
     enrichedIds.push(row.id); enrichedFields[String(row.id)] = fields;
   }
   if (enrichedIds.length) await audit(access, "backfill_import_duplicates", "question", enrichedIds.join(","), { count: enrichedIds.length, fields: enrichedFields, sourceFingerprint });
-  if (!unique.length) return Response.json({ error: enrichedIds.length ? `所有题目均已存在；已为 ${enrichedIds.length} 道旧题补齐缺失内容` : "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length, enriched: enrichedIds.length, enrichedFields }, { status: 409 });
+  if (!unique.length) return Response.json({ error: enrichedIds.length ? `所有题目均已存在；已为 ${enrichedIds.length} 道旧题补齐缺失内容` : "所有题目都与现有题库重复，未创建导入任务", existing: previous || undefined, duplicates: prepared.length, enriched: enrichedIds.length, enrichedFields }, { status: 409 });
   const duplicateRows = exactDuplicateRows(sourceRefs, existing);
   let comparisonPool: Awaited<ReturnType<typeof collectSimilarityCandidates>>["candidates"];
   let similarityCoverage: Awaited<ReturnType<typeof collectSimilarityCandidates>>["coverage"];
