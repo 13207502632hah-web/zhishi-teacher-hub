@@ -12,7 +12,7 @@ import {
   scanSimilarityCandidates,
   uniqueSourceRefs,
 } from "../../../../lib/question-import-candidates";
-import { autoImportedQuestionValues } from "../../../../lib/services/question-values";
+import { autoImportedQuestionValues, importedQuestionBackfill } from "../../../../lib/services/question-values";
 
 export const QUESTION_SET_IMPORT_LIMIT = 300;
 type QuestionImportBody = { name?: string; sourceFile?: string; sourceDocument?: string; sourceKey?: string; sourceFingerprint?: string; questions?: Array<Record<string, unknown>> };
@@ -49,15 +49,26 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   }));
   const prepared = sourceRefs.map((ref) => ref.prepared);
   const fingerprints = [...new Set(prepared.map((question) => question.fingerprint))];
-  let existingRows: Array<{ fingerprint: string | null }> = [];
+  let existingRows: Array<Record<string, unknown> & { id: number; fingerprint: string | null }> = [];
   try {
-    existingRows = fingerprints.length ? await db.select({ fingerprint: questions.fingerprint }).from(questions).where(inArray(questions.fingerprint, fingerprints)) : [];
+    existingRows = fingerprints.length ? await db.select().from(questions).where(inArray(questions.fingerprint, fingerprints)) : [];
   } catch (error) {
     throw importStageError("精确重复题检查失败", error);
   }
   const existing = new Set(existingRows.map((question) => question.fingerprint).filter((value): value is string => Boolean(value)));
   const unique = uniqueSourceRefs(sourceRefs).filter((ref) => !existing.has(ref.fingerprint));
-  if (!unique.length) return Response.json({ error: "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length }, { status: 409 });
+  const existingByFingerprint = new Map(existingRows.map((question) => [String(question.fingerprint || ""), question]));
+  const enrichedFields: Record<string, string[]> = {};
+  const enrichedIds: number[] = [];
+  for (const ref of uniqueSourceRefs(sourceRefs).filter((item) => existing.has(item.fingerprint))) {
+    const row = existingByFingerprint.get(ref.fingerprint); if (!row) continue;
+    const { patch, fields } = importedQuestionBackfill(row, ref.prepared);
+    if (!fields.length) continue;
+    await db.update(questions).set({ ...patch, updatedAt: new Date().toISOString() }).where(eq(questions.id, row.id));
+    enrichedIds.push(row.id); enrichedFields[String(row.id)] = fields;
+  }
+  if (enrichedIds.length) await audit(access, "backfill_import_duplicates", "question", enrichedIds.join(","), { count: enrichedIds.length, fields: enrichedFields, sourceFingerprint });
+  if (!unique.length) return Response.json({ error: enrichedIds.length ? `所有题目均已存在；已为 ${enrichedIds.length} 道旧题补齐缺失内容` : "所有题目都与现有题库重复，未创建导入任务", duplicates: prepared.length, enriched: enrichedIds.length, enrichedFields }, { status: 409 });
   const duplicateRows = exactDuplicateRows(sourceRefs, existing);
   let comparisonPool: Awaited<ReturnType<typeof collectSimilarityCandidates>>["candidates"];
   let similarityCoverage: Awaited<ReturnType<typeof collectSimilarityCandidates>>["coverage"];
@@ -69,7 +80,7 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   const similarRows = scanSimilarityCandidates(unique, comparisonPool);
   const duplicateReport = { exact: duplicateRows, similar: similarRows, coverage: similarityCoverage };
   const summary = summarizeImport(unique.map((ref) => ({ ...ref.prepared, sourceIndex: ref.sourceIndex, sourceQuestionNumber: ref.sourceQuestionNumber ?? undefined })));
-  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, similar: similarRows.length, coverage: similarityCoverage, reviewed: unique.filter((ref) => ref.prepared.reviewed).length, incomplete: summary.incomplete, lowConfidence: summary.lowConfidence, typeCounts: summary.typeCounts, incompleteItems: summary.incompleteItems, lowConfidenceItems: summary.lowConfidenceItems, numberingIssues: summary.numberingIssues };
+  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, enriched: enrichedIds.length, enrichedFields, similar: similarRows.length, coverage: similarityCoverage, reviewed: unique.filter((ref) => ref.prepared.reviewed).length, incomplete: summary.incomplete, lowConfidence: summary.lowConfidence, typeCounts: summary.typeCounts, incompleteItems: summary.incompleteItems, lowConfidenceItems: summary.lowConfidenceItems, numberingIssues: summary.numberingIssues };
   const first = unique[0].prepared, sourceYear = String(first.year || ""), academicYear = /^20\d{2}-20\d{2}$/.test(sourceYear) ? sourceYear : /^20\d{2}$/.test(sourceYear) ? `${Number(sourceYear) - 1}-${sourceYear}` : "";
   let paper: typeof papers.$inferSelect;
   let set: typeof questionSets.$inferSelect;

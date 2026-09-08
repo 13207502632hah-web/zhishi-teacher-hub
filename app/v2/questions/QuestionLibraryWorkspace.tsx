@@ -129,10 +129,10 @@ export function QuestionLibraryWorkspace() {
         if (found.length > QUESTION_IMPORT_LIMIT) throw new Error(`识别到 ${found.length} 题，超过单任务上限 ${QUESTION_IMPORT_LIMIT} 题；请把 Word 拆分成多个文件后分批导入`);
         const response = await fetch("/api/v2/question-sets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name.replace(/\.docx$/i, ""), sourceFile: file.name, sourceDocument: source.key, sourceKey: source.key, sourceFingerprint: source.fingerprint, questions: found }) }), data = await response.json();
         if (!response.ok) {
-          if (response.status === 409) { update(item.key, { status: "duplicate", message: data.error || "重复文件或题目已跳过", setId: Number(data.existing?.id || 0) || undefined }); continue; }
+          if (response.status === 409) { update(item.key, { status: "duplicate", message: `${data.error || "重复文件或题目已跳过"}${data.enriched ? `；补齐 ${data.enriched} 道旧题` : ""}`, setId: Number(data.existing?.id || 0) || undefined }); continue; }
           throw new Error(data.error || "创建导入任务失败");
         }
-        update(item.key, { status: "completed", message: `已自动入库；精确重复跳过 ${data.report?.duplicates || 0} 题，相似题提示 ${data.report?.similar || 0} 组`, setId: Number(data.questionSet.id), count: Number(data.questionCount || 0) });
+        update(item.key, { status: "completed", message: `已自动入库；精确重复跳过 ${data.report?.duplicates || 0} 题${data.report?.enriched ? `，并补齐 ${data.report.enriched} 道旧题` : ""}，相似题提示 ${data.report?.similar || 0} 组`, setId: Number(data.questionSet.id), count: Number(data.questionCount || 0) });
       } catch (reason) { update(item.key, { status: "failed", message: reason instanceof Error ? reason.message : "处理失败，请重试" }); }
     }
     setQueueRunning(false);

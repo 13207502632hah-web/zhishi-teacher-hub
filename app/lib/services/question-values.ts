@@ -6,6 +6,29 @@ export const autoImportedQuestionValues = (payload: Record<string, unknown>) => 
   ...payload, status: "active", reviewed: false, reviewStatus: "auto_checked",
 });
 
+const backfillTextFields = ["answer", "answerPoints", "analysis", "scoringPoints", "knowledgePoints", "secondaryKnowledge", "coreCompetencies", "factBasis", "textbookView", "valueJudgment", "answerLogic", "standardExpression"] as const;
+const hasContent = (value: unknown) => !["", "[]", "{}", "null"].includes(String(value ?? "").trim());
+
+/** Exact duplicate answer editions may fill blanks, but never overwrite existing teaching content. */
+export function importedQuestionBackfill(existing: Record<string, unknown>, incoming: Record<string, unknown>) {
+  const patch: Record<string, unknown> = {}, fields: string[] = [];
+  for (const field of backfillTextFields) {
+    if (!hasContent(existing[field]) && hasContent(incoming[field])) { patch[field] = incoming[field]; fields.push(field); }
+  }
+  if (!(Number(existing.score) > 0) && Number(incoming.score) > 0) { patch.score = Number(incoming.score); fields.push("score"); }
+  if (!fields.length) return { patch, fields };
+  const merged = { ...existing, ...patch };
+  const obsolete = new Set([
+    hasContent(merged.answer) ? "【存疑】缺少答案" : "",
+    hasContent(merged.analysis) ? "【存疑】缺少解析" : "",
+    hasContent(merged.knowledgePoints) ? "【存疑】缺少知识点" : "",
+  ].filter(Boolean));
+  patch.notes = String(existing.notes || "").split("\n").filter((line) => !obsolete.has(line.trim())).join("\n");
+  patch.parseConfidence = Math.max(Number(existing.parseConfidence || 0), Number(incoming.parseConfidence || 0));
+  if (!existing.reviewed) patch.reviewStatus = "auto_checked";
+  return { patch, fields };
+}
+
 const jsonField = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value || []);
 
 const importNotesField = (payload: Record<string, unknown>) => {

@@ -60,7 +60,7 @@ test("portable template JSON keeps schema and example rows", async () => {
 });
 
 test("automatic import enables questions without inventing answers or claiming human review", async () => {
-  const { autoImportedQuestionValues } = await loadTsModule("app/lib/services/question-values.ts");
+  const { autoImportedQuestionValues, importedQuestionBackfill } = await loadTsModule("app/lib/services/question-values.ts");
   const result = autoImportedQuestionValues({ stem: "原始题干", answer: "", analysis: "", knowledgePoints: "", reviewed: true, reviewStatus: "confirmed", status: "review", parseConfidence: 0.4, importNotes: ["缺少答案"] });
   assert.equal(result.status, "active");
   assert.equal(result.reviewStatus, "auto_checked");
@@ -69,6 +69,15 @@ test("automatic import enables questions without inventing answers or claiming h
   assert.equal(result.analysis, "");
   assert.equal(result.parseConfidence, 0.4);
   assert.match(result.notes, /缺少答案/);
+  const enriched = importedQuestionBackfill(
+    { answer: "", analysis: "原解析", knowledgePoints: "", scoringPoints: "[]", score: 0, notes: "原题号：1\n【存疑】缺少答案\n【存疑】缺少知识点", parseConfidence: 0.4, reviewed: false },
+    { answer: "B", analysis: "新解析不得覆盖", knowledgePoints: "维护国家安全", scoringPoints: '["答出责任"]', score: 2, parseConfidence: 0.85 },
+  );
+  assert.deepEqual(enriched.fields, ["answer", "scoringPoints", "knowledgePoints", "score"]);
+  assert.equal(enriched.patch.answer, "B");
+  assert.equal(enriched.patch.analysis, undefined);
+  assert.equal(enriched.patch.notes, "原题号：1");
+  assert.equal(enriched.patch.parseConfidence, 0.85);
 });
 
 test("all import entries use automatic admission and the import UI no longer requires review", async () => {
@@ -85,6 +94,7 @@ test("all import entries use automatic admission and the import UI no longer req
   assert.match(route, /requirePermission\("questions:write"\)/);
   assert.match(route, /status='review' AND trim\(stem\)!=''/);
   assert.match(route, /auto_admit_import/);
+  assert.match(await readSource("app/api/v2/question-sets/import/route.ts"), /backfill_import_duplicates/);
   assert.match(route, /RETURNING id/);
   assert.match(route, /results\[0\]\?\.results\?\.length/);
 });
