@@ -79,10 +79,14 @@ test("all import entries use automatic admission and the import UI no longer req
   const ui = await readSource("app/v2/questions/QuestionLibraryWorkspace.tsx");
   assert.doesNotMatch(ui, /const confirmSet|const storeReview|本题题干、答案、解析和知识点已经人工核对/);
   assert.match(ui, /将已导入题目直接入库/);
+  assert.match(ui, /批量检查后自动入库/);
+  assert.doesNotMatch(ui, /批量加入待校对队列/);
   const route = await readSource("app/api/v2/question-sets/[id]/route.ts");
   assert.match(route, /requirePermission\("questions:write"\)/);
   assert.match(route, /status='review' AND trim\(stem\)!=''/);
   assert.match(route, /auto_admit_import/);
+  assert.match(route, /RETURNING id/);
+  assert.match(route, /results\[0\]\?\.results\?\.length/);
 });
 
 test("portable route exposes template downloads and CSV import path", async () => {
