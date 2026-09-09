@@ -88,13 +88,58 @@ B
   assert.ok(parsed.every((question) => question.analysis && question.knowledgePoints));
 });
 
+test("Word parser keeps subjective reference answers out of the previous choice question", async () => {
+  const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  const parsed = parsePoliticsDocx(`一、单项选择题
+24．集体成员为了共同目标团结协作说明了什么？（ ）
+A．集体力量源于共同目标和团结协作
+B．个人力量决定集体力量
+二、材料分析题
+25．结合材料，说明青少年如何维护国家安全。
+《模拟卷》参考答案及解析
+24．A
+【知识点】集体力量的来源
+【详解】集体力量来源于成员共同的目标和团结协作。
+25．①增强国家安全意识。②学习国家安全法律。③履行维护国家安全的义务。
+【知识点】维护国家安全
+【详解】从意识、法治和行动三个角度作答。`, { stage: "初中", grade: "九年级" });
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].answer, "A");
+  assert.equal(parsed[0].knowledgePoints, "集体力量的来源");
+  assert.doesNotMatch(parsed[0].knowledgePoints, /25．/);
+  assert.match(parsed[1].answer, /增强国家安全意识/);
+  assert.equal(parsed[1].knowledgePoints, "维护国家安全");
+  assert.match(parsed[1].analysis, /意识、法治和行动/);
+});
+
 test("Word parser expands grouped answers and shared explanations", async () => {
   const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
   const questions = [27, 28, 29, 30].map((number) => `${number}．第${number}题（ ）\nA．选项一\nB．选项二\nC．选项三\nD．选项四`).join("\n");
   const parsed = parsePoliticsDocx(`一、单选题\n${questions}\n参考答案\n27．B    28．C    29．A    30．D\n【知识点】中华优秀传统文化\n【详解】27．第一题解析。\n28．第二题解析。\n29．第三题解析。\n30．第四题解析。`, { stage: "初中", grade: "八年级" });
   assert.equal(parsed.length, 4);
   assert.deepEqual(parsed.map((question) => question.answer), ["B", "C", "A", "D"]);
+  assert.deepEqual(parsed.map((question) => question.analysis), ["第一题解析。", "第二题解析。", "第三题解析。", "第四题解析。"]);
   assert.ok(parsed.every((question) => question.analysis && question.knowledgePoints));
+});
+
+test("Word parser supports answer tables and plain, example and new-line subjective answers", async () => {
+  const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  const parsed = parsePoliticsDocx(`一、选择题\n1．选择正确说法\nA．遵纪守法\nB．违法行为\n二、材料题\n2．说明理由\n3．给出建议\n4．分析材料\n参考答案\n题号\n1\n答案\nA\n2．增强生命的韧性。\n【知识点】生命\n3．示例：要正确认识自己。\n【知识点】自我认识\n4．\n①关心集体。\n1.参加集体活动。\n2.承担集体责任。\n【知识点】集体`, {});
+  assert.deepEqual(parsed.map(q => q.answer), ["A", "增强生命的韧性。", "示例：要正确认识自己。", "①关心集体。\n1.参加集体活动。\n2.承担集体责任。"]);
+  assert.deepEqual(parsed.map(q => q.knowledgePoints), ["", "生命", "自我认识", "集体"]);
+});
+
+test("Word parser keeps decimal chart values and numbered material points inside their real question", async () => {
+  const { parsePoliticsDocx, enrichQuestionsFromHtml } = await loadTsModule("app/lib/question-import.ts");
+  const parsed = parsePoliticsDocx(`一、选择题\n12．阅读图表，回答问题\n82.16%\n81.06%\nA．选项一\nB．选项二\n13．分析春节材料\n1.传承传统文化\n2.增强文化自信\n14．最后一道题\n参考答案\n12．A\n13．弘扬中华优秀传统文化\n14．承担责任`, {});
+  assert.deepEqual(parsed.map(q => q.sourceQuestionNumber), [12, 13, 14]);
+  assert.match(parsed[0].stem, /82\.16%/);
+  assert.match(parsed[1].stem, /2\.增强文化自信/);
+  const rich = enrichQuestionsFromHtml('<p>12．阅读图表，回答问题</p><table><tr><td>82.16%</td></tr></table><p>81.06%</p><p>13．分析春节材料</p><p>1.传承传统文化</p><p>2.增强文化自信<img src="culture.png"></p><p>14．最后一道题<img src="last.png"></p><p>参考答案及解析</p><p><img src="answer-only.png"></p>', parsed);
+  assert.equal(rich[0].tables.length, 1);
+  assert.equal(rich[0].attachments.length, 0);
+  assert.equal(rich[1].attachments[0].src, "culture.png");
+  assert.deepEqual(rich[2].attachments.map(image => image.src), ["last.png"]);
 });
 
 test("Word media stays with the nearest numbered political question", async () => {
@@ -291,7 +336,7 @@ test("student wrong-question records and feedback delivery stay reviewable", asy
   assert.match(sentExecutor, /sent_at/);
 });
 
-test("Word review tasks resume from D1 and demo data covers the teaching loop", async () => {
+test("Word import records resume from D1 and demo data covers the teaching loop", async () => {
   const [importRoute, setRoute, sourceRoute, questionsPage, demo, masteryRoute] = await Promise.all(["app/api/v2/question-sets/import/route.ts", "app/api/v2/question-sets/[id]/route.ts", "app/api/v2/question-sets/source/route.ts", "app/v2/questions/QuestionLibraryWorkspace.tsx", "app/api/v2/settings/demo/route.ts", "app/api/v2/students/[id]/mastery/route.ts"].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   assert.match(importRoute, /insertedQuestions/);
   assert.match(importRoute, /env\.FILES\.get\(sourceKey\)/);
@@ -301,7 +346,7 @@ test("Word review tasks resume from D1 and demo data covers the teaching loop", 
   assert.match(sourceRoute, /env\.FILES\.get\(key\)/);
   assert.match(sourceRoute, /Content-Disposition/);
   assert.match(setRoute, /questionSetId/);
-  assert.match(questionsPage, /已恢复.*复核进度/);
+  assert.match(questionsPage, /已恢复.*导入记录/);
   assert.match(questionsPage, /setSourceFingerprint/);
   assert.match(questionsPage, /sourceFingerprint:\s*source\.fingerprint/);
   assert.match(questionsPage, /sourceKey:\s*sourceDocument,\s*sourceFingerprint/);
@@ -309,8 +354,8 @@ test("Word review tasks resume from D1 and demo data covers the teaching loop", 
   assert.match(questionsPage, /刷新后浏览器不保留本地文件，请重新选择同名文件/);
   assert.match(questionsPage, /api\/v2\/question-sets\/source\?key=/);
   assert.match(questionsPage, /item\.file \|\| item\.sourceKey/);
-  assert.match(questionsPage, /beforeunload/);
-  assert.match(questionsPage, /自动保存复核进度失败/);
+  assert.match(questionsPage, /localStorage\.setItem\("zhishi:question-import-queue"/);
+  assert.match(questionsPage, /已自动检查并加入题库，无需逐题复核/);
   for (const status of ["completed", "scheduled", "rescheduled", "cancelled", "makeup"]) assert.match(demo, new RegExp(`\\"${status}\\"`));
   for (const table of ["attendance", "student_lesson_records", "assignments", "assignment_submissions", "lesson_questions", "feedback", "reflections"]) assert.match(demo, new RegExp(table));
   assert.match(masteryRoute, /student_mastery_adjustments/);
@@ -434,7 +479,7 @@ test("question portability, batch review and document export contracts exist", a
   const paths = ["app/api/v2/questions/portable/route.ts", "app/api/v2/questions/batch/route.ts", "app/lib/question-readiness.ts", "app/api/v2/papers/[id]/export/route.ts", "app/v2/detail/[kind]/[id]/PaperDetailWorkspace.tsx", "drizzle/0013_eminent_banshee.sql"];
   const [portable, batch, readiness, docxExport, paperDetail, migration] = await Promise.all(paths.map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")));
   for (const format of ["csv", "markdown", "json"]) assert.match(portable, new RegExp(format));
-  assert.match(portable, /answerIncluded/); assert.match(portable, /import_questions/); assert.match(portable, /status:\s*"review"/);
+  assert.match(portable, /answerIncluded/); assert.match(portable, /import_questions/); assert.match(portable, /autoImportedQuestionValues/);
   for (const action of ["confirm", "return", "ignore", "difficulty", "questionType"]) assert.match(batch, new RegExp(action));
   assert.match(batch, /reviewQuestions/); assert.match(readiness, /识别置信度低/); assert.match(batch, /paper_questions/);
   assert.match(docxExport, /Packer\.toBlob/); assert.match(docxExport, /STHeiti/); assert.match(docxExport, /学生版/); assert.match(docxExport, /解析版/); assert.match(docxExport, /export_jobs/); assert.match(docxExport, /ImageRun/);

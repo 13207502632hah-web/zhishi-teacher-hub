@@ -7,6 +7,7 @@ export type ImportedQuestion = Record<string, unknown> & {
   importNotes: string[];
   parseConfidence: number;
   reviewStatus: "pending";
+  sourceQuestionNumber?: number;
 };
 
 type ImportMeta = Record<string, unknown>;
@@ -26,58 +27,93 @@ function questionTypeFromHeading(heading: string, hasOptions: boolean) {
 
 type SeparatedAnswer = { answer: string; analysis: string; knowledgePoints: string };
 
+const referenceAnswerHeading = /^\s*(?:《[^\n》]+》\s*)?(?:参考答案(?:(?:与|及)(?:解析|详解))?|答案(?:与|及)(?:解析|详解)|试题答案)\s*$/m;
+
 /** 识别“前半部分题目、后半部分参考答案与详解”的常见组卷结构。 */
 function splitSeparatedAnswers(text: string) {
-  const answerHeading = text.search(/^\s*(?:《[^\n》]+》\s*)?参考答案(?:与解析)?\s*$/m);
+  const answerHeading = text.search(referenceAnswerHeading);
   if (answerHeading < 0) return { questionText: text, answers: new Map<string, SeparatedAnswer>() };
   const questionText = text.slice(0, answerHeading).trim();
   const answerText = text.slice(answerHeading);
-  const detailedStart = answerText.search(/^[ \t]*\d{1,3}[．.、][ \t]*(?:[A-H]+|正确|错误)(?:[ \t]+\d{1,3}[．.、][ \t]*(?:[A-H]+|正确|错误))*[ \t]*$/m);
-  const detailedText = detailedStart >= 0 ? answerText.slice(detailedStart) : "";
   const answers = new Map<string, SeparatedAnswer>();
-  for (const chunk of detailedText.split(/(?=^[ \t]*\d{1,3}[．.、][ \t]*(?:[A-H]+|正确|错误)[ \t]*$)/m)) {
-    const heading = chunk.match(/^[ \t]*(\d{1,3})[．.、][ \t]*([A-H]+|正确|错误)[ \t]*$/m);
-    if (!heading) continue;
-    answers.set(heading[1], {
-      answer: heading[2],
-      analysis: marker(chunk, "详解") || marker(chunk, "解析"),
-      knowledgePoints: marker(chunk, "知识点"),
+
+  // Mammoth 会把 Word 中横向答案表转成“题号、1、2、答案、A、B”的逐行文字。
+  const compactLines = answerText.split("\n").map((line) => line.trim()).filter(Boolean);
+  for (let index = 0; index < compactLines.length; index += 1) {
+    if (compactLines[index] !== "题号") continue;
+    const answerIndex = compactLines.indexOf("答案", index + 1);
+    if (answerIndex < 0) continue;
+    const numbers = compactLines.slice(index + 1, answerIndex).filter((line) => /^\d{1,3}$/.test(line));
+    const values = compactLines.slice(answerIndex + 1, answerIndex + 1 + numbers.length);
+    if (!numbers.length || values.length !== numbers.length || values.some((value) => !/^(?:[A-H]+|正确|错误)$/.test(value))) continue;
+    numbers.forEach((number, offset) => answers.set(number, { answer: values[offset], analysis: "", knowledgePoints: "" }));
+    index = answerIndex + numbers.length;
+  }
+
+  // 按原卷递增题号分段，不以答案的措辞判断边界。组题详解及答案内的
+  // “1.、2.”小点不再成为新的答案；纯题号换行后的主观答案也能保留。
+  let lastAnswerNumber = 0;
+  const starts = [...answerText.matchAll(/^[ \t]*(\d{1,3})(?:[．、]|\.(?!\d))[^\n]*$/gm)].filter((start) => {
+    const number = Number(start[1]);
+    if (number <= lastAnswerNumber) return false;
+    const grouped = objectiveAnswerPairs(start[0].trim());
+    lastAnswerNumber = grouped.length ? Math.max(...grouped.map((pair) => Number(pair[1]))) : number;
+    return true;
+  });
+  for (let index = 0; index < starts.length; index += 1) {
+    const start = starts[index], chunk = answerText.slice(start.index || 0, starts[index + 1]?.index);
+    const firstLine = start[0].trim();
+    // 连续小题有时共用一组知识点与详解，答案会写成“27．B  28．C  29．A  30．D”。
+    const grouped = objectiveAnswerPairs(firstLine);
+    const knowledgePoints = marker(chunk, "知识点");
+    const analysisBlock = marker(chunk, "详解") || marker(chunk, "解析");
+    if (grouped.length > 1) {
+      for (const pair of grouped) {
+        const analysisPattern = new RegExp(`(?:^|\\n)[ \\t]*${pair[1]}[．.、][ \\t]*([\\s\\S]*?)(?=\\n[ \\t]*\\d{1,3}[．.、]|$)`);
+        const analysis = analysisBlock.match(analysisPattern)?.[1]?.trim() || analysisBlock;
+        answers.set(pair[1], { answer: pair[2], analysis, knowledgePoints });
+      }
+      continue;
+    }
+    const rawBody = chunk.replace(/^[ \t]*\d{1,3}[．.、][ \t]*/, "");
+    const answer = rawBody.split(/\n[ \t]*【[^】]+】/)[0].replace(/【[^】]+】[\s\S]*$/, "").trim();
+    const previous = answers.get(start[1]);
+    answers.set(start[1], {
+      answer: answer || previous?.answer || "",
+      analysis: analysisBlock || previous?.analysis || "",
+      knowledgePoints: knowledgePoints || previous?.knowledgePoints || "",
     });
   }
-  // 连续小题有时共用一组知识点与详解，答案会写成“27．B  28．C  29．A  30．D”。
-  for (const lineMatch of detailedText.matchAll(/^([^\n]+)$/gm)) {
-    const pairs = [...lineMatch[1].matchAll(/(\d{1,3})[．.、][ \t]*([A-H]+)/g)];
-    if (pairs.length < 2) continue;
-    const restStart = (lineMatch.index || 0) + lineMatch[0].length;
-    const remaining = detailedText.slice(restStart);
-    const nextStandalone = remaining.search(/^[ \t]*\d{1,3}[．.、][ \t]*(?:[A-H]+|正确|错误)[ \t]*$/m);
-    const groupChunk = detailedText.slice(lineMatch.index || 0, nextStandalone < 0 ? undefined : restStart + nextStandalone);
-    const knowledgePoints = marker(groupChunk, "知识点");
-    const analysisBlock = marker(groupChunk, "详解") || marker(groupChunk, "解析");
-    for (const pair of pairs) {
-      const number = pair[1];
-      const analysisPattern = new RegExp(`(?:^|\\n)[ \\t]*${number}[．.、][ \\t]*([\\s\\S]*?)(?=\\n[ \\t]*\\d{1,3}[．.、]|$)`);
-      const analysis = analysisBlock.match(analysisPattern)?.[1]?.trim() || analysisBlock;
-      answers.set(number, { answer: pair[2], analysis, knowledgePoints });
-    }
-  }
   return { questionText, answers };
+}
+
+function objectiveAnswerPairs(line: string) {
+  if (!/^\d{1,3}[．.、][ \t]*(?:[A-H]+|正确|错误)(?:[ \t]+\d{1,3}[．.、][ \t]*(?:[A-H]+|正确|错误))*[ \t]*$/.test(line)) return [];
+  return [...line.matchAll(/(\d{1,3})[．.、][ \t]*([A-H]+|正确|错误)/g)];
+}
+
+function numberedQuestionChunks(section: string) {
+  let lastNumber = 0;
+  const starts = [...section.matchAll(/^[ \t]*(\d{1,3})(?:[．、]|\.(?!\d))[ \t]*/gm)].filter((match) => {
+    const number = Number(match[1]);
+    if (number <= lastNumber) return false;
+    lastNumber = number;
+    return true;
+  });
+  return starts.map((match, index) => ({ number: match[1], chunk: section.slice(match.index, starts[index + 1]?.index) }));
 }
 
 /** 将常见组卷 Word 的文字内容整理为“待校对”题目；不对题目作自动判定。 */
 export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuestion[] {
   const normalized = text.replace(/\r/g, "").replace(/[\u00a0\u3000]/g, " ").replace(/\t/g, " ")
-    .split("\n").filter((line) => !/^\s*(第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|—?\s*\d+\s*—?|仅供测试使用)\s*$/.test(line)).join("\n");
+    .split("\n").filter((line) => !/^\s*(第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|—\s*\d+\s*—|仅供测试使用)\s*$/.test(line)).join("\n");
   const { questionText, answers: separatedAnswers } = splitSeparatedAnswers(normalized);
   const sections = questionText.split(/(?=^\s*[一二三四五六七八九十]+、)/m);
   const output: ImportedQuestion[] = [];
 
   for (const section of sections) {
     const heading = section.match(/^\s*([一二三四五六七八九十]+、[^\n]+)/m)?.[1] || "";
-    const chunks = section.split(/(?=^\s*\d{1,3}[．.、]\s*)/m);
-    for (const chunk of chunks) {
-      const number = chunk.match(/^\s*(\d{1,3})[．.、]\s*/m)?.[1];
-      if (!number) continue;
+    for (const { chunk, number } of numberedQuestionChunks(section)) {
       const beforeAnswer = chunk.split(/【答案】/)[0].replace(/^\s*\d{1,3}[．.、]\s*/, "").trim();
       const material = marker(chunk, "材料");
       const questionBody = material ? beforeAnswer.replace(/【材料】\s*[\s\S]*?(?=\n\s*【设问】|\n\s*[（(]\d+[）)]|$)/, "").replace(/【设问】\s*/, "").trim() : beforeAnswer;
@@ -152,8 +188,10 @@ export function enrichQuestionsFromHtml(html: string, input: ImportedQuestion[])
   let current = -1, imageIndex = 0, tableIndex = 0;
   for (const block of blocks) {
     const isTable = /^<table\b/i.test(block), text = textFromHtml(block);
-    if (!isTable && /参考答案(?:与解析)?/.test(text)) break;
-    if (!isTable && /^\s*\d{1,3}[．.、]\s*/.test(text)) current = Math.min(current + 1, output.length - 1);
+    if (!isTable && referenceAnswerHeading.test(text)) break;
+    const questionNumber = !isTable && text.match(/^\s*(\d{1,3})(?:[．、]|\.(?!\d))\s*/)?.[1];
+    const next = output[current + 1];
+    if (questionNumber && next && Number(questionNumber) === Number(next.sourceQuestionNumber)) current += 1;
     const target = current >= 0 ? current : 0, uncertain = current < 0;
     const images = [...block.matchAll(/<img\b[^>]*\bsrc=["']([^"']*)["'][^>]*>/gi)];
     for (const match of images) {
