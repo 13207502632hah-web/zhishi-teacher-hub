@@ -12,7 +12,7 @@ import {
   scanSimilarityCandidates,
   uniqueSourceRefs,
 } from "../../../../lib/question-import-candidates";
-import { autoImportedQuestionValues, importedQuestionBackfill } from "../../../../lib/services/question-values";
+import { autoImportedQuestionValues, importedQuestionBackfill, importedQuestionSourceRefresh } from "../../../../lib/services/question-values";
 
 export const QUESTION_SET_IMPORT_LIMIT = 300;
 type QuestionImportBody = { name?: string; sourceFile?: string; sourceDocument?: string; sourceKey?: string; sourceFingerprint?: string; questions?: Array<Record<string, unknown>> };
@@ -58,17 +58,25 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   const existing = new Set(existingRows.map((question) => question.fingerprint).filter((value): value is string => Boolean(value)));
   const unique = uniqueSourceRefs(sourceRefs).filter((ref) => !existing.has(ref.fingerprint));
   const existingByFingerprint = new Map(existingRows.map((question) => [String(question.fingerprint || ""), question]));
+  const sourceRows = previous ? await db.select().from(questions).where(eq(questions.questionSetId, previous.id)) : [];
+  const sourceRowIds = new Set(sourceRows.map((row) => row.id));
   const enrichedFields: Record<string, string[]> = {};
-  const enrichedIds: number[] = [];
+  const enrichedIds: number[] = [], correctedIds: number[] = [];
   for (const ref of uniqueSourceRefs(sourceRefs).filter((item) => existing.has(item.fingerprint))) {
     const row = existingByFingerprint.get(ref.fingerprint); if (!row) continue;
-    const { patch, fields } = importedQuestionBackfill(row, ref.prepared);
+    const canRefreshSource = sourceRowIds.has(row.id) && !row.reviewed && row.reviewStatus === "auto_checked" && String(row.sourceFile || "") === String(body.sourceFile || "");
+    const { patch, fields } = canRefreshSource ? importedQuestionSourceRefresh(row, ref.prepared) : importedQuestionBackfill(row, ref.prepared);
     if (!fields.length) continue;
     await db.update(questions).set({ ...patch, updatedAt: new Date().toISOString() }).where(eq(questions.id, row.id));
-    enrichedIds.push(row.id); enrichedFields[String(row.id)] = fields;
+    (canRefreshSource ? correctedIds : enrichedIds).push(row.id); enrichedFields[String(row.id)] = fields;
   }
+  const incomingFingerprints = new Set(sourceRefs.map((ref) => ref.fingerprint));
+  const obsoleteSourceRows = sourceRows.filter((row) => !incomingFingerprints.has(String(row.fingerprint || "")) && !row.reviewed && row.reviewStatus === "auto_checked" && String(row.sourceFile || "") === String(body.sourceFile || "") && row.status === "active");
+  for (const row of obsoleteSourceRows) await db.update(questions).set({ status: "archived", updatedAt: new Date().toISOString() }).where(eq(questions.id, row.id));
   if (enrichedIds.length) await audit(access, "backfill_import_duplicates", "question", enrichedIds.join(","), { count: enrichedIds.length, fields: enrichedFields, sourceFingerprint });
-  if (!unique.length) return Response.json({ error: enrichedIds.length ? `所有题目均已存在；已为 ${enrichedIds.length} 道旧题补齐缺失内容` : "所有题目都与现有题库重复，未创建导入任务", existing: previous || undefined, duplicates: prepared.length, enriched: enrichedIds.length, enrichedFields }, { status: 409 });
+  if (correctedIds.length || obsoleteSourceRows.length) await audit(access, "refresh_import_source", "question_set", previous?.id || "", { correctedIds, archivedIds: obsoleteSourceRows.map((row) => row.id), fields: enrichedFields, sourceFingerprint });
+  const refreshSummary = [correctedIds.length && `修正 ${correctedIds.length} 道`, obsoleteSourceRows.length && `归档 ${obsoleteSourceRows.length} 道误识别记录`, enrichedIds.length && `补齐 ${enrichedIds.length} 道`].filter(Boolean).join("、");
+  if (!unique.length) return Response.json({ error: refreshSummary ? `所有题目均已存在；${refreshSummary}` : "所有题目都与现有题库重复，未创建导入任务", existing: previous || undefined, duplicates: prepared.length, enriched: enrichedIds.length, corrected: correctedIds.length, archived: obsoleteSourceRows.length, enrichedFields }, { status: 409 });
   const duplicateRows = exactDuplicateRows(sourceRefs, existing);
   let comparisonPool: Awaited<ReturnType<typeof collectSimilarityCandidates>>["candidates"];
   let similarityCoverage: Awaited<ReturnType<typeof collectSimilarityCandidates>>["coverage"];
@@ -80,7 +88,7 @@ export async function importQuestionSetForAccess(access: import("../../../../lib
   const similarRows = scanSimilarityCandidates(unique, comparisonPool);
   const duplicateReport = { exact: duplicateRows, similar: similarRows, coverage: similarityCoverage };
   const summary = summarizeImport(unique.map((ref) => ({ ...ref.prepared, sourceIndex: ref.sourceIndex, sourceQuestionNumber: ref.sourceQuestionNumber ?? undefined })));
-  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, enriched: enrichedIds.length, enrichedFields, similar: similarRows.length, coverage: similarityCoverage, reviewed: unique.filter((ref) => ref.prepared.reviewed).length, incomplete: summary.incomplete, lowConfidence: summary.lowConfidence, typeCounts: summary.typeCounts, incompleteItems: summary.incompleteItems, lowConfidenceItems: summary.lowConfidenceItems, numberingIssues: summary.numberingIssues };
+  const report = { total: prepared.length, imported: unique.length, duplicates: prepared.length - unique.length, enriched: enrichedIds.length, corrected: correctedIds.length, archived: obsoleteSourceRows.length, enrichedFields, similar: similarRows.length, coverage: similarityCoverage, reviewed: unique.filter((ref) => ref.prepared.reviewed).length, incomplete: summary.incomplete, lowConfidence: summary.lowConfidence, typeCounts: summary.typeCounts, incompleteItems: summary.incompleteItems, lowConfidenceItems: summary.lowConfidenceItems, numberingIssues: summary.numberingIssues };
   const first = unique[0].prepared, sourceYear = String(first.year || ""), academicYear = /^20\d{2}-20\d{2}$/.test(sourceYear) ? sourceYear : /^20\d{2}$/.test(sourceYear) ? `${Number(sourceYear) - 1}-${sourceYear}` : "";
   let paper: typeof papers.$inferSelect;
   let set: typeof questionSets.$inferSelect;

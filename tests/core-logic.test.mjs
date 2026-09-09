@@ -520,6 +520,17 @@ test("schedule import expands a horizontal calendar matrix without inventing emp
   assert.deepEqual(normalized[1].studentNames, ["__e2e__学生"]);
   assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
 });
+
+test("same-source refresh corrects parser-owned values including stale contamination", async () => {
+  const { importedQuestionSourceRefresh } = await loadTsModule("app/lib/services/question-values.ts");
+  const { patch, fields } = importedQuestionSourceRefresh(
+    { answer: "A", knowledgePoints: "集体力量\n25．主观题答案", analysis: "误串内容", reviewed: false, isFavorite: true },
+    { answer: "A", knowledgePoints: "集体力量", analysis: "", reviewed: false, isFavorite: false },
+  );
+  assert.deepEqual({ knowledgePoints: patch.knowledgePoints, analysis: patch.analysis }, { knowledgePoints: "集体力量", analysis: "" });
+  assert.deepEqual(fields, ["analysis", "knowledgePoints"]);
+  assert.equal("isFavorite" in patch, false);
+});
 test("schedule import prefers the calendar sheet with WPS short dates and inferred course names", async () => {
   const { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
   const detail = [

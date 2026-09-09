@@ -7,6 +7,7 @@ export const autoImportedQuestionValues = (payload: Record<string, unknown>) => 
 });
 
 const backfillTextFields = ["answer", "answerPoints", "analysis", "scoringPoints", "knowledgePoints", "secondaryKnowledge", "coreCompetencies", "factBasis", "textbookView", "valueJudgment", "answerLogic", "standardExpression"] as const;
+const sourceRefreshFields = ["questionGroup", "subQuestions", "scoringPoints", "material", "options", "answer", "answerPoints", "analysis", "knowledgePoints", "questionType", "difficulty", "score", "parseConfidence", "notes"] as const;
 const hasContent = (value: unknown) => !["", "[]", "{}", "null"].includes(String(value ?? "").trim());
 
 /** Exact duplicate answer editions may fill blanks, but never overwrite existing teaching content. */
@@ -26,6 +27,17 @@ export function importedQuestionBackfill(existing: Record<string, unknown>, inco
   patch.notes = String(existing.notes || "").split("\n").filter((line) => !obsolete.has(line.trim())).join("\n");
   patch.parseConfidence = Math.max(Number(existing.parseConfidence || 0), Number(incoming.parseConfidence || 0));
   if (!existing.reviewed) patch.reviewStatus = "auto_checked";
+  return { patch, fields };
+}
+
+/** Re-running the exact source may repair parser-owned values on untouched auto-imported rows. */
+export function importedQuestionSourceRefresh(existing: Record<string, unknown>, incoming: Record<string, unknown>) {
+  const patch: Record<string, unknown> = {}, fields: string[] = [];
+  for (const field of sourceRefreshFields) {
+    if (String(existing[field] ?? "") === String(incoming[field] ?? "")) continue;
+    patch[field] = incoming[field];
+    fields.push(field);
+  }
   return { patch, fields };
 }
 
