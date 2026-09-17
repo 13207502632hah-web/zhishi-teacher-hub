@@ -80,6 +80,50 @@ test("automatic import enables questions without inventing answers or claiming h
   assert.equal(enriched.patch.parseConfidence, 0.85);
 });
 
+test("same-file partial reimport only backfills blanks and is idempotent", async () => {
+  const { autoImportedQuestionValues } = await loadTsModule("app/lib/services/question-values.ts");
+  const rows = [
+    { ...autoImportedQuestionValues({ stem: "第一题原始题干", answer: "A", analysis: "教师解析", sourceFile: "原卷.docx" }), id: 1, questionSetId: 7 },
+    { ...autoImportedQuestionValues({ stem: "第二题本次未识别", answer: "B", sourceFile: "原卷.docx" }), id: 2, questionSetId: 7 },
+  ];
+  const schema = { questions: { id: "id", fingerprint: "fingerprint", questionSetId: "questionSetId" }, questionSets: { sourceFingerprint: "sourceFingerprint" }, papers: {} };
+  const writes = [], audits = [];
+  const db = {
+    select: () => ({ from: (table) => ({ where: (filter) => {
+      if (table === schema.questionSets) return { limit: async () => [{ id: 7, name: "原卷", status: "active" }] };
+      return Promise.resolve(rows.filter((row) => filter.values.includes(row[filter.column])));
+    } }) }),
+    update: () => ({ set: (patch) => ({ where: async (filter) => {
+      for (const row of rows.filter((row) => filter.values.includes(row[filter.column]))) { writes.push({ id: row.id, patch }); Object.assign(row, patch); }
+    } }) }),
+  };
+  const overrides = {
+    "cloudflare:workers": { env: { FILES: { get: async () => ({ customMetadata: { fingerprint: "verified-source" } }) } } },
+    "drizzle-orm": { eq: (column, value) => ({ column, values: [value] }), inArray: (column, values) => ({ column, values }) },
+    "../../../../../db": { getDb: () => db },
+    "../../../../../db/schema": schema,
+    "../../../../lib/access": { audit: async (...args) => audits.push(args) },
+  };
+  const routePath = fileURLToPath(new URL("../app/api/v2/question-sets/import/route.ts", import.meta.url));
+  const code = ts.transpileModule(readFileSync(routePath, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const routeModule = { exports: {} };
+  new Function("module", "exports", "require", code)(routeModule, routeModule.exports, (specifier) => overrides[specifier] || requireTs(fileURLToPath(new URL(`${specifier}.ts`, pathToFileURL(routePath)))));
+  const body = { sourceFile: "原卷.docx", sourceKey: "stored.docx", sourceFingerprint: "verified-source", questions: [{ stem: "第一题原始题干", answer: "C", analysis: "", knowledgePoints: "原卷知识点" }] };
+  const result = await routeModule.exports.importQuestionSetForAccess({ name: "测试教师" }, body);
+  assert.equal(result.status, 409);
+  assert.equal((await result.json()).enriched, 1);
+  assert.equal(rows[0].answer, "A");
+  assert.equal(rows[0].analysis, "教师解析");
+  assert.equal(rows[0].knowledgePoints, "原卷知识点");
+  assert.equal(rows[1].status, "active");
+  assert.equal(rows[1].answer, "B");
+  assert.deepEqual(writes.map((write) => write.id), [1]);
+  assert.equal(audits[0][1], "backfill_import_duplicates");
+  const repeat = await routeModule.exports.importQuestionSetForAccess({ name: "测试教师" }, body);
+  assert.equal((await repeat.json()).enriched, 0);
+  assert.equal(writes.length, 1);
+});
+
 test("all import entries use automatic admission and the import UI no longer requires review", async () => {
   const readSource = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
   for (const path of ["app/api/v2/question-sets/import/route.ts", "app/api/v2/questions/portable/route.ts"]) assert.match(await readSource(path), /autoImportedQuestionValues/);

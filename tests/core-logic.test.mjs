@@ -521,15 +521,14 @@ test("schedule import expands a horizontal calendar matrix without inventing emp
   assert.ok(normalized.every((row) => validateNormalizedSchedule(row).length === 0));
 });
 
-test("same-source refresh corrects parser-owned values including stale contamination", async () => {
-  const { importedQuestionSourceRefresh } = await loadTsModule("app/lib/services/question-values.ts");
-  const { patch, fields } = importedQuestionSourceRefresh(
-    { answer: "A", knowledgePoints: "集体力量\n25．主观题答案", analysis: "误串内容", reviewed: false, isFavorite: true },
-    { answer: "A", knowledgePoints: "集体力量", analysis: "", reviewed: false, isFavorite: false },
+test("reimports preserve existing answers and teacher content even on auto-checked rows", async () => {
+  const { importedQuestionBackfill } = await loadTsModule("app/lib/services/question-values.ts");
+  const { patch, fields } = importedQuestionBackfill(
+    { answer: "A", knowledgePoints: "教师补充知识点", analysis: "教师补充解析", notes: "备课记录", score: 4, reviewed: false, reviewStatus: "auto_checked", isFavorite: true },
+    { answer: "B", knowledgePoints: "新识别知识点", analysis: "", notes: "", score: 2, reviewed: false, isFavorite: false },
   );
-  assert.deepEqual({ knowledgePoints: patch.knowledgePoints, analysis: patch.analysis }, { knowledgePoints: "集体力量", analysis: "" });
-  assert.deepEqual(fields, ["analysis", "knowledgePoints"]);
-  assert.equal("isFavorite" in patch, false);
+  assert.deepEqual(patch, {});
+  assert.deepEqual(fields, []);
 });
 test("schedule import prefers the calendar sheet with WPS short dates and inferred course names", async () => {
   const { normalizeScheduleRow, selectScheduleTable, validateNormalizedSchedule } = await loadTsModule("app/lib/schedule-import.ts");
