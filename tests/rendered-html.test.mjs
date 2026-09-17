@@ -116,11 +116,11 @@ test("next-stage workflows cover WeChat feedback, whole papers, review and expla
   for (const field of ["paper_files","feedback_templates","copied_at","paper_id"]) assert.match(migration,new RegExp(field));
 });
 
-test("reviewed questions enter the formal bank only through the unified approval center", async () => {
+test("formal question edits retain approval while imported questions enter automatically", async () => {
   const [approvalRoute, executor, reviewService, page, readiness] = await Promise.all([read("app/api/v2/approvals/route.ts"),read("app/lib/v2/approval-executor.ts"),read("app/lib/services/question-review-service.ts"),read("app/v2/questions/QuestionLibraryWorkspace.tsx"),read("app/lib/question-readiness.ts")]);
   for (const action of ["question.promote", "question.update", "question.delete"]) assert.match(approvalRoute,new RegExp(action.replace(".", "\\.")));
   assert.match(executor,/reviewQuestions\(ids, "confirm"\)/); assert.match(executor,/question\.update/); assert.match(executor,/question\.delete/);
-  assert.match(reviewService,/questionReadinessIssues/); assert.match(reviewService,/status='active'/); assert.match(page,/提交正式入库确认/); assert.match(page,/queueQuestionApproval/); assert.doesNotMatch(page,/disabled=\{reviewCount !== parsed\.length\}/);
+  assert.match(reviewService,/questionReadinessIssues/); assert.match(reviewService,/status='active'/); assert.match(page,/无需逐题复核/); assert.match(page,/queueQuestionApproval\(\{ actionType: "question.update"/); assert.match(page,/queueQuestionApproval\(\{ actionType: "question.delete"/); assert.doesNotMatch(page,/提交正式入库确认/);
   assert.match(readiness,/主观题缺少采分点或解析/); assert.match(readiness,/缺少选项/); assert.match(readiness,/识别置信度低/);
 });
 
@@ -228,13 +228,13 @@ test("comprehensive repairs connect lazy answers, imports, exams, promotion and 
 test("stage two covers political question review, paper drafting and lesson links", async () => {
   const [schema, page, parser, importApi, sourceRoute, executor, reviewService, paperPage, paperApi, lessonQuestions] = await Promise.all([read("db/schema.ts"),read("app/v2/questions/QuestionLibraryWorkspace.tsx"),read("app/lib/question-import.ts"),read("app/api/v2/question-sets/import/route.ts"),read("app/api/v2/question-sets/source/route.ts"),read("app/lib/v2/approval-executor.ts"),read("app/lib/services/question-review-service.ts"),read("app/v2/modules/[slug]/PaperWorkbenchWorkspace.tsx"),read("app/api/v2/papers/route.ts"),read("app/api/v2/lessons/[id]/questions/route.ts")]);
   for (const field of ["factBasis","textbookView","valueJudgment","answerLogic","standardExpression","coreCompetencies","isFavorite","isWrong","isFrequent"]) assert.match(schema,new RegExp(field));
-  for (const label of ["正式题库","待校对","Word 导入","事实依据","教材观点","价值判断","答题逻辑","规范表述","识别报告","政治题目核对四点","必修3 政治与法治"]) assert.match(page,new RegExp(label));
+  for (const label of ["正式题库","待校对","Word 导入","事实依据","教材观点","价值判断","答题逻辑","规范表述","导入报告"]) assert.match(page,new RegExp(label));
   for (const marker of ["parsePoliticsDocx","summarizeImport","缺少答案","缺少知识点","缺少解析","题库的难度系数越高代表越容易"]) assert.match(parser,new RegExp(marker));
-  assert.match(importApi,/status:\s*"review"/); assert.match(executor,/reviewQuestions/); assert.match(executor,/question\.promote/); assert.match(reviewService,/status='active'/); assert.match(page,/提交正式入库确认/); assert.match(page,/question\.promote/);
+  assert.match(importApi,/autoImportedQuestionValues/); assert.match(importApi,/status:\s*"active"/); assert.match(executor,/reviewQuestions/); assert.match(executor,/question\.promote/); assert.match(reviewService,/status='active'/); assert.match(page,/保存分类并自动入库/);
   assert.match(importApi,/QUESTION_SET_IMPORT_LIMIT\s*=\s*300/); assert.match(importApi,/parsed\.length > QUESTION_SET_IMPORT_LIMIT/); assert.match(page,/超过单任务上限/); assert.match(page,/拆分成多个文件后分批导入/);
   assert.match(importApi,/env\.FILES\.get\(sourceKey\)/); assert.match(importApi,/sourceFingerprint/); assert.match(page,/sourceFingerprint/);
   assert.match(importApi,/typeCounts/); assert.match(importApi,/incompleteItems/); assert.match(importApi,/lowConfidenceItems/);
-  assert.match(page,/importReport\.typeCounts/); assert.match(page,/待补充清单/); assert.match(page,/低置信度清单/); assert.match(page,/importReport\.incompleteItems/); assert.match(page,/importReport\.lowConfidenceItems/); assert.match(page,/setImportStep\(3\);\s*setCurrent\(Number\(item\.index\)\)/);
+  assert.match(page,/importReport\.incomplete/); assert.match(page,/importReport\.duplicates/); assert.match(page,/缺答案、解析及低置信度信息继续保留/); assert.match(page,/结构检查不代表答案正确性认证/); assert.match(page,/题号异常清单/);
   assert.match(sourceRoute,/export async function GET/); assert.match(sourceRoute,/env\.FILES\.get\(key\)/); assert.match(sourceRoute,/Content-Disposition/); assert.match(sourceRoute,/private, no-store/);
   assert.match(page,/文件已上传，可继续处理/); assert.match(page,/刷新后浏览器不保留本地文件，请重新选择同名文件/); assert.match(page,/item\.file \|\| item\.sourceKey/); assert.match(page,/api\/v2\/question-sets\/source\?key=/);
   for (const label of ["自动推荐题目","手动添加","保存试卷草稿","练习","周测","阶段测","讲义题组"]) assert.match(paperPage,new RegExp(label));

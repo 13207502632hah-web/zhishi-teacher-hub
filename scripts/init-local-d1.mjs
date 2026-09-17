@@ -194,6 +194,7 @@ if (existing) {
   if (!databaseHasTable(existing, "class_files")) await applyMigrationToDatabase(existing, "0035_class_files.sql");
   if (!databaseHasTable(existing, "class_notices")) await applyMigrationToDatabase(existing, "0036_class_notices.sql");
   if (!databaseHasTable(existing, "mini_registration_requests")) await applyMigrationToDatabase(existing, "0037_mini_self_registration.sql");
+  if (!databaseHasTable(existing, "lesson_series")) await applyMigrationToDatabase(existing, "0038_weekly_schedules.sql");
   console.log(`本地 D1 已就绪：${path.relative(root, existing)}`);
 } else {
   let database = await findAnySqlite();

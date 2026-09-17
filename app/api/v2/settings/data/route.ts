@@ -19,7 +19,7 @@ export async function DELETE(request: Request) {
     "knowledge_evidence", "assessment_question_results", "paper_files", "paper_questions", "lesson_questions", "wrong_questions",
     "assessment_results", "student_mastery_adjustments", "assessments", "attendance", "student_lesson_records",
     "settlement_items", "settlements", "package_ledger", "lesson_billing_items", "lesson_finance", "lesson_packages", "pricing_rules", "institutions",
-    "schedule_import_rows", "schedule_imports", "calendar_subscriptions",
+    "schedule_import_rows", "schedule_imports", "calendar_subscriptions", "lesson_occurrences", "lesson_series_operations", "lesson_series",
     "feedback", "feedback_templates", "reflections", "enrollments", "staff_class_access", "papers", "questions", "question_sets", "lessons", "courses", "resources", "demo_records", "students", "classes",
   ];
   await env.DB.batch(tables.map((table) => env.DB.prepare(`DELETE FROM ${table}`)));

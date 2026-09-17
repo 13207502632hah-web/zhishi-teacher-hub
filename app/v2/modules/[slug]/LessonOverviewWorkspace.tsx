@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClassPicker } from "../../../components/ClassPicker";
 import { EmptyState, MetricCard, Panel, StatusBadge } from "../../../components/ui/Primitives";
 import { HttpError, requestJson } from "../../../lib/http-client";
+import { calendarWeekDates } from "../../../lib/weekly-schedule";
 
 type Lesson = Record<string, any> & { id: number; date: string; courseName: string; stage: string; grade: string; status: string };
 const statuses: Record<string, string> = { draft: "草稿", scheduled: "待上课", completed: "已完成", cancelled: "已取消", rescheduled: "已调课", makeup: "待补课" };
@@ -19,7 +20,8 @@ export function LessonOverviewWorkspace() {
     setLoading(true);
     setLessonLoadError("");
     try {
-      const params = new URLSearchParams({ q: query, status, classId: classFilter, from: month ? `${month}-01` : "", to: month ? `${month}-31` : "" });
+      const week = calendarWeekDates(weekAnchor);
+      const params = new URLSearchParams({ q: query, status, classId: classFilter, from: view === "week" ? week[0] || "" : month ? `${month}-01` : "", to: view === "week" ? week[6] || "" : month ? `${month}-31` : "" });
       const lessonsData = await requestJson<{ lessons?: Lesson[] }>(`/api/v2/lessons?${params}`, { signal });
       if (!lessonsData) throw new HttpError(200, "课时数据为空");
       setItems(lessonsData.lessons || []);
@@ -28,7 +30,7 @@ export function LessonOverviewWorkspace() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [query, status, classFilter, month]);
+  }, [query, status, classFilter, month, view, weekAnchor]);
   const edit = (row?: Lesson) => { setEditing(row?.id || null); const next: Record<string, string> = blank(); if (row) for (const key of fields) next[key] = row[key] == null ? "" : String(row[key]); setForm(next); setOpen(true); };
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load, reloadKey]);
   useEffect(() => {
@@ -79,12 +81,12 @@ export function LessonOverviewWorkspace() {
   const duplicate = (row: Lesson) => { const copy = { ...row, id: 0, date: new Date().toISOString().slice(0, 10), status: "scheduled", cancellationReason: "" }; edit(copy); };
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
   const days = useMemo(() => { const [year, monthIndex] = month.split("-").map(Number), count = new Date(year, monthIndex, 0).getDate(), first = new Date(year, monthIndex - 1, 1).getDay(); return Array.from({ length: first + count }, (_, index) => index < first ? null : index - first + 1); }, [month]);
-  const weekDays = useMemo(() => { const base = new Date(`${weekAnchor}T12:00:00`), monday = new Date(base); monday.setDate(base.getDate() - ((base.getDay() + 6) % 7)); return Array.from({ length: 7 }, (_, index) => { const value = new Date(monday); value.setDate(monday.getDate() + index); return value.toISOString().slice(0, 10); }); }, [weekAnchor]);
+  const weekDays = useMemo(() => calendarWeekDates(weekAnchor), [weekAnchor]);
   const todayKey = new Date().toISOString().slice(0, 10);
   const completedCount = shown.filter((item) => item.status === "completed").length;
   const upcomingCount = shown.filter((item) => item.date >= todayKey && !["completed", "cancelled"].includes(item.status)).length;
 
-  return <><section className="v2-detail-head"><div><p className="v2-eyebrow">V2 NATIVE LESSON WORKSPACE</p><h2>课时记录</h2><span>把每一节课的准备、进展与课后记录放在同一条教学轨迹上</span></div><button className="v2-primary" disabled={submitting} onClick={() => edit()}>＋ 新建课时</button></section>
+  return <><section className="v2-detail-head"><div><p className="v2-eyebrow">V2 NATIVE LESSON WORKSPACE</p><h2>课时记录</h2><span>把每一节课的准备、进展与课后记录放在同一条教学轨迹上</span></div><Link className="v2-primary" href="/v2/schedule-imports">每周循环排课 / 调课</Link><button className="v2-primary" disabled={submitting} onClick={() => edit()}>＋ 新建课时</button></section>
     {message && <div className="saveToast" role="status">{message}</div>}
     {loading && <div className="lessonLoading" role="status">正在整理课时记录…</div>}
     {lessonLoadError && <div className="lessonLoadError" role="alert"><div><strong>课时暂时没有读取成功</strong><p>{lessonLoadError}</p></div><button className="secondaryButton" onClick={() => setReloadKey((value) => value + 1)}>重新读取课时</button></div>}
@@ -111,7 +113,7 @@ export function LessonOverviewWorkspace() {
       <button aria-pressed={view === "week"} onClick={() => setView("week")}>周日历</button>
       <button aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>月日历</button>
       {view === "week" && <input aria-label="选择所在周" type="date" value={weekAnchor} onChange={(event) => { setWeekAnchor(event.target.value); setMonth(event.target.value.slice(0, 7)); }} />}
-      <span>显示 {month || "全部月份"} 的课时</span>
+      <span>显示 {view === "week" ? `${weekDays[0] || "待选日期"} 至 ${weekDays[6] || "待选日期"}` : month || "全部月份"} 的课时</span>
     </div>
 
     {view === "week" ? <Panel className="weekCalendarPanel" eyebrow="一周安排" title="按天查看课时"><div className="weekCalendar">{weekDays.map((date, index) => <article key={date}><header><b>周{["一","二","三","四","五","六","日"][index]}</b><span>{date.slice(5)}</span></header>{shown.filter((item) => item.date === date).length ? shown.filter((item) => item.date === date).map((item) => <Link href={`/v2/detail/lessons/${item.id}`} key={item.id}><time>{item.startTime || "待定"}</time><b>{item.displaySubject || item.courseName}</b><StatusBadge tone={statusTone(item.status)}>{statuses[item.status] || item.status}</StatusBadge></Link>) : <p>无课时</p>}</article>)}</div></Panel> : view === "list" ? <Panel className="lessonListPanel" eyebrow="课程安排" title="课时列表" description="按日期查看状态、班级与授课方式。">{shown.length === 0 ? <EmptyState title="没有符合条件的课时" description="调整筛选条件，或创建一节真实课程。" action={<button className="secondaryButton" onClick={() => edit()}>新建第一节课</button>} /> : <div className="recordList">{shown.map((item) => <article key={item.id}><div className="dateBlock"><b>{item.date.slice(8)}</b><span>{item.date.slice(0, 7)}</span></div><div className="recordInfo"><StatusBadge tone={statusTone(item.status)}>{statuses[item.status] || item.status}</StatusBadge><h3><Link href={`/v2/detail/lessons/${item.id}`}>{item.displaySubject || item.courseName}</Link></h3><p>{String(item.startTime || "待定")}–{String(item.endTime || "待定")}　{item.grade}　{item.className || "未关联班级"}　{item.mode === "online" ? "线上" : String(item.location || "线下")}{item.topic ? `　课题：${item.topic}` : ""}</p></div><div className="rowActions"><Link href={`/v2/detail/lessons/${item.id}`}>详情</Link><button disabled={submitting} onClick={() => duplicate(item)}>复制</button><button disabled={submitting} onClick={() => edit(item)}>编辑</button><button disabled={submitting} onClick={() => remove(item.id)}>删除</button></div></article>)}</div>}</Panel> : <Panel className="lessonCalendarPanel" eyebrow="月度视图" title={month} description="点击课时进入详情；同一天的多节课会依次排列。"><div className="lessonCalendar"><div className="calendarWeek">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>周{day}</span>)}</div><div className="calendarGrid">{days.map((day, index) => day == null ? <i key={`blank-${index}`}></i> : <article key={day}><b>{day}</b>{shown.filter((item) => Number(item.date.slice(8)) === day).map((item) => <Link href={`/v2/detail/lessons/${item.id}`} key={item.id}>{item.startTime || "待定"} {item.displaySubject || item.courseName}</Link>)}</article>)}</div></div></Panel>}

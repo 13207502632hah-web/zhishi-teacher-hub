@@ -7,7 +7,7 @@ const tables = ["classes", "students", "enrollments", "staff_class_access", "cou
 export async function GET() {
   const access = await requirePermission("settings:export"); if (isDenied(access)) return access;
   const data: Record<string, unknown[]> = {};
-  for (const table of tables) data[table] = (await env.DB.prepare(`SELECT * FROM ${table}`).all()).results;
+  for (const table of [...tables, "lesson_series", "lesson_occurrences", "lesson_series_operations"]) data[table] = (await env.DB.prepare(`SELECT * FROM ${table}`).all()).results;
   await audit(access, "export", "workspace", null, { tables: tables.length });
   return new Response(JSON.stringify({ exportedAt: new Date().toISOString(), exportedBy: access.email, data }, null, 2), { headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename="zhishi-backup-${new Date().toISOString().slice(0, 10)}.json"`, "Cache-Control": "no-store" } });
 }

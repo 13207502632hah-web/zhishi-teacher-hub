@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const timestamps = { createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`) };
 
@@ -15,6 +15,21 @@ export const staffCredentials = sqliteTable("staff_credentials", { userId: integ
 export const staffLoginAttempts = sqliteTable("staff_login_attempts", { key: text("key").primaryKey(), failures: integer("failures").notNull().default(0), blockedUntil: integer("blocked_until"), updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`) });
 
 export const courses = sqliteTable("courses", { id: integer("id").primaryKey({ autoIncrement: true }), classId: integer("class_id").references(() => classes.id), name: text("name").notNull(), stage: text("stage"), grade: text("grade"), textbookVersion: text("textbook_version"), volume: text("volume"), ...timestamps });
+export const lessonSeries = sqliteTable("lesson_series", {
+  id: text("id").primaryKey().notNull(), userId: integer("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(), startDate: text("start_date").notNull(), endDate: text("end_date").notNull(),
+  weekday: integer("weekday").notNull(), ruleJson: text("rule_json").notNull(), version: integer("version").notNull().default(1), ...timestamps,
+});
+export const lessonOccurrences = sqliteTable("lesson_occurrences", {
+  lessonId: integer("lesson_id").primaryKey().references(() => lessons.id, { onDelete: "cascade" }),
+  seriesId: text("series_id").notNull().references(() => lessonSeries.id), originalDate: text("original_date").notNull(),
+  scheduledDate: text("scheduled_date").notNull(), isException: integer("is_exception", { mode: "boolean" }).notNull().default(false),
+}, (t) => [uniqueIndex("lesson_occurrence_unique").on(t.seriesId, t.originalDate)]);
+export const lessonSeriesOperations = sqliteTable("lesson_series_operations", {
+  id: text("id").primaryKey().notNull(), userId: integer("user_id").notNull().references(() => users.id),
+  requestJson: text("request_json").notNull(), resultJson: text("result_json").notNull(), validated: integer("validated").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [check("lesson_series_operation_validated", sql`${t.validated} = 1`)]);
 export const lessons = sqliteTable("lessons", { id: integer("id").primaryKey({ autoIncrement: true }), courseId: integer("course_id").references(() => courses.id), classId: integer("class_id").references(() => classes.id), date: text("date").notNull(), startTime: text("start_time"), endTime: text("end_time"), mode: text("mode").notNull().default("offline"), location: text("location"), onlineLink: text("online_link"), courseName: text("course_name").notNull(), stage: text("stage").notNull(), grade: text("grade").notNull(), textbookVersion: text("textbook_version"), volume: text("volume"), unit: text("unit"), topic: text("topic"), knowledgePoints: text("knowledge_points"), teachingGoals: text("teaching_goals"), keyPoints: text("key_points"), difficultPoints: text("difficult_points"), actualContent: text("actual_content"), materials: text("materials"), activities: text("activities"), homework: text("homework"), nextPlan: text("next_plan"), participation: integer("participation"), understanding: integer("understanding"), completion: integer("completion"), discipline: integer("discipline"), fee: real("fee"), feeStatus: text("fee_status").notNull().default("untracked"), cancellationReason: text("cancellation_reason"), status: text("status").notNull().default("draft"), ...timestamps });
 export const attendance = sqliteTable("attendance", { id: integer("id").primaryKey({ autoIncrement: true }), lessonId: integer("lesson_id").notNull().references(() => lessons.id), studentId: integer("student_id").notNull().references(() => students.id), status: text("status").notNull(), notes: text("notes") }, (t) => [uniqueIndex("attendance_lesson_student_unique").on(t.lessonId,t.studentId)]);
 export const studentLessonRecords = sqliteTable("student_lesson_records", { id: integer("id").primaryKey({ autoIncrement: true }), lessonId: integer("lesson_id").notNull().references(() => lessons.id), studentId: integer("student_id").notNull().references(() => students.id), participation: integer("participation"), understanding: integer("understanding"), completion: integer("completion"), teacherNote: text("teacher_note"), riskTags: text("risk_tags"), riskConfirmed: integer("risk_confirmed", { mode: "boolean" }).notNull().default(false), ...timestamps }, (t) => [uniqueIndex("student_lesson_unique").on(t.lessonId,t.studentId)]);

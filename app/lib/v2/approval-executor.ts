@@ -79,7 +79,10 @@ export async function executeApprovedAction(access: AccessContext, approval: V2A
     const date = text(changes.date || lesson.date, 10), startTime = text(changes.startTime || lesson.startTime, 5), endTime = text(changes.endTime || lesson.endTime, 5), location = text(changes.location ?? lesson.location, 200);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || startTime >= endTime) throw new Error("调课日期或时间无效");
     const conflict = await env.DB.prepare("SELECT id,course_name AS courseName FROM lessons WHERE id!=? AND date=? AND status!='cancelled' AND start_time<? AND end_time>? LIMIT 1").bind(id, date, endTime, startTime).first<Record<string, unknown>>(); if (conflict) throw new Error(`调整后与“${text(conflict.courseName, 80) || "其他课程"}”冲突`);
-    await env.DB.prepare("UPDATE lessons SET date=?,start_time=?,end_time=?,location=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(date, startTime, endTime, location || null, id).run(); return { executed: true, entityType: "lesson", entityId: id, date, startTime, endTime };
+    await env.DB.batch([
+      env.DB.prepare("UPDATE lessons SET date=?,start_time=?,end_time=?,location=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(date, startTime, endTime, location || null, id),
+      env.DB.prepare("UPDATE lesson_occurrences SET is_exception=1 WHERE lesson_id=?").bind(id),
+    ]); return { executed: true, entityType: "lesson", entityId: id, date, startTime, endTime };
   }
   if (approval.actionType === "assignment.publish") {
     const id = idOf(approval), assignment = await env.DB.prepare("SELECT id,title,class_id AS classId,status,due_at AS dueAt FROM assignments WHERE id=?").bind(id).first<Record<string, unknown>>(); if (!assignment) throw new Error("作业不存在");

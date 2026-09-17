@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "../../../../../db";
-import { lessons } from "../../../../../db/schema";
+import { lessons, lessonOccurrences } from "../../../../../db/schema";
 import { audit, isDenied, requireClassAccess, requireLessonAccess, requirePermission } from "../../../../lib/access";
 import { usesTeachingSlot, validateLessonTime } from "../../../../lib/lesson-validation";
 import { lessonDisplay } from "../../../../lib/lesson-display";
@@ -34,7 +34,10 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   if (data.classId) { const classDenied = await requireClassAccess(access, data.classId); if (classDenied) return classDenied; }
   const timingError = validateLessonTime(data); if (timingError) return Response.json({ error: timingError }, { status: 400 });
   if (await conflictFor(data, id)) return Response.json({ error: "该时段已存在其他课时，请调整时间后再保存" }, { status: 409 });
-  const [row] = await getDb().update(lessons).set(data).where(eq(lessons.id, id)).returning();
+  const [[row]] = await getDb().batch([
+    getDb().update(lessons).set(data).where(eq(lessons.id, id)).returning(),
+    getDb().update(lessonOccurrences).set({ isException: true }).where(eq(lessonOccurrences.lessonId, id)),
+  ]);
   await audit(access, "update", "lesson", id, { status: row?.status });
   return row ? Response.json({ lesson: row }) : Response.json({ error: "课时不存在" }, { status: 404 });
 }
