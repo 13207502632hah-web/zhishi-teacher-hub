@@ -59,6 +59,33 @@ test("Word parser separates political materials and keeps scoring evidence", asy
   assert.match(parsed[0].standardExpression, /本质属性/);
 });
 
+test("Word parser separates bare answer-table headings without swallowing a last question", async () => {
+  const { parsePoliticsDocx, enrichQuestionsFromHtml } = await loadTsModule("app/lib/question-import.ts");
+  for (const heading of ["答案：", "答案:", "答案", "参考答案："]) {
+    const parsed = parsePoliticsDocx(`一、选择题\n1．选择正确说法\nA．守法\nB．违法\n二、材料题\n2．说明青春创造应有的样子。\n\n${heading}\n\n题号\n1\n答案\nA\n2．敢于探索，积极实践。`, {});
+    assert.equal(parsed.length, 2);
+    assert.equal(parsed[0].answer, "A");
+    assert.equal(parsed[1].stem, "说明青春创造应有的样子。");
+    assert.equal(parsed[1].answer, "敢于探索，积极实践。");
+    const rich = enrichQuestionsFromHtml(`<p>1．选择正确说法</p><p>2．说明青春创造应有的样子。<img src="question.png"></p><p>${heading}</p><p></p><table><tr><td>题号</td><td>1</td></tr><tr><td>答案</td><td>A</td></tr></table><p>2．敢于探索<img src="answer.png"></p>`, parsed);
+    assert.equal(rich[1].tables.length, 0);
+    assert.deepEqual(rich[1].attachments.map((item) => item.src), ["question.png"]);
+  }
+  const ordinary = parsePoliticsDocx("1．根据材料作答。\n答案：\n请在横线上作答。\n2．下一道题。", {});
+  assert.equal(ordinary.length, 2);
+  assert.match(ordinary[0].stem, /请在横线上作答/);
+});
+
+test("Word parser normalizes spaced question numbers in questions, answers and image anchors", async () => {
+  const { parsePoliticsDocx, enrichQuestionsFromHtml } = await loadTsModule("app/lib/question-import.ts");
+  const parsed = parsePoliticsDocx("30 .第一问\n82.16%\n3 1 .文化自信\n32．青春创造\n参考答案：\n30 .甲\n31 .乙\n3 2 .丙", {});
+  assert.deepEqual(parsed.map((q) => q.sourceQuestionNumber), [30,31,32]);
+  assert.deepEqual(parsed.map((q) => q.answer), ["甲","乙","丙"]);
+  assert.match(parsed[0].stem, /82\.16%/);
+  const rich = enrichQuestionsFromHtml('<p>30 .第一问</p><p>3 1 .文化自信<img src="culture.png"></p><p>32．青春创造</p>', parsed);
+  assert.equal(rich[1].attachments[0].src, "culture.png");
+});
+
 test("Word parser merges a separated reference-answer section without duplicating questions", async () => {
   const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
   const parsed = parsePoliticsDocx(`八下选择题专练

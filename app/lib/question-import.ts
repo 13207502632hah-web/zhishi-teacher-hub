@@ -12,6 +12,8 @@ export type ImportedQuestion = Record<string, unknown> & {
 
 type ImportMeta = Record<string, unknown>;
 
+const normalizeQuestionNumbers = (text: string) => text.replace(/^[ \t]*(\d{1,3}|\d(?:[ \t]+\d){1,2})[ \t]*([．、]|\.(?!\d))/gm, (_, number: string, separator: string) => `${number.replace(/[ \t]/g, "")}${separator}`);
+
 const marker = (text: string, label: string) => {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return text.match(new RegExp(`【${escaped}】\\s*([\\s\\S]*?)(?=\\n\\s*【[^】]+】|$)`))?.[1]?.trim() || "";
@@ -27,11 +29,14 @@ function questionTypeFromHeading(heading: string, hasOptions: boolean) {
 
 type SeparatedAnswer = { answer: string; analysis: string; knowledgePoints: string };
 
-const referenceAnswerHeading = /^\s*(?:《[^\n》]+》\s*)?(?:参考答案(?:(?:与|及)(?:解析|详解))?|答案(?:与|及)(?:解析|详解)|试题答案)\s*$/m;
+const referenceAnswerHeading = /^\s*(?:《[^\n》]+》\s*)?(?:参考答案(?:(?:与|及)(?:解析|详解))?|答案(?:与|及)(?:解析|详解)|试题答案)[：:]?\s*$/m;
+// Bare “答案” is a section only when followed by a question-number table, not an answer-writing prompt.
+const answerTableHeading = /^[ \t]*答案[：:]?[ \t]*\n(?:[ \t]*\n)*[ \t]*题号[ \t]*\n/m;
 
 /** 识别“前半部分题目、后半部分参考答案与详解”的常见组卷结构。 */
 function splitSeparatedAnswers(text: string) {
-  const answerHeading = text.search(referenceAnswerHeading);
+  const headings = [text.search(referenceAnswerHeading), text.search(answerTableHeading)].filter((index) => index >= 0);
+  const answerHeading = headings.length ? Math.min(...headings) : -1;
   if (answerHeading < 0) return { questionText: text, answers: new Map<string, SeparatedAnswer>() };
   const questionText = text.slice(0, answerHeading).trim();
   const answerText = text.slice(answerHeading);
@@ -105,8 +110,8 @@ function numberedQuestionChunks(section: string) {
 
 /** 将常见组卷 Word 的文字内容整理为“待校对”题目；不对题目作自动判定。 */
 export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuestion[] {
-  const normalized = text.replace(/\r/g, "").replace(/[\u00a0\u3000]/g, " ").replace(/\t/g, " ")
-    .split("\n").filter((line) => !/^\s*(第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|—\s*\d+\s*—|仅供测试使用)\s*$/.test(line)).join("\n");
+  const normalized = normalizeQuestionNumbers(text.replace(/\r/g, "").replace(/[\u00a0\u3000]/g, " ").replace(/\t/g, " ")
+    .split("\n").filter((line) => !/^\s*(第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|—\s*\d+\s*—|仅供测试使用)\s*$/.test(line)).join("\n"));
   const { questionText, answers: separatedAnswers } = splitSeparatedAnswers(normalized);
   const sections = questionText.split(/(?=^\s*[一二三四五六七八九十]+、)/m);
   const output: ImportedQuestion[] = [];
@@ -186,9 +191,13 @@ export function enrichQuestionsFromHtml(html: string, input: ImportedQuestion[])
   const output = input.map((question) => ({ ...question, attachments: [...arrayValue(question.attachments)], tables: [...arrayValue(question.tables)], importNotes: [...question.importNotes] }));
   const blocks = html.match(/<table\b[\s\S]*?<\/table>|<p\b[\s\S]*?<\/p>|<img\b[^>]*>/gi) || [];
   let current = -1, imageIndex = 0, tableIndex = 0;
-  for (const block of blocks) {
-    const isTable = /^<table\b/i.test(block), text = textFromHtml(block);
+  for (const [blockIndex, block] of blocks.entries()) {
+    const isTable = /^<table\b/i.test(block), text = normalizeQuestionNumbers(textFromHtml(block));
     if (!isTable && referenceAnswerHeading.test(text)) break;
+    if (!isTable && /^答案[：:]?$/.test(text)) {
+      const nextBlock = blocks.slice(blockIndex + 1).find((candidate) => textFromHtml(candidate));
+      if (nextBlock && /^<table\b/i.test(nextBlock) && /^题号\s+\d/.test(textFromHtml(nextBlock))) break;
+    }
     const questionNumber = !isTable && text.match(/^\s*(\d{1,3})(?:[．、]|\.(?!\d))\s*/)?.[1];
     const next = output[current + 1];
     if (questionNumber && next && Number(questionNumber) === Number(next.sourceQuestionNumber)) current += 1;
