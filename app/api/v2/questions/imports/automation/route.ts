@@ -30,6 +30,7 @@ export async function GET(request: Request) {
   const id = String(params.get("id") || "").trim();
   if (id) {
     const item = await getQuestionImportV2(access, id);
+    if (item && ["queued", "running"].includes(item.job.state)) deferV2BackgroundJob(id);
     return item ? Response.json(item, { headers: noStore }) : Response.json({ error: "导入任务不存在" }, { status: 404, headers: noStore });
   }
 

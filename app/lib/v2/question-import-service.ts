@@ -70,7 +70,11 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
     const source = await contentOf(file, buffer, extension), sourceText = source.text;
     const localQuestions = extension === "docx" ? enrichQuestionsFromHtml(source.html, parsePoliticsDocx(sourceText, { source: file.name, sourceFile: file.name, sourceDocument: storageKey, status: "review", reviewed: false })) : [];
     let questions: AiQuestion[] = [];
-    try {
+    // DOCX already has a deterministic parser that preserves every numbered question,
+    // image and table. Persist that result first instead of making the whole import wait
+    // for a long, whole-paper AI response. Files without usable text still use AI/OCR.
+    if (extension === "docx" && localQuestions.length) questions = localQuestions as AiQuestion[];
+    else try {
       const visual = ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension);
       const ai = await callV2AiJson({ access, capability: visual ? "vision" : "reasoning", jobId, promptVersion: "question-import-v2.1", maxTokens: 16000,
         system: "你是中小学试题结构化引擎。完整拆分材料、题干、选项、小问、答案与解析，识别原题号异常，分类教材、年级、章节、知识点、题型、难度、地区、年份和来源。不可补造缺失答案；缺失项写入 importNotes 并降低 parseConfidence。输出 {questions:[{sourceQuestionNumber,questionGroup,material,stem,options,subQuestions,answer,answerPoints,analysis,questionType,difficulty,score,stage,grade,textbookVersion,volume,unit,topic,knowledgePoints,secondaryKnowledge,coreCompetencies,source,year,region,examType,parseConfidence,importNotes}]}。",

@@ -23,6 +23,14 @@ test("question import automation is narrow, secret-backed, idempotent and audita
   assert.match(route, /automation_question_import_created/);
   assert.match(route, /sourceFingerprint/);
   assert.match(route, /getQuestionImportV2/);
+  assert.match(route, /\["queued", "running"\]\.includes\(item\.job\.state\)/);
+});
+
+test("DOCX automation persists deterministic parsing without blocking on whole-paper AI", async () => {
+  const intake = await read("app/lib/v2/question-import-service.ts");
+  assert.match(intake, /if \(extension === "docx" && localQuestions\.length\) questions = localQuestions/);
+  assert.match(intake, /else try \{/);
+  assert.match(intake, /callV2AiJson/);
 });
 
 test("question import CLI preflights fingerprints and never accepts a token argument", async () => {
