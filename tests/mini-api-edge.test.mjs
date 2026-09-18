@@ -75,6 +75,33 @@ test("client API edge also serves the configured iOS mobile API without opening 
   }
 });
 
+test("client API edge exposes only the exact scoped question-import automation route", async () => {
+  const originalFetch = globalThis.fetch;
+  const forwarded = [];
+  globalThis.fetch = async (url, init) => {
+    forwarded.push({ url: String(url), init });
+    return Response.json({ imports: [] });
+  };
+  try {
+    const headers = { authorization: "Bearer import-only-token" };
+    const allowed = await worker.fetch(new Request("https://api.daofazuoye.cn/api/v2/questions/imports/automation?sourceFingerprint=abc", { headers }), env);
+    const nested = await worker.fetch(new Request("https://api.daofazuoye.cn/api/v2/questions/imports/automation/extra", { headers }), env);
+    const nearby = await worker.fetch(new Request("https://api.daofazuoye.cn/api/v2/questions/imports", { headers }), env);
+    const put = await worker.fetch(new Request("https://api.daofazuoye.cn/api/v2/questions/imports/automation", { method: "PUT", headers }), env);
+
+    assert.equal(allowed.status, 200);
+    assert.equal(forwarded.length, 1);
+    assert.equal(forwarded[0].url, "https://upstream.test/api/v2/questions/imports/automation?sourceFingerprint=abc");
+    assert.equal(forwarded[0].init.headers.get("authorization"), "Bearer import-only-token");
+    assert.equal(forwarded[0].init.headers.get("x-zhishi-edge"), "question-import-automation-v2");
+    assert.equal(nested.status, 404);
+    assert.equal(nearby.status, 404);
+    assert.equal(put.status, 405);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("mini API edge converts upstream HTML challenges and redirects into stable JSON errors", async () => {
   const originalFetch = globalThis.fetch;
   try {

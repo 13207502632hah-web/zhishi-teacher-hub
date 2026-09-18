@@ -1,4 +1,5 @@
 const CLIENT_API_PREFIXES = ["/api/v2/mini/", "/api/v2/mobile/"];
+const QUESTION_IMPORT_AUTOMATION_PATH = "/api/v2/questions/imports/automation";
 const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
 
 function jsonError(status, error, code) {
@@ -31,7 +32,7 @@ function upstreamHeaders(request, bypassToken, path) {
   ]) headers.delete(name);
   headers.set("accept", "application/json");
   headers.set("oai-sites-authorization", `Bearer ${bypassToken}`);
-  headers.set("x-zhishi-edge", path.startsWith("/api/v2/mini/") ? "mini-api-v2" : "mobile-api-v2");
+  headers.set("x-zhishi-edge", path === QUESTION_IMPORT_AUTOMATION_PATH ? "question-import-automation-v2" : path.startsWith("/api/v2/mini/") ? "mini-api-v2" : "mobile-api-v2");
   return headers;
 }
 
@@ -46,10 +47,12 @@ function responseHeaders(response) {
 const worker = {
   async fetch(request, env) {
     const incoming = new URL(request.url);
-    if (!CLIENT_API_PREFIXES.some((prefix) => incoming.pathname.startsWith(prefix))) {
+    const isClientApi = CLIENT_API_PREFIXES.some((prefix) => incoming.pathname.startsWith(prefix));
+    const isQuestionImportAutomation = incoming.pathname === QUESTION_IMPORT_AUTOMATION_PATH;
+    if (!isClientApi && !isQuestionImportAutomation) {
       return jsonError(404, "Not found", "MINI_EDGE_NOT_FOUND");
     }
-    if (!ALLOWED_METHODS.has(request.method)) {
+    if (!ALLOWED_METHODS.has(request.method) || (isQuestionImportAutomation && !["GET", "POST"].includes(request.method))) {
       return jsonError(405, "Method not allowed", "MINI_EDGE_METHOD_NOT_ALLOWED");
     }
     if (!env.UPSTREAM_ORIGIN || !env.UPSTREAM_BYPASS_TOKEN) {
