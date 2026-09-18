@@ -84,7 +84,13 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
     if (!questions.length) throw new Error("没有识别到可校对的题目");
     const current = await getJob(access, jobId); if (current?.cancelRequested) { await updateJob(access, jobId, { state: "cancelled", stage: "cancelled", progress: current.progress, message: "任务已按请求取消" }); return { cancelled: true }; }
     const imported = await importQuestionSetForAccess(access, { name: String(payload.name || file.name.replace(/\.[^.]+$/, "")), sourceFile: file.name, sourceDocument: storageKey, sourceKey: storageKey, sourceFingerprint, questions });
-    const result = await imported.json() as Record<string, unknown>; if (!imported.ok) throw new Error(String(result.error || "题目入待校对区失败"));
+    const result = await imported.json() as Record<string, unknown>;
+    if (!imported.ok && imported.status === 409 && Number(result.duplicates || 0) > 0) {
+      const duplicates = Number(result.duplicates), output = { importId: jobId, questionSetId: Number((result.existing as Record<string, unknown> | undefined)?.id || 0), report: { total: questions.length, imported: 0, duplicates, enriched: Number(result.enriched || 0) }, recognized: questions.length, vectorsIndexed: 0, storageKey, skippedAsDuplicate: true };
+      const job = await updateJob(access, jobId, { state: "completed", stage: "completed_duplicate", progress: 100, processed: questions.length, total: questions.length, result: output, message: `${duplicates} 道题均已存在，已跳过重复导入` });
+      return { ...output, job, questions: [] };
+    }
+    if (!imported.ok) throw new Error(String(result.error || "题目入待校对区失败"));
     const insertedQuestions = Array.isArray(result.questions) ? result.questions as Record<string, unknown>[] : [];
     await ensureLocalQuestionVectors(insertedQuestions.map((item) => ({ id: Number(item.id), text: [item.stem, item.material, item.questionType, item.stage, item.grade, item.topic, item.knowledgePoints, item.source].filter(Boolean).join("\n") })).filter((item) => item.id > 0));
     const questionSet = result.questionSet as Record<string, unknown>, report = parseJsonObject(result.report), output = { importId: jobId, questionSetId: Number(questionSet?.id || 0), report, recognized: questions.length, vectorsIndexed: insertedQuestions.length, storageKey };
