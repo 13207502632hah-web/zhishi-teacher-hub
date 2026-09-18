@@ -32,6 +32,19 @@ type SeparatedAnswer = { answer: string; analysis: string; knowledgePoints: stri
 const referenceAnswerHeading = /^\s*(?:《[^\n》]+》\s*)?(?:参考答案(?:(?:与|及)(?:解析|详解))?|答案(?:与|及)(?:解析|详解)|试题答案)[：:]?\s*$/m;
 // Bare “答案” is a section only when followed by a question-number table, not an answer-writing prompt.
 const answerTableHeading = /^[ \t]*答案[：:]?[ \t]*\n(?:[ \t]*\n)*[ \t]*题号[ \t]*\n/m;
+const paperCollectionHeading = /^[ \t]*(20\d{2}年天津市[^\n]*(?:试题)?主观题)[ \t]*$/gm;
+
+/**
+ * 同一 Word 中出现多套地区试卷时，题号会从头重复。直接按整份文档解析会把后一套
+ * 试卷的答案配给前一套同题号，因此在支持可靠的逐卷拆分前必须阻止自动入库。
+ */
+function assertSinglePaper(text: string) {
+  const headings = [...text.matchAll(paperCollectionHeading)].map((match) => match[1].replace(/\s+/g, ""));
+  const distinctHeadings = new Set(headings);
+  if (distinctHeadings.size > 1) {
+    throw new Error(`检测到 ${distinctHeadings.size} 套地区试卷合集，题号会重复，已停止自动导入以避免答案错配。请使用单套试卷文件导入。`);
+  }
+}
 
 /** 识别“前半部分题目、后半部分参考答案与详解”的常见组卷结构。 */
 function splitSeparatedAnswers(text: string) {
@@ -112,6 +125,7 @@ function numberedQuestionChunks(section: string) {
 export function parsePoliticsDocx(text: string, meta: ImportMeta): ImportedQuestion[] {
   const normalized = normalizeQuestionNumbers(text.replace(/\r/g, "").replace(/[\u00a0\u3000]/g, " ").replace(/\t/g, " ")
     .split("\n").filter((line) => !/^\s*(第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|—\s*\d+\s*—|仅供测试使用)\s*$/.test(line)).join("\n"));
+  assertSinglePaper(normalized);
   const { questionText, answers: separatedAnswers } = splitSeparatedAnswers(normalized);
   const sections = questionText.split(/(?=^\s*[一二三四五六七八九十]+、)/m);
   const output: ImportedQuestion[] = [];

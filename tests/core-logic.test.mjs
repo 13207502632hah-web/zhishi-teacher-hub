@@ -86,6 +86,20 @@ test("Word parser normalizes spaced question numbers in questions, answers and i
   assert.equal(rich[1].attachments[0].src, "culture.png");
 });
 
+test("Word parser blocks multi-paper district collections before repeated numbers can mispair answers", async () => {
+  const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
+  assert.throws(() => parsePoliticsDocx(`25年二模主观题汇总 答案版
+2025年天津市和平区中考二模主观题
+25．和平区第一题
+【答案】和平区答案
+2025年天津市南开区中考二模道德与法治试题主观题
+25．南开区第一题
+【答案】南开区答案`, {}), /检测到 2 套地区试卷合集.*已停止自动导入/);
+  assert.equal(parsePoliticsDocx(`2025年天津市和平区中考二模主观题
+25．和平区第一题
+【答案】和平区答案`, {}).length, 1);
+});
+
 test("Word parser merges a separated reference-answer section without duplicating questions", async () => {
   const { parsePoliticsDocx } = await loadTsModule("app/lib/question-import.ts");
   const parsed = parsePoliticsDocx(`八下选择题专练
