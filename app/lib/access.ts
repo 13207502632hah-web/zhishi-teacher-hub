@@ -59,6 +59,11 @@ async function getTeacherAdminAccess(): Promise<AccessContext | null> {
   return { id: Number(user.id), name: String(user.name), email: String(user.email), roles: ["teacher"], role: "teacher", authType: "teacher_admin" };
 }
 
+/** Builds the teacher workspace identity only after a narrow automation token is verified. */
+export async function getQuestionImportAutomationAccess() {
+  return getTeacherAdminAccess();
+}
+
 export function can(access: AccessContext, permission: string) {
   return permissions[access.role].includes("*") || permissions[access.role].includes(permission);
 }
