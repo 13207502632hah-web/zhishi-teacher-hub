@@ -86,6 +86,13 @@ export async function claimBackgroundJob(id: string, leaseOwner: string, leaseSe
   return row ? { id: String(row.id), userId: Number(row.userId), type: String(row.type), entityId: row.entityId == null ? null : String(row.entityId), payload: parseJsonObject(row.payloadJson), attemptCount: Number(row.attemptCount), maxAttempts: Number(row.maxAttempts) } satisfies BackgroundJobClaim : null;
 }
 
+export async function recoverStalledBackgroundJob(id: string) {
+  const recovered = await env.DB.prepare("UPDATE v2_jobs SET state='queued',stage='stale_recovered',attempt_count=0,available_at=CURRENT_TIMESTAMP,lease_owner=NULL,lease_until=NULL,error_json=json_set(COALESCE(NULLIF(error_json,''),'{}'),'$.staleLeaseRecovered',1,'$.message','后台执行窗口中断，已从断点自动恢复'),updated_at=CURRENT_TIMESTAMP WHERE id=? AND cancel_requested=0 AND state='running' AND attempt_count>=max_attempts AND datetime(COALESCE(lease_until,'1970-01-01'))<=datetime('now') AND COALESCE(json_extract(error_json,'$.staleLeaseRecovered'),0)=0").bind(id).run();
+  if (Number(recovered.meta?.changes || 0) === 1) return "recovered" as const;
+  const failed = await env.DB.prepare("UPDATE v2_jobs SET state='failed',stage='attempts_exhausted',lease_owner=NULL,lease_until=NULL,error_json=json_set(COALESCE(NULLIF(error_json,''),'{}'),'$.message','后台执行窗口连续中断，请在任务中心重试'),updated_at=CURRENT_TIMESTAMP WHERE id=? AND cancel_requested=0 AND state='running' AND attempt_count>=max_attempts AND datetime(COALESCE(lease_until,'1970-01-01'))<=datetime('now') AND COALESCE(json_extract(error_json,'$.staleLeaseRecovered'),0)=1").bind(id).run();
+  return Number(failed.meta?.changes || 0) === 1 ? "failed" as const : "unchanged" as const;
+}
+
 export async function heartbeatBackgroundJob(id: string, leaseOwner: string, leaseSeconds = 45) {
   const result = await env.DB.prepare("UPDATE v2_jobs SET lease_until=datetime('now',? || ' seconds'),updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='running' AND lease_owner=? AND cancel_requested=0 AND datetime(COALESCE(lease_until,'1970-01-01'))>datetime('now')").bind(String(Math.max(15, leaseSeconds)), id, leaseOwner).run();
   return Number(result.meta?.changes || 0) === 1;
@@ -95,14 +102,14 @@ export async function requeueBackgroundJob(id: string, message: string, leaseOwn
   const current = await env.DB.prepare(`SELECT attempt_count AS attemptCount,max_attempts AS maxAttempts FROM v2_jobs WHERE id=?${leaseOwner ? " AND lease_owner=?" : ""}`).bind(id, ...(leaseOwner ? [leaseOwner] : [])).first<{ attemptCount: number; maxAttempts: number }>();
   if (!current) return { exhausted: false, delay: 0, ignored: true };
   const exhausted = Number(current?.attemptCount || 0) >= Number(current?.maxAttempts || 3), nextState = exhausted ? "failed" : "queued", delay = Math.min(300, 5 * 2 ** Math.max(0, Number(current?.attemptCount || 1) - 1));
-  const updated = await env.DB.prepare(`UPDATE v2_jobs SET state=?,stage=?,available_at=datetime('now',? || ' seconds'),lease_owner=NULL,lease_until=NULL,error_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?${leaseOwner ? " AND lease_owner=?" : ""}`).bind(nextState, exhausted ? "attempts_exhausted" : "retry_wait", String(delay), JSON.stringify({ message, retryable: !exhausted }), id, ...(leaseOwner ? [leaseOwner] : [])).run();
+  const updated = await env.DB.prepare(`UPDATE v2_jobs SET state=?,stage=?,available_at=datetime('now',? || ' seconds'),lease_owner=NULL,lease_until=NULL,error_json=json_patch(error_json,?),updated_at=CURRENT_TIMESTAMP WHERE id=?${leaseOwner ? " AND lease_owner=?" : ""}`).bind(nextState, exhausted ? "attempts_exhausted" : "retry_wait", String(delay), JSON.stringify({ message, retryable: !exhausted }), id, ...(leaseOwner ? [leaseOwner] : [])).run();
   if (Number(updated.meta?.changes || 0) !== 1) return { exhausted: false, delay: 0, ignored: true };
   await env.DB.prepare("INSERT INTO v2_job_events(job_id,state,stage,progress,message,detail_json) SELECT id,?,?,progress,?,? FROM v2_jobs WHERE id=?").bind(nextState, exhausted ? "attempts_exhausted" : "retry_wait", message, JSON.stringify({ delaySeconds: delay, exhausted }), id).run();
   return { exhausted, delay, ignored: false };
 }
 
 export async function continueBackgroundJob(id: string, leaseOwner: string) {
-  const result = await env.DB.prepare("UPDATE v2_jobs SET state='queued',available_at=CURRENT_TIMESTAMP,lease_owner=NULL,lease_until=NULL,attempt_count=MAX(0,attempt_count-1),updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='queued' AND lease_owner=?")
+  const result = await env.DB.prepare("UPDATE v2_jobs SET state='queued',available_at=CURRENT_TIMESTAMP,lease_owner=NULL,lease_until=NULL,attempt_count=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='queued' AND lease_owner=?")
     .bind(id, leaseOwner).run();
   return Number(result.meta?.changes || 0) === 1;
 }

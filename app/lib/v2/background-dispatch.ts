@@ -2,12 +2,13 @@ import { waitUntil } from "cloudflare:workers";
 import { getBackgroundAccess } from "../access";
 import { processScheduleImportJobV2 } from "./schedule-import-service";
 import { processQuestionImportJobV2 } from "./question-import-service";
-import { claimBackgroundJob, listClaimableBackgroundJobIds, requeueBackgroundJob } from "./job-service";
+import { claimBackgroundJob, listClaimableBackgroundJobIds, recoverStalledBackgroundJob, requeueBackgroundJob } from "./job-service";
 
 const supportedTypes = new Set(["schedule-import", "schedule-confirm", "question-import"]);
 
 export async function runV2BackgroundJob(jobId: string) {
   const leaseOwner = `worker:${crypto.randomUUID()}`;
+  await recoverStalledBackgroundJob(jobId);
   const claim = await claimBackgroundJob(jobId, leaseOwner, 60);
   if (!claim) return { claimed: false };
   if (!supportedTypes.has(claim.type)) {
@@ -23,7 +24,9 @@ export async function runV2BackgroundJob(jobId: string) {
     const outcome = claim.type === "schedule-import" || claim.type === "schedule-confirm"
       ? await processScheduleImportJobV2(access, claim.id, leaseOwner)
       : await processQuestionImportJobV2(access, claim.id, leaseOwner);
-    if (outcome && typeof outcome === "object" && "requeue" in outcome && outcome.requeue === true) deferV2BackgroundJob(jobId);
+    // Each PDF page needs its own invocation window. A nested waitUntil shares
+    // the original deadline and can cancel the next page after its lease is claimed.
+    if (claim.type !== "question-import" && outcome && typeof outcome === "object" && "requeue" in outcome && outcome.requeue === true) deferV2BackgroundJob(jobId);
     return { claimed: true, completed: true, requeued: Boolean(outcome && typeof outcome === "object" && "requeue" in outcome && outcome.requeue === true) };
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : "后台任务执行失败";

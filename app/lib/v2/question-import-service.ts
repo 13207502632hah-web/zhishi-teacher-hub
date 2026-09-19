@@ -62,8 +62,8 @@ function validateAnswers(value: unknown) {
 function objectOrNull(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function validateQuestionPage(value: unknown) { return { questions: validateQuestions(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousQuestion) }; }
 function validateAnswerPage(value: unknown) { return { answers: validateAnswers(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousAnswer) }; }
-function savedQuestionPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => validateQuestionPage(item)) : []; }
-function savedAnswerPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => validateAnswerPage(item)) : []; }
+function savedQuestionPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => ({ questions: validateQuestions(item), continuation: objectOrNull(item.continuation) })) : []; }
+function savedAnswerPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => ({ answers: validateAnswers(item), continuation: objectOrNull(item.continuation) })) : []; }
 
 function contentScore(value: Record<string, unknown>) {
   let total = 0;
@@ -82,7 +82,7 @@ const mergedText = (left: unknown, right: unknown) => [...new Set([String(left |
 function mergeQuestionPages(pages: Array<{ questions: AiQuestion[]; continuation: Record<string, unknown> | null }>) {
   const candidates: AiQuestion[] = []; let previous: AiQuestion | null = null;
   for (const page of pages) {
-    if (previous && page.continuation) candidates.push({ ...previous, material: mergedText(previous.material, page.continuation.material), stem: mergedText(previous.stem, page.continuation.stem), options: mergedText(previous.options, page.continuation.options), subQuestions: Array.isArray(page.continuation.subQuestions) ? [...(Array.isArray(previous.subQuestions) ? previous.subQuestions : []), ...page.continuation.subQuestions] : previous.subQuestions });
+    if (previous && page.continuation) { previous = { ...(previous as AiQuestion), material: mergedText(previous.material, page.continuation.material), stem: mergedText(previous.stem, page.continuation.stem), options: mergedText(previous.options, page.continuation.options), subQuestions: Array.isArray(page.continuation.subQuestions) ? [...(Array.isArray(previous.subQuestions) ? previous.subQuestions : []), ...page.continuation.subQuestions] : previous.subQuestions }; candidates.push(previous); }
     candidates.push(...page.questions);
     previous = [...page.questions].sort((left, right) => Number(left.sourceQuestionNumber || 0) - Number(right.sourceQuestionNumber || 0)).at(-1) || previous;
   }
@@ -92,7 +92,7 @@ function mergeQuestionPages(pages: Array<{ questions: AiQuestion[]; continuation
 function mergeAnswerPages(pages: Array<{ answers: AiAnswer[]; continuation: Record<string, unknown> | null }>) {
   const candidates: AiAnswer[] = []; let previous: AiAnswer | null = null;
   for (const page of pages) {
-    if (previous && page.continuation) candidates.push({ ...previous, answer: mergedText(previous.answer, page.continuation.answer), answerPoints: mergedText(previous.answerPoints, page.continuation.answerPoints), analysis: mergedText(previous.analysis, page.continuation.analysis) });
+    if (previous && page.continuation) { previous = { ...(previous as AiAnswer), answer: mergedText(previous.answer, page.continuation.answer), answerPoints: mergedText(previous.answerPoints, page.continuation.answerPoints), analysis: mergedText(previous.analysis, page.continuation.analysis) }; candidates.push(previous); }
     candidates.push(...page.answers);
     previous = [...page.answers].sort((left, right) => left.sourceQuestionNumber - right.sourceQuestionNumber).at(-1) || previous;
   }
@@ -133,7 +133,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
   const answerObject = answerStorageKey ? await env.FILES.get(answerStorageKey) : null; if (answerStorageKey && !answerObject) throw new Error("答案原始文件不存在，请重新上传");
   const buffer = await object.arrayBuffer(), answerBuffer = answerObject ? await answerObject.arrayBuffer() : null, file = new File([buffer], fileName, { type: String(payload.mimeType || object.httpMetadata?.contentType || "application/octet-stream") });
   try {
-    await updateJob(access, jobId, { state: "running", stage: "recognizing", progress: 18, message: "正在拆题并识别结构" });
+    await updateJob(access, jobId, { state: "running", stage: "recognizing", progress: Math.max(18, currentJob.progress), message: "正在拆题并识别结构" });
     const source = await contentOf(file, buffer, extension), sourceText = source.text;
     const localQuestions = extension === "docx" ? enrichQuestionsFromHtml(source.html, parsePoliticsDocx(sourceText, { source: file.name, sourceFile: file.name, sourceDocument: storageKey, status: "review", reviewed: false })) : [];
     const visualImages = async () => {
@@ -153,7 +153,10 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
       const visual = ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension);
       if (visual && (pageStorageKeys.length > 1 || answerPageStorageKeys.length > 1)) {
         const { questionImages, answerImages } = await visualImages();
-        const questionPages = savedQuestionPages(currentJob.checkpoint.questionPages), answerPages = savedAnswerPages(currentJob.checkpoint.answerPages), batchSize = 1;
+        // Older checkpoints lost cross-page continuations. Re-recognize those pages
+        // from the stored originals instead of importing an incomplete question.
+        const pageRecognitionVersion = "continuations-v1", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
+        const questionPages = savedQuestionPages(checkpointValid ? currentJob.checkpoint.questionPages : []), answerPages = savedAnswerPages(checkpointValid ? currentJob.checkpoint.answerPages : []), batchSize = 1;
         if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
         if (questionPages.length < questionImages.length) {
           const start = questionPages.length, batch = questionImages.slice(start, start + batchSize);
@@ -162,7 +165,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
             payload: { fileName: file.name, page: start + offset + 1, totalPages: questionImages.length }, images: [image], validate: validateQuestionPage })));
           questionPages.push(...recognized.map((page) => page.data));
           const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
-          await updateJob(access, jobId, { state: "queued", stage: "recognizing_pages", progress: 18 + Math.round(completedPages / Math.max(1, totalPages) * 32), processed: completedPages, total: totalPages, checkpoint: { questionPages, answerPages }, message: `已识别 ${completedPages}/${totalPages} 页，后台继续` });
+          await updateJob(access, jobId, { state: "queued", stage: "recognizing_pages", progress: 18 + Math.round(completedPages / Math.max(1, totalPages) * 32), processed: completedPages, total: totalPages, checkpoint: { pageRecognitionVersion, questionPages, answerPages }, message: `已识别 ${completedPages}/${totalPages} 页，后台继续` });
           if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
           return { requeue: true, recognizedPages: completedPages, totalPages };
         }
@@ -173,7 +176,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
             payload: { fileName: answerFileName, page: start + offset + 1, totalPages: answerImages.length }, images: [image], validate: validateAnswerPage })));
           answerPages.push(...recognized.map((page) => page.data));
           const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
-          await updateJob(access, jobId, { state: "queued", stage: "recognizing_pages", progress: 18 + Math.round(completedPages / Math.max(1, totalPages) * 32), processed: completedPages, total: totalPages, checkpoint: { questionPages, answerPages }, message: `已识别 ${completedPages}/${totalPages} 页，后台继续` });
+          await updateJob(access, jobId, { state: "queued", stage: "recognizing_pages", progress: 18 + Math.round(completedPages / Math.max(1, totalPages) * 32), processed: completedPages, total: totalPages, checkpoint: { pageRecognitionVersion, questionPages, answerPages }, message: `已识别 ${completedPages}/${totalPages} 页，后台继续` });
           if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
           return { requeue: true, recognizedPages: completedPages, totalPages };
         }

@@ -69,6 +69,27 @@ test("D1 background jobs use exclusive leases, bounded retry and immediate queue
   assert.equal((await jobs.requeueBackgroundJob(created.job.id, "third failure")).exhausted, true);
   assert.equal(sqlite.prepare("SELECT state FROM v2_jobs WHERE id=?").get(created.job.id).state, "failed");
 
+  const stalled = await jobs.createJob(access, { type: "question-import", operationId: "op-stalled" });
+  sqlite.prepare("UPDATE v2_jobs SET state='running',attempt_count=max_attempts,lease_until=datetime('now','-1 minute') WHERE id=?").run(stalled.job.id);
+  assert.equal(await jobs.recoverStalledBackgroundJob(stalled.job.id), "recovered");
+  const recovered = sqlite.prepare("SELECT state,stage,attempt_count AS attempts,json_extract(error_json,'$.staleLeaseRecovered') AS recovered FROM v2_jobs WHERE id=?").get(stalled.job.id);
+  assert.deepEqual({ ...recovered }, { state: "queued", stage: "stale_recovered", attempts: 0, recovered: 1 });
+  await jobs.claimBackgroundJob(stalled.job.id, "recover-worker", 60);
+  await jobs.requeueBackgroundJob(stalled.job.id, "transient retry", "recover-worker");
+  assert.equal(sqlite.prepare("SELECT json_extract(error_json,'$.staleLeaseRecovered') AS recovered FROM v2_jobs WHERE id=?").get(stalled.job.id).recovered, 1);
+  sqlite.prepare("UPDATE v2_jobs SET state='running',attempt_count=max_attempts,lease_until=datetime('now','-1 minute') WHERE id=?").run(stalled.job.id);
+  assert.equal(await jobs.recoverStalledBackgroundJob(stalled.job.id), "failed");
+  assert.equal(sqlite.prepare("SELECT state FROM v2_jobs WHERE id=?").get(stalled.job.id).state, "failed");
+
+  const phases = await jobs.createJob(access, { type: "question-import", operationId: "op-phases" });
+  for (let page = 0; page < 12; page++) {
+    const owner = `page-${page}`;
+    assert.equal((await jobs.claimBackgroundJob(phases.job.id, owner, 60)).attemptCount, 1);
+    await jobs.updateJob(access, phases.job.id, { state: "queued", stage: "recognizing_pages", processed: page + 1, checkpoint: { page: page + 1 } });
+    assert.equal(await jobs.continueBackgroundJob(phases.job.id, owner), true);
+  }
+  assert.equal((await jobs.getJob(access, phases.job.id)).checkpoint.page, 12);
+
   const cancelJob = await jobs.createJob(access, { type: "question-import", operationId: "op-cancel" });
   assert.equal(await jobs.requestJobCancel(access, cancelJob.job.id), true);
   const cancelled = sqlite.prepare("SELECT state,cancel_requested AS cancelled FROM v2_jobs WHERE id=?").get(cancelJob.job.id);
