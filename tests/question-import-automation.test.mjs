@@ -37,6 +37,21 @@ test("DOCX automation persists deterministic parsing without blocking on whole-p
   assert.match(intake, /result: output, error: \{\}/);
 });
 
+test("paired paper and answer imports are stored together and matched by original question number", async () => {
+  const [intake, search, library] = await Promise.all([
+    read("app/lib/v2/question-import-service.ts"),
+    read("app/v2/questions/QuestionSearch.tsx"),
+    read("app/v2/questions/QuestionLibraryWorkspace.tsx"),
+  ]);
+  assert.match(intake, /form\.get\("answerFile"\)/);
+  assert.match(intake, /answerStorageKey/);
+  assert.match(intake, /第一个是题卷、第二个是答案卷/);
+  assert.match(intake, /按原题号逐题匹配答案与解析/);
+  assert.match(search, /题卷＋答案成对导入/);
+  assert.match(search, /form\.append\("answerFile", answerFile\)/);
+  assert.match(library, /题卷＋答案成对导入/);
+});
+
 test("question import CLI preflights fingerprints and never accepts a token argument", async () => {
   const script = await read("scripts/import-question-docx.mjs");
   assert.match(script, /QUESTION_IMPORT_AUTOMATION_TOKEN/);
