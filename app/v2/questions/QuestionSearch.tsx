@@ -13,11 +13,34 @@ async function encodeImportFile(file: File) {
   return { name: file.name, type: file.type || "application/octet-stream", base64: btoa(binary) };
 }
 
-async function submitImport(file: File, answerFile?: File) {
+async function renderPdfPages(file: File, onProgress: (message: string) => void) {
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) return [];
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs";
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }), document = await loadingTask.promise;
+  if (document.numPages > 40) throw new Error("单份 PDF 最多支持 40 页，请拆分后导入");
+  const pages: File[] = [], stem = file.name.replace(/\.pdf$/i, "");
+  try {
+    for (let number = 1; number <= document.numPages; number++) {
+      onProgress(`正在准备 ${file.name} 第 ${number}/${document.numPages} 页…`);
+      const page = await document.getPage(number), base = page.getViewport({ scale: 1 }), scale = Math.min(2.2, 1800 / Math.max(1, base.width)), viewport = page.getViewport({ scale }), canvas = window.document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvas, viewport, background: "rgb(255,255,255)" }).promise;
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("PDF 页面转换失败")), "image/jpeg", .82));
+      if (blob.size > 4 * 1024 * 1024) throw new Error(`PDF 第 ${number} 页转换后超过 4MB，请降低文件清晰度`);
+      pages.push(new File([blob], `${stem}-第${number}页.jpg`, { type: "image/jpeg" }));
+      page.cleanup(); canvas.width = 1; canvas.height = 1;
+    }
+  } finally { await loadingTask.destroy(); }
+  return pages;
+}
+
+async function submitImport(file: File, answerFile: File | undefined, onProgress: (message: string) => void) {
+  const [pages, answerPages] = await Promise.all([renderPdfPages(file, onProgress), answerFile ? renderPdfPages(answerFile, onProgress) : Promise.resolve([])]);
   return fetch("/api/v2/questions/imports", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Operation-Id": crypto.randomUUID() },
-    body: JSON.stringify({ file: await encodeImportFile(file), answerFile: answerFile ? await encodeImportFile(answerFile) : undefined }),
+    body: JSON.stringify({ file: await encodeImportFile(file), answerFile: answerFile ? await encodeImportFile(answerFile) : undefined, pages: await Promise.all(pages.map(encodeImportFile)), answerPages: await Promise.all(answerPages.map(encodeImportFile)) }),
   });
 }
 
@@ -25,8 +48,8 @@ export function QuestionSearch() {
   const [query, setQuery] = useState(""), [mode, setMode] = useState("hybrid"), [grade, setGrade] = useState(""), [type, setType] = useState(""), [result, setResult] = useState<Result | null>(null), [semantic, setSemantic] = useState<Result | null>(null), [error, setError] = useState(""), [notice, setNotice] = useState(""), [loading, setLoading] = useState(false), [importing, setImporting] = useState(false), [importJob, setImportJob] = useState<ImportJob | null>(null), [selected, setSelected] = useState<number[]>([]), [paperTitle, setPaperTitle] = useState(""), [paperBusy, setPaperBusy] = useState(false), [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]), requestRef = useRef(0);
   const loadImport = useCallback(async (id: string) => { const response = await fetch(`/api/v2/questions/imports/${id}`, { cache: "no-store" }), data = await response.json() as { job?: ImportJob; questions?: ReviewQuestion[]; error?: string }; if (!response.ok || !data.job) throw new Error(data.error || "导入任务读取失败"); setImportJob(data.job); if (data.job.state === "completed") { setReviewQuestions(data.questions || []); const coverage = data.job.result?.pairedAnswerCoverage; setNotice(`已识别 ${data.job.result?.recognized || data.questions?.length || 0} 题并自动加入题库${coverage ? `，答案已匹配 ${coverage.matched}/${coverage.total} 题` : ""}（题集 #${data.job.result?.questionSetId || "已创建"}）`); setImporting(false); } else if (["failed", "cancelled"].includes(data.job.state)) { setError(data.job.error?.message || "题库导入任务已暂停"); setImporting(false); } else setNotice(`后台任务 ${data.job.stage} · ${data.job.progress}%：可以关闭页面，任务会继续。`); }, []);
   useEffect(() => { if (!importJob || !["queued", "running"].includes(importJob.state)) return; const timer = window.setInterval(() => void loadImport(importJob.id).catch((reason) => setError(reason instanceof Error ? reason.message : "任务刷新失败")), 2500); return () => window.clearInterval(timer); }, [importJob, loadImport]);
-  async function upload(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; setImporting(true); setError(""); setNotice(`正在上传 ${file.name} 并加入后台拆题队列…`); try { const response = await submitImport(file), data = await response.json() as { job?: ImportJob; error?: string }; if (!response.ok || !data.job) throw new Error(data.error || "导入失败"); setImportJob(data.job); setNotice("原文件已安全保存，AI 拆题正在后台运行；现在关闭页面也不会丢失任务。"); await loadImport(data.job.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "导入失败"); setNotice(""); setImporting(false); } finally { event.target.value = ""; } }
-  async function uploadPair(event: ChangeEvent<HTMLInputElement>) { const files = [...(event.target.files || [])]; if (files.length !== 2) { setError("请一次选择题卷和答案卷两个文件"); event.target.value = ""; return; } const answerFile = files.find((file) => /答案|解析/.test(file.name)), questionFile = files.find((file) => file !== answerFile); if (!answerFile || !questionFile) { setError("系统无法区分题卷与答案卷，请确认答案文件名包含“答案”或“解析”"); event.target.value = ""; return; } setImporting(true); setError(""); setNotice(`正在上传 ${questionFile.name} 和 ${answerFile.name}，系统将按题号自动合并…`); try { const response = await submitImport(questionFile, answerFile), data = await response.json() as { job?: ImportJob; error?: string }; if (!response.ok || !data.job) throw new Error(data.error || "成对导入失败"); setImportJob(data.job); setNotice("题卷和答案卷已安全保存，系统正在按原题号拆题并合并答案；关闭页面也不会丢失任务。"); await loadImport(data.job.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "成对导入失败"); setNotice(""); setImporting(false); } finally { event.target.value = ""; } }
+  async function upload(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; setImporting(true); setError(""); setNotice(`正在准备 ${file.name}…`); try { const response = await submitImport(file, undefined, setNotice), data = await response.json() as { job?: ImportJob; error?: string }; if (!response.ok || !data.job) throw new Error(data.error || "导入失败"); setImportJob(data.job); setNotice("原文件已安全保存，AI 拆题正在后台运行；现在关闭页面也不会丢失任务。"); await loadImport(data.job.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "导入失败"); setNotice(""); setImporting(false); } finally { event.target.value = ""; } }
+  async function uploadPair(event: ChangeEvent<HTMLInputElement>) { const files = [...(event.target.files || [])]; if (files.length !== 2) { setError("请一次选择题卷和答案卷两个文件"); event.target.value = ""; return; } const answerFile = files.find((file) => /答案|解析/.test(file.name)), questionFile = files.find((file) => file !== answerFile); if (!answerFile || !questionFile) { setError("系统无法区分题卷与答案卷，请确认答案文件名包含“答案”或“解析”"); event.target.value = ""; return; } setImporting(true); setError(""); setNotice(`正在准备 ${questionFile.name} 和 ${answerFile.name}…`); try { const response = await submitImport(questionFile, answerFile, setNotice), data = await response.json() as { job?: ImportJob; error?: string }; if (!response.ok || !data.job) throw new Error(data.error || "成对导入失败"); setImportJob(data.job); setNotice("题卷和答案卷已安全保存，系统正在按原题号拆题并合并答案；关闭页面也不会丢失任务。"); await loadImport(data.job.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "成对导入失败"); setNotice(""); setImporting(false); } finally { event.target.value = ""; } }
   async function search(event?: FormEvent) {
     event?.preventDefault(); const requestId = ++requestRef.current; setLoading(true); setError(""); setResult(null); setSemantic(null);
     const base = { query, mode, pageSize: 20, useCase: "browse", filters: { grade, questionType: type, status: "active" } };

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, extname, join, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const valueOf = (name) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : ""; };
@@ -15,6 +16,27 @@ if (!token) throw new Error("缺少 QUESTION_IMPORT_AUTOMATION_TOKEN");
 
 const bytes = await readFile(filePath);
 const answerBytes = answerFilePath ? await readFile(answerFilePath) : null;
+const runCommand = (command, commandArgs) => new Promise((resolveCommand, rejectCommand) => {
+  const child = spawn(command, commandArgs, { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = ""; child.stderr.setEncoding("utf8"); child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.on("error", rejectCommand); child.on("close", (code) => code === 0 ? resolveCommand() : rejectCommand(new Error(stderr || `${command} 执行失败（${code}）`)));
+});
+async function renderPdfPages(path, label) {
+  if (extname(path).toLowerCase() !== ".pdf") return [];
+  const directory = await mkdtemp(join(tmpdir(), "zhishi-pdf-pages-")), prefix = join(directory, label);
+  try {
+    await runCommand("pdftoppm", ["-jpeg", "-r", "144", "-jpegopt", "quality=82", path, prefix]);
+    const names = (await readdir(directory)).filter((name) => name.toLowerCase().endsWith(".jpg")).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    if (!names.length || names.length > 40) throw new Error("PDF 页数须为 1 至 40 页");
+    return Promise.all(names.map(async (name, index) => ({ name: `${label}-第${index + 1}页.jpg`, type: "image/jpeg", base64: (await readFile(join(directory, name))).toString("base64") })));
+  } catch (reason) {
+    throw new Error(`PDF 自动逐页转换失败：${reason instanceof Error ? reason.message : "请改用网页导入"}`);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
+const [questionPages, answerPages] = await Promise.all([
+  renderPdfPages(filePath, "题卷"),
+  answerFilePath ? renderPdfPages(answerFilePath, "答案") : Promise.resolve([]),
+]);
 const fileFingerprint = createHash("sha256").update(bytes).digest("hex");
 const answerFingerprint = answerBytes ? createHash("sha256").update(answerBytes).digest("hex") : "";
 const sourceFingerprint = answerFingerprint
@@ -41,6 +63,8 @@ const encodedPayload = () => JSON.stringify({
   name: importName,
   file: { name: basename(filePath), type: mimeType(filePath), base64: bytes.toString("base64") },
   answerFile: answerBytes ? { name: basename(answerFilePath), type: mimeType(answerFilePath), base64: answerBytes.toString("base64") } : undefined,
+  pages: questionPages,
+  answerPages,
 });
 
 async function runPowerShell(command, input = "") {
@@ -88,11 +112,19 @@ if (preflight.existing) {
   process.exit(0);
 }
 
-const created = await requestJson(`${baseUrl}/api/v2/questions/imports/automation`, {
+const baseOperationId = `question-import:${sourceFingerprint}`;
+let created = await requestJson(`${baseUrl}/api/v2/questions/imports/automation`, {
   method: "POST",
-  operationId: `question-import:${sourceFingerprint}`,
+  operationId: baseOperationId,
   upload: true,
 });
+if (["failed", "partial", "cancelled"].includes(String(created.job?.state || ""))) {
+  created = await requestJson(`${baseUrl}/api/v2/questions/imports/automation`, {
+    method: "POST",
+    operationId: `${baseOperationId}:retry:${Date.now().toString(36)}`,
+    upload: true,
+  });
+}
 const jobId = String(created.job?.id || "");
 if (!jobId) throw new Error("导入接口没有返回任务编号");
 
