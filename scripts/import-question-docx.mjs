@@ -127,6 +127,7 @@ if (["failed", "partial", "cancelled"].includes(String(created.job?.state || "")
 }
 const jobId = String(created.job?.id || "");
 if (!jobId) throw new Error("导入接口没有返回任务编号");
+console.error(`题库导入任务已创建：${jobId}（${created.job.state || "queued"}）`);
 
 const terminal = new Set(["completed", "failed", "cancelled", "partial"]);
 const deadline = Date.now() + 10 * 60 * 1000;

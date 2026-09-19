@@ -62,6 +62,8 @@ function validateAnswers(value: unknown) {
 function objectOrNull(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function validateQuestionPage(value: unknown) { return { questions: validateQuestions(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousQuestion) }; }
 function validateAnswerPage(value: unknown) { return { answers: validateAnswers(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousAnswer) }; }
+function savedQuestionPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => validateQuestionPage(item)) : []; }
+function savedAnswerPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => validateAnswerPage(item)) : []; }
 
 function contentScore(value: Record<string, unknown>) {
   let total = 0;
@@ -151,15 +153,31 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
       const visual = ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension);
       if (visual && (pageStorageKeys.length > 1 || answerPageStorageKeys.length > 1)) {
         const { questionImages, answerImages } = await visualImages();
-        const [questionPages, answerPages] = await Promise.all([
-          Promise.all(questionImages.map((image, index) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.4", maxTokens: 5000, timeoutMs: 25_000,
+        const questionPages = savedQuestionPages(currentJob.checkpoint.questionPages), answerPages = savedAnswerPages(currentJob.checkpoint.answerPages), batchSize = 3;
+        if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
+        if (questionPages.length < questionImages.length) {
+          const start = questionPages.length, batch = questionImages.slice(start, start + batchSize);
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.5", maxTokens: 5000, timeoutMs: 25_000,
             system: "你是中小学题卷逐页结构化引擎。只提取本页可见的正式题目，完整保留原题号、共用材料、题干、全部选项和小问。若页首是上一题的续接内容，把它写入 continuationForPreviousQuestion，不要伪造题号。不要生成答案。难度输出 1-5 数字，置信度输出 0-1 数字。输出 {questions:[{sourceQuestionNumber,questionGroup,material,stem,options,subQuestions,questionType,difficulty,score,stage,grade,textbookVersion,volume,unit,topic,knowledgePoints,secondaryKnowledge,coreCompetencies,source,year,region,examType,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions}|null}。",
-            payload: { fileName: file.name, page: index + 1, totalPages: questionImages.length }, images: [image], validate: validateQuestionPage }))).then((pages) => mergeQuestionPages(pages.map((page) => page.data))),
-          Promise.all(answerImages.map((image, index) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-answer-page-v2.4", maxTokens: 5000, timeoutMs: 25_000,
+            payload: { fileName: file.name, page: start + offset + 1, totalPages: questionImages.length }, images: [image], validate: validateQuestionPage })));
+          questionPages.push(...recognized.map((page) => page.data));
+          const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
+          await updateJob(access, jobId, { state: "queued", stage: "recognizing_pages", progress: 18 + Math.round(completedPages / Math.max(1, totalPages) * 32), processed: completedPages, total: totalPages, checkpoint: { questionPages, answerPages }, message: `已识别 ${completedPages}/${totalPages} 页，后台继续` });
+          if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
+          return { requeue: true, recognizedPages: completedPages, totalPages };
+        }
+        if (answerPages.length < answerImages.length) {
+          const start = answerPages.length, batch = answerImages.slice(start, start + batchSize);
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-answer-page-v2.5", maxTokens: 5000, timeoutMs: 25_000,
             system: "你是中小学答案卷逐页结构化引擎。只提取本页可见的原题号、答案、答题要点和解析。若页首是上一题解析的续接内容，把它写入 continuationForPreviousAnswer，不要伪造题号。不要把标题和小标题当作题目，不要补造。输出 {answers:[{sourceQuestionNumber,answer,answerPoints,analysis}],continuationForPreviousAnswer:{answer,answerPoints,analysis}|null}。",
-            payload: { fileName: answerFileName, page: index + 1, totalPages: answerImages.length }, images: [image], validate: validateAnswerPage }))).then((pages) => mergeAnswerPages(pages.map((page) => page.data))),
-        ]);
-        const merged = mergeVisualQuestions(questionPages, answerPages); questions = answerBuffer ? validatePairedQuestions({ questions: merged }) : validateQuestions({ questions: merged }); needsImportPhase = true;
+            payload: { fileName: answerFileName, page: start + offset + 1, totalPages: answerImages.length }, images: [image], validate: validateAnswerPage })));
+          answerPages.push(...recognized.map((page) => page.data));
+          const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
+          await updateJob(access, jobId, { state: "queued", stage: "recognizing_pages", progress: 18 + Math.round(completedPages / Math.max(1, totalPages) * 32), processed: completedPages, total: totalPages, checkpoint: { questionPages, answerPages }, message: `已识别 ${completedPages}/${totalPages} 页，后台继续` });
+          if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
+          return { requeue: true, recognizedPages: completedPages, totalPages };
+        }
+        const merged = mergeVisualQuestions(mergeQuestionPages(questionPages), mergeAnswerPages(answerPages)); questions = answerBuffer ? validatePairedQuestions({ questions: merged }) : validateQuestions({ questions: merged }); needsImportPhase = true;
       } else {
         const { questionImages, answerImages } = visual ? await visualImages() : { questionImages: [], answerImages: [] };
         const ai = await callV2AiJson({ access, capability: visual ? "vision" : "reasoning", jobId, promptVersion: answerBuffer ? "question-import-paired-v2.2" : "question-import-v2.1", maxTokens: 16000,
