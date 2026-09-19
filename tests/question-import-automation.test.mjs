@@ -51,17 +51,41 @@ test("paired paper and answer imports are stored together and matched by origina
   assert.match(intake, /questions\.length \* \.9/);
   assert.match(intake, /pairedAnswerCoverage/);
   assert.match(search, /题卷＋答案成对导入/);
-  assert.match(search, /form\.append\("answerFile", answerFile\)/);
+  assert.match(search, /submitImport\(questionFile, answerFile\)/);
   assert.match(search, /答案已匹配/);
   assert.match(library, /题卷＋答案成对导入/);
 });
 
-test("question import CLI preflights fingerprints and never accepts a token argument", async () => {
-  const script = await read("scripts/import-question-docx.mjs");
+test("question import uses JSON file payloads so Vinext does not intercept multipart uploads", async () => {
+  const [script, parser, route, automationRoute, search] = await Promise.all([
+    read("scripts/import-question-docx.mjs"),
+    read("app/lib/v2/question-import-request.ts"),
+    read("app/api/v2/questions/imports/route.ts"),
+    read("app/api/v2/questions/imports/automation/route.ts"),
+    read("app/v2/questions/QuestionSearch.tsx"),
+  ]);
   assert.match(script, /QUESTION_IMPORT_AUTOMATION_TOKEN/);
   assert.match(script, /sourceFingerprint=/);
   assert.match(script, /X-Operation-Id/);
   assert.match(script, /source_already_imported/);
   assert.match(script, /application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/);
+  assert.match(script, /valueOf\("--answer-file"\)/);
+  assert.match(script, /valueOf\("--name"\)/);
+  assert.match(script, /answerFile:/);
+  assert.match(script, /application\/pdf/);
+  assert.match(script, /pairedAnswerCoverage/);
+  assert.match(script, /process\.platform !== "win32"/);
+  assert.match(script, /Invoke-WebRequest/);
+  assert.match(script, /SkipHttpErrorCheck/);
+  assert.match(script, /ContentType 'application\/json'/);
+  assert.match(script, /https:\/\/daofazuoye\.cn/);
   assert.doesNotMatch(script, /valueOf\("--token"\)/);
+  assert.match(parser, /application\/json/);
+  assert.match(parser, /atob\(base64\)/);
+  assert.match(parser, /new File\(\[bytes\]/);
+  assert.match(route, /readQuestionImportForm\(request\)/);
+  assert.match(automationRoute, /readQuestionImportForm\(request\)/);
+  assert.match(search, /encodeImportFile/);
+  assert.match(search, /"Content-Type": "application\/json"/);
+  assert.doesNotMatch(search, /new FormData\(\)/);
 });

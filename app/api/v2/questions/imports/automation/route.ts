@@ -3,6 +3,7 @@ import { audit, isDenied } from "../../../../../lib/access";
 import { requireQuestionImportAutomation } from "../../../../../lib/question-import-automation";
 import { deferV2BackgroundJob } from "../../../../../lib/v2/background-dispatch";
 import { createQuestionImportV2, getQuestionImportV2 } from "../../../../../lib/v2/question-import-service";
+import { readQuestionImportForm } from "../../../../../lib/v2/question-import-request";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "自动化导入必须提供稳定的 X-Operation-Id" }, { status: 400, headers: noStore });
   }
   try {
-    const result = await createQuestionImportV2(access, await request.formData(), operationId);
+    const result = await createQuestionImportV2(access, await readQuestionImportForm(request), operationId);
     if (result.job?.state === "queued") deferV2BackgroundJob(result.job.id);
     await audit(access, "automation_question_import_created", "v2_question_import", result.job.id, { operationId });
     return Response.json(result, { status: "repeated" in result ? 200 : 202, headers: noStore });
