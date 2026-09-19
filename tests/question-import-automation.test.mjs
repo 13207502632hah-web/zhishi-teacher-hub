@@ -34,6 +34,7 @@ test("DOCX automation persists deterministic parsing without blocking on whole-p
   assert.match(intake, /imported\.status === 409 && Number\(result\.duplicates \|\| 0\) > 0/);
   assert.match(intake, /stage: "completed_duplicate"/);
   assert.match(intake, /skippedAsDuplicate: true/);
+  assert.match(intake, /result: output, error: \{\}/);
 });
 
 test("question import CLI preflights fingerprints and never accepts a token argument", async () => {
