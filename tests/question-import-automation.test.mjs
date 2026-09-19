@@ -47,8 +47,12 @@ test("paired paper and answer imports are stored together and matched by origina
   assert.match(intake, /answerStorageKey/);
   assert.match(intake, /第一个是题卷、第二个是答案卷/);
   assert.match(intake, /按原题号逐题匹配答案与解析/);
+  assert.match(intake, /validatePairedQuestions/);
+  assert.match(intake, /questions\.length \* \.9/);
+  assert.match(intake, /pairedAnswerCoverage/);
   assert.match(search, /题卷＋答案成对导入/);
   assert.match(search, /form\.append\("answerFile", answerFile\)/);
+  assert.match(search, /答案已匹配/);
   assert.match(library, /题卷＋答案成对导入/);
 });
 

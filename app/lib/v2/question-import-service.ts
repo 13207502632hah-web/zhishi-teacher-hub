@@ -52,6 +52,12 @@ function validateQuestions(value: unknown) {
   return questions.filter((item) => item && typeof item === "object" && String((item as Record<string, unknown>).stem || "").trim()).slice(0, 300).map((item, index) => { const row = item as Record<string, unknown>; return { ...row, stem: String(row.stem).trim(), sourceQuestionNumber: Number(row.sourceQuestionNumber || index + 1), questionType: String(row.questionType || "材料题"), difficulty: Math.max(1, Math.min(5, Number(row.difficulty || 3))), options: Array.isArray(row.options) ? row.options.join("\n") : String(row.options || ""), parseConfidence: Math.max(0, Math.min(1, Number(row.parseConfidence ?? .65))), status: "review", reviewStatus: "pending", reviewed: false, importNotes: Array.isArray(row.importNotes) ? row.importNotes.map(String) : [] } as AiQuestion; });
 }
 
+function validatePairedQuestions(value: unknown) {
+  const questions = validateQuestions(value), answered = questions.filter((item) => String(item.answer || item.answerPoints || "").trim()).length, minimum = Math.max(1, Math.ceil(questions.length * .9));
+  if (answered < minimum) throw new Error(`答案卷只匹配到 ${answered}/${questions.length} 题，已自动切换其他模型重试`);
+  return questions;
+}
+
 export async function createQuestionImportV2(access: AccessContext, form: FormData, operationId: string) {
   const file = form.get("file"); if (!(file instanceof File)) throw new Error("请选择题库文件"); const extension = file.name.toLowerCase().split(".").pop() || ""; if (!allowed.has(extension)) throw new Error("支持 DOCX、PDF、图片、XLSX 和 CSV"); if (!file.size || file.size > 20 * 1024 * 1024) throw new Error("文件须非空且不超过 20MB");
   const answerFileValue = form.get("answerFile"), answerFile = answerFileValue instanceof File && answerFileValue.size ? answerFileValue : null, visualExtensions = new Set(["pdf", "png", "jpg", "jpeg", "webp"]), answerExtension = answerFile?.name.toLowerCase().split(".").pop() || "";
@@ -83,24 +89,25 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
     if (extension === "docx" && localQuestions.length) questions = localQuestions as AiQuestion[];
     else try {
       const visual = ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension);
-      const ai = await callV2AiJson({ access, capability: visual ? "vision" : "reasoning", jobId, promptVersion: "question-import-v2.1", maxTokens: 16000,
+      const ai = await callV2AiJson({ access, capability: visual ? "vision" : "reasoning", jobId, promptVersion: answerBuffer ? "question-import-paired-v2.2" : "question-import-v2.1", maxTokens: 16000,
         system: "你是中小学试题结构化引擎。完整拆分材料、题干、选项、小问、答案与解析，识别原题号异常，分类教材、年级、章节、知识点、题型、难度、地区、年份和来源。如果输入包含两份文件，第一个是题卷、第二个是答案卷；必须按原题号逐题匹配答案与解析，不能把答案卷中的题号或小标题识别成新题。不可补造缺失答案；缺失项写入 importNotes 并降低 parseConfidence。输出 {questions:[{sourceQuestionNumber,questionGroup,material,stem,options,subQuestions,answer,answerPoints,analysis,questionType,difficulty,score,stage,grade,textbookVersion,volume,unit,topic,knowledgePoints,secondaryKnowledge,coreCompetencies,source,year,region,examType,parseConfidence,importNotes}]}。",
         payload: visual ? { fileName: file.name, answerFileName, fileOrder: answerBuffer ? ["题卷", "答案卷"] : ["题卷"], instruction: answerBuffer ? "逐页识别第一份题卷的全部题目，再将第二份答案卷按原题号合并到对应题目，包括材料共用关系和小问" : "逐页识别全部题目，包括材料共用关系和小问" } : { fileName: file.name, sourceText: sourceText.slice(0, 120_000), deterministicCandidates: localQuestions.slice(0, 120).map((item) => ({ ...item, attachments: undefined, tables: undefined })) },
-        images: visual ? [dataUrl(buffer, file.type || (extension === "pdf" ? "application/pdf" : "image/jpeg")), ...(answerBuffer ? [dataUrl(answerBuffer, String(payload.answerMimeType || (answerExtension === "pdf" ? "application/pdf" : "image/jpeg")))] : [])] : undefined, validate: validateQuestions }); questions = extension === "docx" ? preserveDocxVisuals(ai.data, localQuestions as AiQuestion[]) : ai.data;
+        images: visual ? [dataUrl(buffer, file.type || (extension === "pdf" ? "application/pdf" : "image/jpeg")), ...(answerBuffer ? [dataUrl(answerBuffer, String(payload.answerMimeType || (answerExtension === "pdf" ? "application/pdf" : "image/jpeg")))] : [])] : undefined, validate: answerBuffer ? validatePairedQuestions : validateQuestions }); questions = extension === "docx" ? preserveDocxVisuals(ai.data, localQuestions as AiQuestion[]) : ai.data;
     } catch (error) { if (!localQuestions.length) throw error; questions = localQuestions as AiQuestion[]; }
     if (!questions.length) throw new Error("没有识别到可校对的题目");
+    const pairedAnswerCoverage = answerBuffer ? { matched: questions.filter((item) => String(item.answer || item.answerPoints || "").trim()).length, total: questions.length } : undefined;
     const current = await getJob(access, jobId); if (current?.cancelRequested) { await updateJob(access, jobId, { state: "cancelled", stage: "cancelled", progress: current.progress, message: "任务已按请求取消" }); return { cancelled: true }; }
     const imported = await importQuestionSetForAccess(access, { name: String(payload.name || file.name.replace(/\.[^.]+$/, "")), sourceFile: answerFileName ? `${file.name} + ${answerFileName}` : file.name, sourceDocument: storageKey, sourceKey: storageKey, sourceFingerprint, questions });
     const result = await imported.json() as Record<string, unknown>;
     if (!imported.ok && imported.status === 409 && Number(result.duplicates || 0) > 0) {
-      const duplicates = Number(result.duplicates), output = { importId: jobId, questionSetId: Number((result.existing as Record<string, unknown> | undefined)?.id || 0), report: { total: questions.length, imported: 0, duplicates, enriched: Number(result.enriched || 0) }, recognized: questions.length, vectorsIndexed: 0, storageKey, answerStorageKey, skippedAsDuplicate: true };
+      const duplicates = Number(result.duplicates), output = { importId: jobId, questionSetId: Number((result.existing as Record<string, unknown> | undefined)?.id || 0), report: { total: questions.length, imported: 0, duplicates, enriched: Number(result.enriched || 0) }, recognized: questions.length, vectorsIndexed: 0, storageKey, answerStorageKey, pairedAnswerCoverage, skippedAsDuplicate: true };
       const job = await updateJob(access, jobId, { state: "completed", stage: "completed_duplicate", progress: 100, processed: questions.length, total: questions.length, result: output, error: {}, message: `${duplicates} 道题均已存在，已跳过重复导入` });
       return { ...output, job, questions: [] };
     }
     if (!imported.ok) throw new Error(String(result.error || "题目入待校对区失败"));
     const insertedQuestions = Array.isArray(result.questions) ? result.questions as Record<string, unknown>[] : [];
     await ensureLocalQuestionVectors(insertedQuestions.map((item) => ({ id: Number(item.id), text: [item.stem, item.material, item.questionType, item.stage, item.grade, item.topic, item.knowledgePoints, item.source].filter(Boolean).join("\n") })).filter((item) => item.id > 0));
-    const questionSet = result.questionSet as Record<string, unknown>, report = parseJsonObject(result.report), output = { importId: jobId, questionSetId: Number(questionSet?.id || 0), report, recognized: questions.length, vectorsIndexed: insertedQuestions.length, storageKey, answerStorageKey };
+    const questionSet = result.questionSet as Record<string, unknown>, report = parseJsonObject(result.report), output = { importId: jobId, questionSetId: Number(questionSet?.id || 0), report, recognized: questions.length, vectorsIndexed: insertedQuestions.length, storageKey, answerStorageKey, pairedAnswerCoverage };
     const job = await updateJob(access, jobId, { state: "completed", stage: "completed", progress: 100, processed: questions.length, total: questions.length, result: output, error: {}, message: "已自动检查并入库，缺失字段保留提示" }); return { ...output, job, questions: result.questions };
   } catch (error) { throw error instanceof Error ? error : new Error("题库导入失败"); }
 }
