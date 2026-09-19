@@ -103,6 +103,14 @@ test("question import uses JSON file payloads so Vinext does not intercept multi
   assert.match(intake, /timeoutMs: 25_000/);
   assert.match(intake, /mergeVisualQuestions/);
   assert.match(intake, /recognizedQuestions/);
+  const detailRoute = await read("app/api/v2/questions/imports/[id]/route.ts");
+  assert.match(detailRoute, /await runV2BackgroundJob\(id\)/);
+  assert.match(automationRoute, /await runV2BackgroundJob\(id\)/);
+  const background = await read("app/lib/v2/background-dispatch.ts");
+  assert.match(background, /claimBackgroundJob\(jobId, leaseOwner, 60\)/);
+  assert.match(search, /const poll = async \(\) =>/);
+  assert.match(search, /window\.setTimeout\(poll, 2500\)/);
+  assert.doesNotMatch(search, /setInterval\(\(\) => void loadImport/);
   assert.match(intake, /continueBackgroundJob/);
   assert.match(route, /readQuestionImportForm\(request\)/);
   assert.match(automationRoute, /readQuestionImportForm\(request\)/);

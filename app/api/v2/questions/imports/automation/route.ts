@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { audit, isDenied } from "../../../../../lib/access";
 import { requireQuestionImportAutomation } from "../../../../../lib/question-import-automation";
-import { deferV2BackgroundJob } from "../../../../../lib/v2/background-dispatch";
+import { deferV2BackgroundJob, runV2BackgroundJob } from "../../../../../lib/v2/background-dispatch";
 import { createQuestionImportV2, getQuestionImportV2 } from "../../../../../lib/v2/question-import-service";
 import { readQuestionImportForm } from "../../../../../lib/v2/question-import-request";
 
@@ -30,8 +30,8 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const id = String(params.get("id") || "").trim();
   if (id) {
-    const item = await getQuestionImportV2(access, id);
-    if (item && ["queued", "running"].includes(item.job.state)) deferV2BackgroundJob(id);
+    let item = await getQuestionImportV2(access, id);
+    if (item && ["queued", "running"].includes(item.job.state)) { await runV2BackgroundJob(id); item = await getQuestionImportV2(access, id); }
     return item ? Response.json(item, { headers: noStore }) : Response.json({ error: "导入任务不存在" }, { status: 404, headers: noStore });
   }
 
