@@ -153,7 +153,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
       const visual = ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension);
       if (visual && (pageStorageKeys.length > 1 || answerPageStorageKeys.length > 1)) {
         const { questionImages, answerImages } = await visualImages();
-        const questionPages = savedQuestionPages(currentJob.checkpoint.questionPages), answerPages = savedAnswerPages(currentJob.checkpoint.answerPages), batchSize = 3;
+        const questionPages = savedQuestionPages(currentJob.checkpoint.questionPages), answerPages = savedAnswerPages(currentJob.checkpoint.answerPages), batchSize = 1;
         if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
         if (questionPages.length < questionImages.length) {
           const start = questionPages.length, batch = questionImages.slice(start, start + batchSize);
