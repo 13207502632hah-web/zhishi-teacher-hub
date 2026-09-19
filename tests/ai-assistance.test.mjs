@@ -115,6 +115,15 @@ test("AI generation has no cost, daily call-count or token feature limit and kee
   assert.match(routing, /costOrTokenFeatureLimit:\s*false/);
 });
 
+test("OpenCode Go requests use a stable session header and a currently supported vision model", async () => {
+  const [router, routing, envExample] = await Promise.all([read("app/lib/v2/ai-router.ts"), read("app/api/v2/settings/ai-routing/route.ts"), read(".env.example")]);
+  assert.match(router, /x-opencode-session/);
+  assert.match(router, /input\.jobId \|\| requestFingerprint\.slice/);
+  assert.match(router, /zhishi-teacher-hub\/2\.0/);
+  for (const source of [router, routing, envExample]) assert.match(source, /deepseek-v4-flash-vision-exp/);
+  assert.doesNotMatch(router, /mimo-v2-omni/);
+});
+
 test("AI setting flags preserve database zero values instead of re-enabling privacy options", async () => {
   const { aiBoolean } = await loadTsModule("app/lib/ai/settings.ts");
   assert.equal(aiBoolean(undefined, true), true);

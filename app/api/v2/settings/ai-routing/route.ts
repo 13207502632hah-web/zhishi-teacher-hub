@@ -13,7 +13,7 @@ export async function GET() {
     models: {
       fast: env.OPENAI_FAST_MODEL || "deepseek-v4-flash",
       reasoning: env.OPENAI_REASONING_MODEL || "gpt-5.6-luna",
-      vision: env.OPENAI_VISION_MODEL || "mimo-v2-omni",
+      vision: env.OPENAI_VISION_MODEL || "deepseek-v4-flash-vision-exp",
       embedding: env.OPENAI_EMBEDDING_MODEL || "待配置",
     },
     qualityFirst: true,

@@ -41,7 +41,7 @@ function routesFor(capability: Exclude<AiCapability, "embedding">): AiRoute[] {
   const openCodeKey = v2RuntimeValue("OPENAI_API_KEY"), openCodeBase = v2RuntimeValue("OPENAI_BASE_URL") || "https://opencode.ai/zen/go/v1";
   if (openCodeKey) {
     const preferred = capability === "fast" ? v2RuntimeValue("OPENAI_FAST_MODEL") || "deepseek-v4-flash"
-      : capability === "vision" ? v2RuntimeValue("OPENAI_VISION_MODEL") || "mimo-v2-omni"
+      : capability === "vision" ? v2RuntimeValue("OPENAI_VISION_MODEL") || "deepseek-v4-flash-vision-exp"
       : v2RuntimeValue("OPENAI_REASONING_MODEL") || "gpt-5.6-luna";
     routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: preferred });
     if (preferred !== "deepseek-v4-pro" && capability !== "vision") routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: "deepseek-v4-pro" });
@@ -69,6 +69,7 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
   if (!routes.length || (v2RuntimeValue("AI_V2_ENABLED") && v2RuntimeValue("AI_V2_ENABLED") !== "true")) throw new V2AiError("V2 智能服务尚未启用", "AI_NOT_CONFIGURED", 503);
   const anonymized = anonymizeForAi(input.payload, input.knownNames);
   const requestFingerprint = await fingerprint({ capability: input.capability, payload: anonymized.value, promptVersion: input.promptVersion });
+  const openCodeSession = `zhishi-${input.jobId || requestFingerprint.slice(0, 32)}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 96);
   const errors: string[] = [];
 
   for (const [routeIndex, route] of routes.entries()) {
@@ -87,7 +88,7 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
       try {
         response = await fetch(chatEndpoint(route.baseUrl), {
           method: "POST", signal: controller.signal,
-          headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json", ...(route.provider === "opencode-zen" ? { "x-opencode-session": openCodeSession, "User-Agent": "zhishi-teacher-hub/2.0" } : {}) },
           body: JSON.stringify({ model: route.model, temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
         });
       } finally { clearTimeout(timeout); }
