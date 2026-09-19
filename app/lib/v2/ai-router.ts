@@ -17,6 +17,7 @@ type AiCallInput<T> = {
   images?: string[];
   knownNames?: string[];
   maxTokens?: number;
+  timeoutMs?: number;
   validate: (value: unknown) => T;
 };
 
@@ -41,7 +42,7 @@ function routesFor(capability: Exclude<AiCapability, "embedding">): AiRoute[] {
   const openCodeKey = v2RuntimeValue("OPENAI_API_KEY"), openCodeBase = v2RuntimeValue("OPENAI_BASE_URL") || "https://opencode.ai/zen/go/v1";
   if (openCodeKey) {
     const preferred = capability === "fast" ? v2RuntimeValue("OPENAI_FAST_MODEL") || "deepseek-v4-flash"
-      : capability === "vision" ? v2RuntimeValue("OPENAI_VISION_MODEL") || "deepseek-v4-flash-vision-exp"
+      : capability === "vision" ? v2RuntimeValue("OPENAI_VISION_MODEL") || "mimo-v2.5"
       : v2RuntimeValue("OPENAI_REASONING_MODEL") || "gpt-5.6-luna";
     routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: preferred });
     if (preferred !== "deepseek-v4-pro" && capability !== "vision") routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: "deepseek-v4-pro" });
@@ -69,7 +70,7 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
   if (!routes.length || (v2RuntimeValue("AI_V2_ENABLED") && v2RuntimeValue("AI_V2_ENABLED") !== "true")) throw new V2AiError("V2 智能服务尚未启用", "AI_NOT_CONFIGURED", 503);
   const anonymized = anonymizeForAi(input.payload, input.knownNames);
   const requestFingerprint = await fingerprint({ capability: input.capability, payload: anonymized.value, promptVersion: input.promptVersion });
-  const openCodeSession = `zhishi-${input.jobId || requestFingerprint.slice(0, 32)}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 96);
+  const openCodeSession = `zhishi-${input.jobId ? `${input.jobId}-${requestFingerprint.slice(0, 12)}` : requestFingerprint.slice(0, 32)}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 96);
   const errors: string[] = [];
 
   for (const [routeIndex, route] of routes.entries()) {
@@ -83,7 +84,7 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
       const userContent: unknown = input.images?.length
         ? [{ type: "text", text: JSON.stringify(anonymized.value) }, ...input.images.map((url) => ({ type: "image_url", image_url: { url } }))]
         : JSON.stringify(anonymized.value);
-      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), input.capability === "vision" ? 90_000 : 60_000);
+      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), input.timeoutMs || (input.capability === "vision" ? 90_000 : 60_000));
       let response: Response;
       try {
         response = await fetch(chatEndpoint(route.baseUrl), {

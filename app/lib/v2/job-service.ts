@@ -101,6 +101,12 @@ export async function requeueBackgroundJob(id: string, message: string, leaseOwn
   return { exhausted, delay, ignored: false };
 }
 
+export async function continueBackgroundJob(id: string, leaseOwner: string) {
+  const result = await env.DB.prepare("UPDATE v2_jobs SET state='queued',available_at=CURRENT_TIMESTAMP,lease_owner=NULL,lease_until=NULL,attempt_count=MAX(0,attempt_count-1),updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='queued' AND lease_owner=?")
+    .bind(id, leaseOwner).run();
+  return Number(result.meta?.changes || 0) === 1;
+}
+
 export async function listClaimableBackgroundJobIds(limit = 10) {
   const rows = await env.DB.prepare("SELECT id FROM v2_jobs WHERE cancel_requested=0 AND attempt_count<max_attempts AND datetime(COALESCE(available_at,created_at))<=datetime('now') AND (state='queued' OR (state='running' AND datetime(COALESCE(lease_until,'1970-01-01'))<=datetime('now'))) ORDER BY created_at LIMIT ?").bind(Math.min(25, Math.max(1, limit))).all<{ id: string }>();
   return rows.results.map((row) => String(row.id));

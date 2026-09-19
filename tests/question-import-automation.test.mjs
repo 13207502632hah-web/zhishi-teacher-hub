@@ -94,6 +94,14 @@ test("question import uses JSON file payloads so Vinext does not intercept multi
   assert.match(parser, /payload\.answerPages/);
   assert.match(intake, /pageStorageKeys/);
   assert.match(intake, /PDF 逐页识别图不完整/);
+  assert.match(intake, /mergeQuestionPages/);
+  assert.match(intake, /continuationForPreviousQuestion/);
+  assert.match(intake, /question-import-page-v2\.4/);
+  assert.match(intake, /question-answer-page-v2\.4/);
+  assert.match(intake, /timeoutMs: 25_000/);
+  assert.match(intake, /mergeVisualQuestions/);
+  assert.match(intake, /recognizedQuestions/);
+  assert.match(intake, /continueBackgroundJob/);
   assert.match(route, /readQuestionImportForm\(request\)/);
   assert.match(automationRoute, /readQuestionImportForm\(request\)/);
   assert.match(search, /encodeImportFile/);

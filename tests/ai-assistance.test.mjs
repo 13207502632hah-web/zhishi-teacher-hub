@@ -118,9 +118,10 @@ test("AI generation has no cost, daily call-count or token feature limit and kee
 test("OpenCode Go requests use a stable session header and a currently supported vision model", async () => {
   const [router, routing, envExample] = await Promise.all([read("app/lib/v2/ai-router.ts"), read("app/api/v2/settings/ai-routing/route.ts"), read(".env.example")]);
   assert.match(router, /x-opencode-session/);
-  assert.match(router, /input\.jobId \|\| requestFingerprint\.slice/);
+  assert.match(router, /input\.jobId \? `\$\{input\.jobId\}-\$\{requestFingerprint\.slice/);
   assert.match(router, /zhishi-teacher-hub\/2\.0/);
-  for (const source of [router, routing, envExample]) assert.match(source, /deepseek-v4-flash-vision-exp/);
+  for (const source of [router, routing, envExample]) assert.match(source, /mimo-v2\.5/);
+  assert.match(router, /requestFingerprint\.slice\(0, 12\)/);
   assert.doesNotMatch(router, /mimo-v2-omni/);
 });
 

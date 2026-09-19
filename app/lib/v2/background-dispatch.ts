@@ -22,7 +22,7 @@ export async function runV2BackgroundJob(jobId: string) {
   try {
     const outcome = claim.type === "schedule-import" || claim.type === "schedule-confirm"
       ? await processScheduleImportJobV2(access, claim.id, leaseOwner)
-      : await processQuestionImportJobV2(access, claim.id);
+      : await processQuestionImportJobV2(access, claim.id, leaseOwner);
     if (outcome && typeof outcome === "object" && "requeue" in outcome && outcome.requeue === true) deferV2BackgroundJob(jobId);
     return { claimed: true, completed: true, requeued: Boolean(outcome && typeof outcome === "object" && "requeue" in outcome && outcome.requeue === true) };
   } catch (reason) {
