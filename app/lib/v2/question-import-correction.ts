@@ -33,8 +33,31 @@ export async function correctQuestionImport(access: AccessContext, jobId: string
   const actor = { type: "user" as const, id: access.id }, action = `question-import.correct:${jobId}`;
   const operation = await beginOperation(actor, action, operationId);
   if ("error" in operation) return operation.error;
-  if (!operation.acquired) return operation.result.inputFingerprint === inputFingerprint ? Response.json({ ...operation.result, repeated: true }, { headers: noStore }) : error("操作编号已被其他修正内容使用", 409);
+  if (!operation.acquired && operation.result.inputFingerprint !== inputFingerprint) return error("操作编号已被其他修正内容使用", 409);
   try {
+    const readReceipts = () => env.DB.prepare("SELECT entity_id AS id,detail FROM audit_logs WHERE user_id=? AND action='correct_import' AND entity_type='question' AND json_extract(detail,'$.jobId')=? AND json_extract(detail,'$.operationId')=?")
+      .bind(access.id, jobId, operationId).all<{ id: number; detail: string }>();
+    const finish = async (repeated: boolean) => {
+      // D1's changed-row count includes FTS trigger writes; use per-question receipts.
+      const receipts = await readReceipts(), updated = [...new Set(receipts.results.map((row) => Number(row.id)))];
+      const rows = await env.DB.prepare("SELECT id,stem,material,stage,grade,knowledge_points AS knowledgePoints FROM questions WHERE question_set_id=? AND id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))")
+        .bind(questionSetId, JSON.stringify(updated)).all<Record<string, unknown>>();
+      const result = { updated, conflicts: corrections.filter((item) => !updated.includes(item.id)).map((item) => item.id), inputFingerprint };
+      // Persist the content-write receipt before indexing so a retry can finish indexing
+      // without attempting to overwrite an already-corrected question.
+      await completeOperation(actor, action, operationId, result);
+      await ensureLocalQuestionVectors(rows.results.map((row) => ({ id: Number(row.id), text: [row.stem, row.material, row.stage, row.grade, row.knowledgePoints].filter(Boolean).join("\n") })));
+      return Response.json({ ...result, ...(repeated ? { repeated: true } : {}) }, { headers: noStore });
+    };
+    const recorded = await readReceipts();
+    if (recorded.results.length) {
+      const matches = recorded.results.every((row) => {
+        const detail = JSON.parse(row.detail), requested = corrections.find((item) => item.id === Number(row.id));
+        return requested && requested.expectedUpdatedAt === detail.before.updatedAt && JSON.stringify(requested.changes) === JSON.stringify(detail.changes) && JSON.stringify(requested.sourcePages) === JSON.stringify(detail.sourcePages);
+      });
+      if (!matches) { await abandonOperation(actor, action, operationId); return error("操作编号已被其他修正内容使用", 409); }
+    }
+    if (!operation.acquired || recorded.results.length) return await finish(true);
     const prepared = [];
     for (const item of corrections) {
       const before = await env.DB.prepare(`SELECT id,${Object.entries(columns).map(([key, column]) => `${column} AS ${key}`).join(",")},created_at AS createdAt,updated_at AS updatedAt,reviewed,review_status AS reviewStatus FROM questions WHERE id=? AND question_set_id=?`).bind(item.id, questionSetId).first<Record<string, unknown>>();
@@ -59,12 +82,8 @@ export async function correctQuestionImport(access: AccessContext, jobId: string
       statements.push(env.DB.prepare("INSERT INTO audit_logs(user_id,action,entity_type,entity_id,detail) SELECT ?,'correct_import','question',id,? FROM questions WHERE id=? AND question_set_id=? AND updated_at=?")
         .bind(access.id, JSON.stringify({ jobId, operationId, sourcePages: item.sourcePages, before, changes: item.changes, after: { ...after, updatedAt } }), item.id, questionSetId, updatedAt));
     }
-    const results = await env.DB.batch(statements);
-    const changed = prepared.filter((_, index) => Number(results[index * 2].meta?.changes || 0) === 1), conflicts = prepared.filter((_, index) => Number(results[index * 2].meta?.changes || 0) !== 1).map(({ item }) => item.id);
-    await ensureLocalQuestionVectors(changed.map(({ item, after }) => ({ id: item.id, text: [after.stem, after.material, after.stage, after.grade, after.knowledgePoints].filter(Boolean).join("\n") })));
-    const result = { updated: changed.map(({ item }) => item.id), conflicts, inputFingerprint };
-    await completeOperation(actor, action, operationId, result);
-    return Response.json(result, { headers: noStore });
+    await env.DB.batch(statements);
+    return await finish(false);
   } catch (reason) {
     await abandonOperation(actor, action, operationId);
     throw reason;
