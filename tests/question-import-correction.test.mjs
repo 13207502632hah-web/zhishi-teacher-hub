@@ -8,12 +8,18 @@ import test from "node:test";
 const require = createRequire(import.meta.url), ts = require("typescript");
 function setup({ vectorFailures = 0 } = {}) {
   const db = new DatabaseSync(":memory:");
-  db.exec(`CREATE TABLE questions(id INTEGER PRIMARY KEY,question_set_id INTEGER,stem TEXT,material TEXT,options TEXT,answer TEXT,answer_points TEXT,analysis TEXT,knowledge_points TEXT,stage TEXT,grade TEXT,score REAL,year INTEGER,region TEXT,notes TEXT,fingerprint TEXT,reviewed INTEGER DEFAULT 0,review_status TEXT DEFAULT 'auto_checked',created_at TEXT DEFAULT '2026-09-20 09:37:30',updated_at TEXT DEFAULT '2026-09-20 09:37:30');
+  db.exec(`CREATE TABLE questions(id INTEGER PRIMARY KEY,question_set_id INTEGER,source TEXT,source_file TEXT,stem TEXT,material TEXT,options TEXT,answer TEXT,answer_points TEXT,analysis TEXT,knowledge_points TEXT,stage TEXT,grade TEXT,score REAL,year INTEGER,region TEXT,notes TEXT,fingerprint TEXT,reviewed INTEGER DEFAULT 0,review_status TEXT DEFAULT 'auto_checked',created_at TEXT DEFAULT '2026-09-20 09:37:30',updated_at TEXT DEFAULT '2026-09-20 09:37:30');
+    CREATE TABLE question_sets(id INTEGER PRIMARY KEY,paper_id INTEGER,name TEXT,source_file TEXT,source_fingerprint TEXT,updated_at TEXT);
+    CREATE TABLE papers(id INTEGER PRIMARY KEY,title TEXT,updated_at TEXT);
+    INSERT INTO question_sets VALUES(74,5,'乱码标题','乱码文件.pdf','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',CURRENT_TIMESTAMP);
+    INSERT INTO papers VALUES(5,'乱码标题',CURRENT_TIMESTAMP);
     CREATE TABLE audit_logs(id INTEGER PRIMARY KEY,user_id INTEGER,action TEXT,entity_type TEXT,entity_id TEXT,detail TEXT);
     CREATE TABLE idempotency_operations(actor_type TEXT,actor_id INTEGER,action TEXT,operation_id TEXT,status TEXT,result_json TEXT,expires_at TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(actor_type,actor_id,action,operation_id));
     INSERT INTO questions(id,question_set_id,stem,material,notes) VALUES(1,74,'（题目未完，待续）','前三座桥','原题号：30'),(2,75,'其他卷','内容','原题号：1'),(3,74,'已修改的题','内容','原题号：31'),(4,74,'已确认的题','内容','原题号：32');
     UPDATE questions SET updated_at='2026-09-20T09:40:00.000Z' WHERE id=3;
     UPDATE questions SET reviewed=1 WHERE id=4;
+    UPDATE questions SET source='乱码文件.pdf',source_file='乱码文件.pdf' WHERE question_set_id=74;
+    UPDATE questions SET source='教师自定义来源' WHERE id=3;
     CREATE VIRTUAL TABLE question_text_fts USING fts5(stem,content='questions',content_rowid='id');
     INSERT INTO question_text_fts(question_text_fts) VALUES('rebuild');
     CREATE TRIGGER question_text_updated AFTER UPDATE ON questions BEGIN
@@ -41,7 +47,8 @@ function setup({ vectorFailures = 0 } = {}) {
     return loaded.exports;
   };
   const api = load(fileURLToPath(new URL("../app/lib/v2/question-import-correction.ts", import.meta.url)));
-  return { db, api, vectorCalls };
+  const labelsApi = load(fileURLToPath(new URL("../app/lib/v2/question-import-labels.ts", import.meta.url)));
+  return { db, api, labelsApi, vectorCalls };
 }
 const access = { id: 7, role: "teacher" };
 const correction = (id = 1) => ({ id, expectedUpdatedAt: "2026-09-20 09:37:30", sourcePages: [7, 8], changes: { stem: "结合材料，谈谈这些桥蕴含哪些道理。", material: "前三座桥\n第四座桥", score: 8 } });
@@ -60,6 +67,24 @@ test("source-backed import corrections preserve identity, audit before/after, re
   assert.equal((await replay.json()).repeated, true); assert.equal(db.prepare("SELECT count(*) n FROM audit_logs").get().n, 1);
   const different = { ...correction(), changes: { stem: "不同内容" } };
   assert.equal((await api.correctQuestionImport(access, "job-fixture", 74, "correct-operation-1", [different])).status, 409);
+  db.close();
+});
+
+test("file-label repair updates only matching labels, preserves content, and replays without extra writes", async () => {
+  const { db, labelsApi } = setup();
+  const labels = { name: "定心卷", sourceFile: "定心卷.pdf", expectedName: "乱码标题", expectedSourceFile: "乱码文件.pdf", sourceFingerprint: "a".repeat(64) };
+  const run = (operationId, value = labels) => labelsApi.correctQuestionImportLabels(access, "job-fixture", 74, operationId, value);
+  assert.equal((await run("labels-wrong-fingerprint", { ...labels, sourceFingerprint: "b".repeat(64) })).status, 409);
+  assert.equal((await run("labels-stale-name", { ...labels, expectedName: "旧名称" })).status, 409);
+  assert.equal((await run("labels-operation-1")).status, 200);
+  assert.equal(db.prepare("SELECT name FROM question_sets WHERE id=74").get().name, "定心卷");
+  assert.equal(db.prepare("SELECT title FROM papers WHERE id=5").get().title, "定心卷");
+  assert.equal(db.prepare("SELECT source FROM questions WHERE id=1").get().source, "定心卷.pdf");
+  assert.equal(db.prepare("SELECT source FROM questions WHERE id=3").get().source, "教师自定义来源");
+  assert.equal(db.prepare("SELECT stem FROM questions WHERE id=3").get().stem, "已修改的题");
+  assert.equal((await (await run("labels-operation-1")).json()).repeated, true);
+  assert.equal((await run("labels-operation-1", { ...labels, name: "另一个名字" })).status, 409);
+  assert.equal(db.prepare("SELECT count(*) n FROM audit_logs").get().n, 1);
   db.close();
 });
 

@@ -95,10 +95,10 @@ async function requestJson(url, { method = "GET", operationId = "", upload = fal
 
   const escapedUrl = url.replaceAll("'", "''"), escapedOperation = operationId.replaceAll("'", "''");
   const request = payload
-    ? `$body=[Console]::In.ReadToEnd();$r=Invoke-WebRequest -Uri '${escapedUrl}' -Method Post -Headers @{Authorization=('Bearer '+$env:ZHISHI_IMPORT_TOKEN);Accept='application/json';'X-Operation-Id'='${escapedOperation}'} -ContentType 'application/json' -Body $body -SkipHttpErrorCheck`
+    ? `$body=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd()));$r=Invoke-WebRequest -Uri '${escapedUrl}' -Method Post -Headers @{Authorization=('Bearer '+$env:ZHISHI_IMPORT_TOKEN);Accept='application/json';'X-Operation-Id'='${escapedOperation}'} -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -SkipHttpErrorCheck`
     : `$r=Invoke-WebRequest -Uri '${escapedUrl}' -Headers @{Authorization=('Bearer '+$env:ZHISHI_IMPORT_TOKEN);Accept='application/json'} -SkipHttpErrorCheck`;
   const envelope = `${request};[ordered]@{status=[int]$r.StatusCode;contentType=[string]$r.Headers.'Content-Type';body=[string]$r.Content}|ConvertTo-Json -Compress`;
-  const stdout = await runPowerShell(envelope, payload || "");
+  const stdout = await runPowerShell(envelope, payload ? Buffer.from(payload, "utf8").toString("base64") : "");
   const response = JSON.parse(String(stdout).trim());
   let body;
   try { body = JSON.parse(response.body); } catch { throw new Error(`接口返回了非 JSON 内容（HTTP ${response.status}）`); }

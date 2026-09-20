@@ -84,7 +84,7 @@ test("question import uses JSON file payloads so Vinext does not intercept multi
   assert.match(script, /process\.platform !== "win32"/);
   assert.match(script, /Invoke-WebRequest/);
   assert.match(script, /SkipHttpErrorCheck/);
-  assert.match(script, /ContentType 'application\/json'/);
+  assert.match(script, /ContentType 'application\/json; charset=utf-8'/);
   assert.match(script, /https:\/\/daofazuoye\.cn/);
   assert.doesNotMatch(script, /valueOf\("--token"\)/);
   assert.match(parser, /application\/json/);

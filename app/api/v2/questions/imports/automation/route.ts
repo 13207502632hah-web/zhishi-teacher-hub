@@ -6,6 +6,7 @@ import { createQuestionImportV2, getQuestionImportV2 } from "../../../../../lib/
 import { readQuestionImportForm } from "../../../../../lib/v2/question-import-request";
 import { retryBackgroundJob } from "../../../../../lib/v2/job-service";
 import { correctQuestionImport } from "../../../../../lib/v2/question-import-correction";
+import { correctQuestionImportLabels } from "../../../../../lib/v2/question-import-labels";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -15,11 +16,12 @@ export async function PATCH(request: Request) {
   const operationId = String(request.headers.get("X-Operation-Id") || "").trim();
   if (!/^[A-Za-z0-9:._-]{8,200}$/.test(operationId)) return Response.json({ error: "重试必须提供稳定的操作编号" }, { status: 400, headers: noStore });
   const body = await request.json() as Record<string, unknown>;
-  if (!["retry", "correct"].includes(String(body.action)) || typeof body.id !== "string") return Response.json({ error: "仅支持题库导入任务重试或原卷修正" }, { status: 400, headers: noStore });
+  if (!["retry", "correct", "correct-labels"].includes(String(body.action)) || typeof body.id !== "string") return Response.json({ error: "仅支持题库导入任务重试、原卷或标签修正" }, { status: 400, headers: noStore });
   const item = await getQuestionImportV2(access, body.id);
   if (!item) return Response.json({ error: "导入任务不存在" }, { status: 404, headers: noStore });
-  if (body.action === "correct") {
+  if (body.action === "correct" || body.action === "correct-labels") {
     if (item.job.state !== "completed" || !item.questionSet) return Response.json({ error: "仅可修正已完成导入的原卷" }, { status: 409, headers: noStore });
+    if (body.action === "correct-labels") return correctQuestionImportLabels(access, body.id, Number(item.job.result.questionSetId), operationId, body.labels);
     return correctQuestionImport(access, body.id, Number(item.job.result.questionSetId), operationId, body.corrections);
   }
   const result = await retryBackgroundJob(access, body.id, operationId);

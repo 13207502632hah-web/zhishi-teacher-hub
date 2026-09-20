@@ -73,3 +73,11 @@
 - v103 仅修改 `question-import-correction.ts`、对应测试和本文档：以同操作逐题审计回执作为完成依据；先保存内容写入结果，再刷新索引；重复请求可以补完索引，但不会再次覆盖内容。
 - 新增真实 SQLite 全文索引触发器及索引中断续跑测试。lint、typecheck、build、446/446 测试通过。页面、控制台和手机布局仍未能手动验证。
 - 还发现该次 Windows 自动导入的试卷名称、来源文件名乱码；下一步需要单独核对编码并修正来源显示，不能把它计为已解决。
+
+## v103 线上验证及 v104 标签编码修复
+
+- v103 已发布；使用同一操作编号回放原修正请求，返回 32 道已更新、0 冲突和 `repeated: true`，已补完检索向量刷新，没有再次覆盖题目内容。
+- v104 单独处理文件标签编码：`scripts/import-question-docx.mjs` 的 Windows 子进程标准输入改用 ASCII Base64 传送 UTF-8 JSON，HTTP 请求体显式使用 UTF-8 字节及字符集。
+- 新增 `app/lib/v2/question-import-labels.ts`：按原文件指纹、原名称和原来源匹配修正试卷标签，关联题目仅替换仍等于原错误标签的来源，保留教师自定义标签和正文；修正有审计、冲突保护、重复请求回执及索引刷新。
+- 既有 `automation/route.ts` 增加窄范围标签操作；`tests/question-import-correction.test.mjs` 增加标签修正测试；`tests/question-import-windows-encoding.test.mjs` 使用实际 PowerShell 和本地 HTTP 接收端验证中文名称在 GBK 控制台下仍正确；`tests/question-import-automation.test.mjs` 更新字符集契约。
+- lint、typecheck、build、448/448 测试通过；无新增依赖或迁移。手动页面、浏览器控制台、移动布局仍未验证。v104 尚待发布并回读中文标签。
