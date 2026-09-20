@@ -101,8 +101,14 @@ function mergeAnswerPages(pages: Array<{ answers: AiAnswer[]; continuation: Reco
 
 function validatePairedQuestions(value: unknown) {
   const questions = validateQuestions(value), answered = questions.filter((item) => String(item.answer || item.answerPoints || "").trim()).length, minimum = Math.max(1, Math.ceil(questions.length * .9));
-  if (answered < minimum) throw new Error(`答案卷只匹配到 ${answered}/${questions.length} 题，已自动切换其他模型重试`);
+  if (answered < minimum) throw new Error(`答案卷只匹配到 ${answered}/${questions.length} 题，未将不完整结果入库`);
   return questions;
+}
+
+function validatePairedQuestionNumbers(questions: AiQuestion[], answers: AiAnswer[]) {
+  const numbers = new Set(questions.map((question) => Number(question.sourceQuestionNumber)));
+  const missing = [...new Set(answers.map((answer) => answer.sourceQuestionNumber))].filter((number) => !numbers.has(number)).sort((a, b) => a - b);
+  if (missing.length) throw new Error(`题卷与答案卷题号不一致：题卷漏识别第 ${missing.join("、")} 题，未入库`);
 }
 
 export async function createQuestionImportV2(access: AccessContext, form: FormData, operationId: string) {
@@ -155,13 +161,13 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
         const { questionImages, answerImages } = await visualImages();
         // Older checkpoints lost cross-page continuations. Re-recognize those pages
         // from the stored originals instead of importing an incomplete question.
-        const pageRecognitionVersion = "continuations-v1", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
+        const pageRecognitionVersion = "source-only-v2", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
         const questionPages = savedQuestionPages(checkpointValid ? currentJob.checkpoint.questionPages : []), answerPages = savedAnswerPages(checkpointValid ? currentJob.checkpoint.answerPages : []), batchSize = 1;
         if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
         if (questionPages.length < questionImages.length) {
           const start = questionPages.length, batch = questionImages.slice(start, start + batchSize);
-          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.5", maxTokens: 5000, timeoutMs: 25_000,
-            system: "你是中小学题卷逐页结构化引擎。只提取本页可见的正式题目，完整保留原题号、共用材料、题干、全部选项和小问。若页首是上一题的续接内容，把它写入 continuationForPreviousQuestion，不要伪造题号。不要生成答案。难度输出 1-5 数字，置信度输出 0-1 数字。输出 {questions:[{sourceQuestionNumber,questionGroup,material,stem,options,subQuestions,questionType,difficulty,score,stage,grade,textbookVersion,volume,unit,topic,knowledgePoints,secondaryKnowledge,coreCompetencies,source,year,region,examType,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions}|null}。",
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.6", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
+            system: "你是中小学题卷逐页抄录引擎。逐题提取本页全部正式题目，完整保留原题号、共用材料、图表文字、题干、全部选项和小问。不要漏掉页底尚未结束的题目，下一页会接续。页首上一题的续文写入 continuationForPreviousQuestion，不伪造题号。组合选择题的①②③④陈述写入题干，A/B/C/D写入options，小问仅用于材料题。不要生成答案、难度或推测教材知识点。分值只记录原文明确标注的值，置信度为0-1。输出紧凑JSON {questions:[{sourceQuestionNumber,material,stem,options,subQuestions,questionType,score,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions}|null}。",
             payload: { fileName: file.name, page: start + offset + 1, totalPages: questionImages.length }, images: [image], validate: validateQuestionPage })));
           questionPages.push(...recognized.map((page) => page.data));
           const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
@@ -171,7 +177,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
         }
         if (answerPages.length < answerImages.length) {
           const start = answerPages.length, batch = answerImages.slice(start, start + batchSize);
-          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-answer-page-v2.5", maxTokens: 5000, timeoutMs: 25_000,
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-answer-page-v2.6", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
             system: "你是中小学答案卷逐页结构化引擎。只提取本页可见的原题号、答案、答题要点和解析。若页首是上一题解析的续接内容，把它写入 continuationForPreviousAnswer，不要伪造题号。不要把标题和小标题当作题目，不要补造。输出 {answers:[{sourceQuestionNumber,answer,answerPoints,analysis}],continuationForPreviousAnswer:{answer,answerPoints,analysis}|null}。",
             payload: { fileName: answerFileName, page: start + offset + 1, totalPages: answerImages.length }, images: [image], validate: validateAnswerPage })));
           answerPages.push(...recognized.map((page) => page.data));
@@ -180,7 +186,9 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
           if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
           return { requeue: true, recognizedPages: completedPages, totalPages };
         }
-        const merged = mergeVisualQuestions(mergeQuestionPages(questionPages), mergeAnswerPages(answerPages)); questions = answerBuffer ? validatePairedQuestions({ questions: merged }) : validateQuestions({ questions: merged }); needsImportPhase = true;
+        const mergedQuestions = mergeQuestionPages(questionPages), mergedAnswers = mergeAnswerPages(answerPages);
+        if (answerBuffer) validatePairedQuestionNumbers(mergedQuestions, mergedAnswers);
+        const merged = mergeVisualQuestions(mergedQuestions, mergedAnswers); questions = answerBuffer ? validatePairedQuestions({ questions: merged }) : validateQuestions({ questions: merged }); needsImportPhase = true;
       } else {
         const { questionImages, answerImages } = visual ? await visualImages() : { questionImages: [], answerImages: [] };
         const ai = await callV2AiJson({ access, capability: visual ? "vision" : "reasoning", jobId, promptVersion: answerBuffer ? "question-import-paired-v2.2" : "question-import-v2.1", maxTokens: 16000,

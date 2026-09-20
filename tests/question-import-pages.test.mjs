@@ -8,8 +8,15 @@ const ts = require("typescript");
 const source = readFileSync(new URL("../app/lib/v2/question-import-service.ts", import.meta.url), "utf8");
 const helpers = source.slice(source.indexOf("function validateQuestions("), source.indexOf("export async function createQuestionImportV2("));
 const compiled = ts.transpileModule(helpers, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-const api = new Function(`${compiled}; return { validateQuestionPage, validateAnswerPage, savedQuestionPages, savedAnswerPages, mergeQuestionPages, mergeAnswerPages, mergeVisualQuestions };`)();
+const api = new Function(`${compiled}; return { validateQuestionPage, validateAnswerPage, savedQuestionPages, savedAnswerPages, mergeQuestionPages, mergeAnswerPages, mergeVisualQuestions, validatePairedQuestionNumbers };`)();
 const persist = (value) => JSON.parse(JSON.stringify(value));
+
+test("paired papers cannot silently omit questions that appear in the answer sheet", () => {
+  const questions = [1, 2, 5].map((sourceQuestionNumber) => ({ sourceQuestionNumber, stem: `题目${sourceQuestionNumber}` }));
+  const answers = [1, 2, 3, 4, 5].map((sourceQuestionNumber) => ({ sourceQuestionNumber, answer: "A" }));
+  assert.throws(() => api.validatePairedQuestionNumbers(questions, answers), /漏识别第 3、4 题/);
+  assert.doesNotThrow(() => api.validatePairedQuestionNumbers(questions, [answers[0], answers[1], answers[4]]));
+});
 
 test("question continuations survive checkpoints and span multiple continuation-only pages", () => {
   let pages = [api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 8, stem: "建设美好集体需要", options: "A. 包容\nB. 合作" }] })];
@@ -46,4 +53,17 @@ test("AI timeout also bounds a stalled response body after headers arrive", asyn
   await assert.rejects(evaluated.exports.callV2AiJson({ access: { id: 1 }, capability: "vision", system: "fixture", payload: {}, promptVersion: "fixture", timeoutMs: 20, validate: (value) => value }), /ALL_MODELS_FAILED|未返回合格结果/);
   assert.ok(Date.now() - started < 1000);
   assert.ok(updates.some((row) => row.values.includes("NETWORK_ERROR")));
+});
+
+test("pure extraction uses instant mode and rejects truncated JSON even when syntactically valid", async () => {
+  const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const requests = [], updates = [];
+  const env = { OPENAI_API_KEY: "fixture-key", OPENAI_BASE_URL: "https://example.invalid/v1", OPENAI_VISION_MODEL: "kimi-k2.6", DB: { prepare(sql) { return { bind(...values) { return { first: async () => ({ id: "run" }), run: async () => { updates.push({ sql, values }); } }; } }; } } };
+  const evaluated = { exports: {} };
+  const fetcher = async (_url, request) => { requests.push(JSON.parse(request.body)); return { ok: true, json: async () => ({ choices: [{ finish_reason: "length", message: { content: '{"questions":[]}' } }] }) }; };
+  new Function("module", "exports", "require", "fetch", code)(evaluated, evaluated.exports, (name) => name === "cloudflare:workers" ? { env } : { anonymizeForAi: (value) => ({ value, report: {} }), safeInputSummary: () => "fixture" }, fetcher);
+  await assert.rejects(evaluated.exports.callV2AiJson({ access: { id: 1 }, capability: "vision", system: "抄录", payload: {}, promptVersion: "fixture", thinking: "disabled", validate: () => { throw new Error("must not validate a truncated response"); } }), /OUTPUT_TRUNCATED/);
+  assert.deepEqual(requests[0].thinking, { type: "disabled" });
+  assert.ok(updates.some((row) => row.values.includes("OUTPUT_TRUNCATED")));
 });

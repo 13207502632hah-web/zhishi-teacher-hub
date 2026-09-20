@@ -4,8 +4,25 @@ import { requireQuestionImportAutomation } from "../../../../../lib/question-imp
 import { deferV2BackgroundJob, runV2BackgroundJob } from "../../../../../lib/v2/background-dispatch";
 import { createQuestionImportV2, getQuestionImportV2 } from "../../../../../lib/v2/question-import-service";
 import { readQuestionImportForm } from "../../../../../lib/v2/question-import-request";
+import { retryBackgroundJob } from "../../../../../lib/v2/job-service";
 
 const noStore = { "Cache-Control": "no-store" };
+
+export async function PATCH(request: Request) {
+  const access = await requireQuestionImportAutomation(request);
+  if (isDenied(access)) return access;
+  const operationId = String(request.headers.get("X-Operation-Id") || "").trim();
+  if (!/^[A-Za-z0-9:._-]{8,200}$/.test(operationId)) return Response.json({ error: "重试必须提供稳定的操作编号" }, { status: 400, headers: noStore });
+  const body = await request.json() as Record<string, unknown>;
+  if (body.action !== "retry" || typeof body.id !== "string") return Response.json({ error: "仅支持题库导入任务重试" }, { status: 400, headers: noStore });
+  const item = await getQuestionImportV2(access, body.id);
+  if (!item) return Response.json({ error: "导入任务不存在" }, { status: 404, headers: noStore });
+  const result = await retryBackgroundJob(access, body.id, operationId);
+  if (!result) return Response.json({ error: "当前导入任务不可重试" }, { status: 409, headers: noStore });
+  if (!result.repeated) await audit(access, "automation_question_import_retried", "v2_question_import", body.id, { operationId });
+  // The following progress request executes the next page in its own window.
+  return Response.json(result, { headers: noStore });
+}
 
 export async function POST(request: Request) {
   const access = await requireQuestionImportAutomation(request);

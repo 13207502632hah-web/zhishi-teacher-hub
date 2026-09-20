@@ -9,7 +9,7 @@ const supportedTypes = new Set(["schedule-import", "schedule-confirm", "question
 export async function runV2BackgroundJob(jobId: string) {
   const leaseOwner = `worker:${crypto.randomUUID()}`;
   await recoverStalledBackgroundJob(jobId);
-  const claim = await claimBackgroundJob(jobId, leaseOwner, 60);
+  const claim = await claimBackgroundJob(jobId, leaseOwner, 120);
   if (!claim) return { claimed: false };
   if (!supportedTypes.has(claim.type)) {
     await requeueBackgroundJob(jobId, `后台消费者尚未注册任务类型：${claim.type}`, leaseOwner);

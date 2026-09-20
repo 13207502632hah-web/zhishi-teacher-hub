@@ -18,6 +18,7 @@ type AiCallInput<T> = {
   knownNames?: string[];
   maxTokens?: number;
   timeoutMs?: number;
+  thinking?: "disabled";
   validate: (value: unknown) => T;
 };
 
@@ -90,11 +91,12 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
         const response = await fetch(chatEndpoint(route.baseUrl), {
           method: "POST", signal: controller.signal,
           headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json", ...(route.provider === "opencode-zen" ? { "x-opencode-session": openCodeSession, "User-Agent": "zhishi-teacher-hub/2.0" } : {}) },
-          body: JSON.stringify({ model: route.model, temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
+          body: JSON.stringify({ model: route.model, temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, ...(input.thinking ? { thinking: { type: input.thinking } } : {}), response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
         });
         if (!response.ok) throw new V2AiError(`模型服务返回 ${response.status}`, `HTTP_${response.status}`, response.status === 429 ? 429 : 502);
         envelope = await response.json() as Record<string, any>;
       } finally { clearTimeout(timeout); }
+      if (envelope.choices?.[0]?.finish_reason === "length") throw new V2AiError("模型输出被截断，未将不完整结果用于导入", "OUTPUT_TRUNCATED");
       const parsed = extractJson(envelope.choices?.[0]?.message?.content ?? envelope.output_text ?? envelope.output);
       const data = input.validate(parsed);
       const usage = envelope.usage || {};

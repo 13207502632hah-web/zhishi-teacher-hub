@@ -78,6 +78,19 @@ export async function requestJobCancel(access: AccessContext, id: string) {
   return Number(result.meta?.changes || 0) === 1;
 }
 
+export async function retryBackgroundJob(access: AccessContext, id: string, operationId: string) {
+  const repeated = await env.DB.prepare("SELECT id FROM v2_job_events WHERE job_id=? AND stage='retry_queued' AND json_extract(detail_json,'$.operationId')=? LIMIT 1").bind(id, operationId).first();
+  if (repeated) return { job: await getJob(access, id), repeated: true };
+  // Keep the saved pages and result, but give this explicit retry a fresh attempt
+  // budget. Merely changing state leaves exhausted/cancelled jobs unclaimable.
+  const changed = await env.DB.prepare("UPDATE v2_jobs SET state='queued',stage='retry_queued',attempt_count=0,cancel_requested=0,available_at=CURRENT_TIMESTAMP,lease_owner=NULL,lease_until=NULL,error_json='{}',updated_at=CURRENT_TIMESTAMP WHERE id=? AND (user_id=? OR ?='teacher') AND type IN ('question-import','schedule-import','schedule-confirm') AND state IN ('failed','partial','cancelled')")
+    .bind(id, access.id, access.role).run();
+  if (Number(changed.meta?.changes || 0) !== 1) return null;
+  await env.DB.prepare("INSERT INTO v2_job_events(job_id,state,stage,progress,message,detail_json) SELECT id,state,stage,progress,?,? FROM v2_jobs WHERE id=?")
+    .bind("已加入重试队列，保留已完成的断点", JSON.stringify({ operationId }), id).run();
+  return { job: await getJob(access, id), repeated: false };
+}
+
 export type BackgroundJobClaim = { id: string; userId: number; type: string; entityId: string | null; payload: JsonObject; attemptCount: number; maxAttempts: number };
 
 export async function claimBackgroundJob(id: string, leaseOwner: string, leaseSeconds = 45) {

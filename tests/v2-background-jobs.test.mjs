@@ -94,5 +94,20 @@ test("D1 background jobs use exclusive leases, bounded retry and immediate queue
   assert.equal(await jobs.requestJobCancel(access, cancelJob.job.id), true);
   const cancelled = sqlite.prepare("SELECT state,cancel_requested AS cancelled FROM v2_jobs WHERE id=?").get(cancelJob.job.id);
   assert.equal(cancelled.state, "cancelled"); assert.equal(cancelled.cancelled, 1);
+
+  sqlite.prepare("UPDATE v2_jobs SET checkpoint_json=?,processed=3,total=12,attempt_count=max_attempts,cancel_requested=1,available_at=datetime('now','+1 hour') WHERE id=?")
+    .run(JSON.stringify({ questionPages: [1, 2, 3] }), created.job.id);
+  const manualRetry = await jobs.retryBackgroundJob(access, created.job.id, "explicit-retry-1");
+  assert.equal(manualRetry.repeated, false);
+  assert.deepEqual(manualRetry.job.checkpoint, { questionPages: [1, 2, 3] });
+  assert.equal(manualRetry.job.processed, 3);
+  assert.equal(manualRetry.job.cancelRequested, false);
+  assert.equal((await jobs.claimBackgroundJob(created.job.id, "manual-worker", 60)).attemptCount, 1);
+  assert.equal(await jobs.retryBackgroundJob(access, created.job.id, "explicit-retry-2"), null, "a running job must not be reset");
+  await jobs.updateJob(access, created.job.id, { state: "failed", stage: "failed" });
+  assert.equal((await jobs.retryBackgroundJob(access, created.job.id, "explicit-retry-1")).repeated, true);
+  assert.equal((await jobs.getJob(access, created.job.id)).state, "failed", "replayed operation must not reset a later failure");
+  assert.equal((await jobs.retryBackgroundJob(access, cancelJob.job.id, "retry-cancelled")).job.cancelRequested, false);
+  assert.equal(await jobs.retryBackgroundJob({ ...access, id: 8, role: "assistant" }, created.job.id, "other-owner-retry"), null);
   sqlite.close();
 });
