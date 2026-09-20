@@ -8,7 +8,7 @@ const ts = require("typescript");
 const source = readFileSync(new URL("../app/lib/v2/question-import-service.ts", import.meta.url), "utf8");
 const helpers = source.slice(source.indexOf("function validateQuestions("), source.indexOf("export async function createQuestionImportV2("));
 const compiled = ts.transpileModule(helpers, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-const api = new Function(`${compiled}; return { validateQuestionPage, validateAnswerPage, savedQuestionPages, savedAnswerPages, mergeQuestionPages, mergeAnswerPages, mergeVisualQuestions, validatePairedQuestionNumbers };`)();
+const api = new Function(`${compiled}; return { validateQuestionPage, validateAnswerPage, savedQuestionPages, savedAnswerPages, mergeQuestionPages, mergeAnswerPages, mergeVisualQuestions, validatePairedQuestionNumbers, finalizeQuestionPages };`)();
 const persist = (value) => JSON.parse(JSON.stringify(value));
 
 test("paired papers cannot silently omit questions that appear in the answer sheet", () => {
@@ -16,6 +16,38 @@ test("paired papers cannot silently omit questions that appear in the answer she
   const answers = [1, 2, 3, 4, 5].map((sourceQuestionNumber) => ({ sourceQuestionNumber, answer: "A" }));
   assert.throws(() => api.validatePairedQuestionNumbers(questions, answers), /漏识别第 3、4 题/);
   assert.doesNotThrow(() => api.validatePairedQuestionNumbers(questions, [answers[0], answers[1], answers[4]]));
+});
+
+test("repeated cross-page numbers are merged instead of discarding the shorter question fragment", () => {
+  const pages = [
+    api.validateQuestionPage({ document: { stage: "初中", grade: "九年级", year: 2026, region: "天津", choiceScore: 2, choiceOptionCount: 4 }, questions: [{ sourceQuestionNumber: 4, material: "教育部印发指导意见", stem: "下面大课间的安排有利于学生", questionType: "单选题" }] }),
+    api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 4, stem: "（题干缺失，根据选项推测为选择活动主题）", material: "周一：集体舞", options: ["A. 文化", "B. 冠军", "C. 成长", "D. 合作"], questionType: "单选题" }, { sourceQuestionNumber: 30, stem: "（题目未完，待续）", material: "经济桥、民生桥、互通桥" }] }),
+    api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 30, stem: "结合材料，谈谈这些桥蕴含哪些道理。", material: "攀云筑梦桥", score: 8 }] }),
+  ];
+  const questions = api.finalizeQuestionPages(api.savedQuestionPages(persist(pages)));
+  assert.equal(questions.length, 2);
+  assert.equal(questions[0].stem, "下面大课间的安排有利于学生");
+  assert.match(questions[0].material, /指导意见\n周一/);
+  assert.equal(questions[0].score, 2);
+  assert.equal(questions[0].stage, "初中");
+  assert.equal(questions[0].grade, "九年级");
+  assert.equal(questions[1].stem, "结合材料，谈谈这些桥蕴含哪些道理。");
+  assert.match(questions[1].material, /互通桥\n攀云筑梦桥/);
+  assert.equal(questions[1].score, 8);
+});
+
+test("assembly refuses missing stems, incomplete four-option choices and unstructured continuations", () => {
+  assert.throws(() => api.finalizeQuestionPages([{ document: {}, continuation: null, questions: [{ sourceQuestionNumber: 30, stem: "（题目未完，待续）" }] }]), /缺少完整题干/);
+  assert.throws(() => api.finalizeQuestionPages([{ document: { choiceOptionCount: 4 }, continuation: null, questions: [{ sourceQuestionNumber: 8, stem: "集体建设", questionType: "单选题", options: "A. 包容\nB. 合作" }] }]), /选项不完整/);
+  assert.throws(() => api.validateQuestionPage({ questions: [], continuationForPreviousQuestion: { text: "C. 沟通 D. 竞争" } }), /跨页续文缺少有效内容/);
+  assert.throws(() => api.finalizeQuestionPages([{ document: {}, continuation: null, questions: [{ sourceQuestionNumber: 3, stem: "（　　）" }] }]), /缺少完整题干/);
+  assert.throws(() => api.finalizeQuestionPages([{ document: {}, continuation: null, questions: [{ sourceQuestionNumber: 5, stem: "事迹告诉我们", questionType: "单选题", options: "A. ①②\nB. ①③\nC. ②④\nD. ③④" }] }]), /缺少组合选项对应的陈述/);
+});
+
+test("answer labels are not counted as the actual answer", () => {
+  const page = api.validateAnswerPage({ answers: [{ sourceQuestionNumber: 25, answer: "示例", answerPoints: ["①学会独立思考。", "②向榜样学习。"] }, { sourceQuestionNumber: 26, answer: "示例", analysis: "仅有解析" }] });
+  assert.equal(page.answers[0].answer, "①学会独立思考。\n②向榜样学习。");
+  assert.equal(page.answers[1].answer, "");
 });
 
 test("question continuations survive checkpoints and span multiple continuation-only pages", () => {

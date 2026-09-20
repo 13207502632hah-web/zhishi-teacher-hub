@@ -56,13 +56,24 @@ function validateQuestions(value: unknown) {
 
 function validateAnswers(value: unknown) {
   const answers = (value as Record<string, unknown>)?.answers; if (!Array.isArray(answers)) throw new Error("模型没有返回答案列表");
-  return answers.map((item) => item as Record<string, unknown>).map((row) => ({ ...row, sourceQuestionNumber: Number(row.sourceQuestionNumber || 0), answer: String(row.answer || "").trim(), answerPoints: String(row.answerPoints || "").trim(), analysis: String(row.analysis || "").trim() })).filter((row) => Number.isInteger(row.sourceQuestionNumber) && row.sourceQuestionNumber > 0 && (row.answer || row.answerPoints || row.analysis)) as AiAnswer[];
+  return answers.map((item) => item as Record<string, unknown>).map((row) => {
+    const answerPoints = answerText(row.answerPoints), analysis = answerText(row.analysis), rawAnswer = answerText(row.answer);
+    const answer = /^(?:示例|答案示例|参考答案|略|见解析)[：:。\s]*$/.test(rawAnswer) ? answerPoints : rawAnswer;
+    return { ...row, sourceQuestionNumber: Number(row.sourceQuestionNumber || 0), answer, answerPoints, analysis };
+  }).filter((row) => Number.isInteger(row.sourceQuestionNumber) && row.sourceQuestionNumber > 0 && (row.answer || row.answerPoints || row.analysis)) as AiAnswer[];
 }
 
 function objectOrNull(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
-function validateQuestionPage(value: unknown) { return { questions: validateQuestions(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousQuestion) }; }
+const answerText = (value: unknown): string => Array.isArray(value) ? value.map(answerText).filter(Boolean).join("\n") : String(value || "").trim();
+function questionContinuation(value: unknown) {
+  if (value == null) return null;
+  const continuation = objectOrNull(value);
+  if (!continuation || !["material", "stem", "options", "subQuestions"].some((field) => answerText(continuation[field]))) throw new Error("跨页续文缺少有效内容字段，需重新识别本页");
+  return continuation;
+}
+function validateQuestionPage(value: unknown) { return { questions: validateQuestions(value), continuation: questionContinuation((value as Record<string, unknown>)?.continuationForPreviousQuestion), document: objectOrNull((value as Record<string, unknown>)?.document) }; }
 function validateAnswerPage(value: unknown) { return { answers: validateAnswers(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousAnswer) }; }
-function savedQuestionPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => ({ questions: validateQuestions(item), continuation: objectOrNull(item.continuation) })) : []; }
+function savedQuestionPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => ({ questions: validateQuestions(item), continuation: questionContinuation(item.continuation), document: objectOrNull(item.document) })) : []; }
 function savedAnswerPages(value: unknown) { return Array.isArray(value) ? value.map((item) => objectOrNull(item)).filter((item): item is Record<string, unknown> => Boolean(item)).map((item) => ({ answers: validateAnswers(item), continuation: objectOrNull(item.continuation) })) : []; }
 
 function contentScore(value: Record<string, unknown>) {
@@ -78,15 +89,46 @@ function mergeVisualQuestions(candidates: AiQuestion[], answers: AiAnswer[]) {
   return [...byNumber.entries()].sort(([left], [right]) => left - right).map(([number, question]) => ({ ...question, ...(answerByNumber.get(number) || {}), sourceQuestionNumber: number }));
 }
 
-const mergedText = (left: unknown, right: unknown) => [...new Set([String(left || "").trim(), ...(Array.isArray(right) ? right.map(String) : String(right || "").split("\n")).map((item) => item.trim())].filter(Boolean))].join("\n");
+const mergedText = (left: unknown, right: unknown) => {
+  const first = answerText(left), second = answerText(right);
+  if (!first || second.includes(first)) return second;
+  if (!second || first.includes(second)) return first;
+  return [...new Set([...first.split("\n"), ...second.split("\n")].map((line) => line.trim()).filter(Boolean))].join("\n");
+};
+const realStem = (value: unknown) => {
+  const stem = answerText(value);
+  return /^[（(【\[]?(?:题干缺失|题目未完|题干未完|待续|续上页|题目未完整)[\s\S]*[）)】\]]?$/.test(stem) ? "" : stem;
+};
+function mergeQuestionFragment(left: AiQuestion, right: Record<string, unknown>): AiQuestion {
+  return { ...left, ...right, sourceQuestionNumber: left.sourceQuestionNumber,
+    stem: mergedText(realStem(left.stem), realStem(right.stem)), material: mergedText(left.material, right.material), options: mergedText(left.options, right.options),
+    subQuestions: [...(Array.isArray(left.subQuestions) ? left.subQuestions : []), ...(Array.isArray(right.subQuestions) ? right.subQuestions : [])].filter((item, index, items) => items.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(item)) === index),
+    score: Number(right.score) > 0 ? right.score : left.score,
+  };
+}
 function mergeQuestionPages(pages: Array<{ questions: AiQuestion[]; continuation: Record<string, unknown> | null }>) {
   const candidates: AiQuestion[] = []; let previous: AiQuestion | null = null;
   for (const page of pages) {
-    if (previous && page.continuation) { previous = { ...(previous as AiQuestion), material: mergedText(previous.material, page.continuation.material), stem: mergedText(previous.stem, page.continuation.stem), options: mergedText(previous.options, page.continuation.options), subQuestions: Array.isArray(page.continuation.subQuestions) ? [...(Array.isArray(previous.subQuestions) ? previous.subQuestions : []), ...page.continuation.subQuestions] : previous.subQuestions }; candidates.push(previous); }
-    candidates.push(...page.questions);
-    previous = [...page.questions].sort((left, right) => Number(left.sourceQuestionNumber || 0) - Number(right.sourceQuestionNumber || 0)).at(-1) || previous;
+    if (previous && page.continuation) { previous = mergeQuestionFragment(previous, page.continuation); candidates[candidates.length - 1] = previous; }
+    for (const question of page.questions) {
+      if (previous && Number(previous.sourceQuestionNumber) === Number(question.sourceQuestionNumber)) { previous = mergeQuestionFragment(previous, question); candidates[candidates.length - 1] = previous; }
+      else { previous = question; candidates.push(question); }
+    }
   }
   return candidates;
+}
+
+function finalizeQuestionPages(pages: ReturnType<typeof savedQuestionPages>) {
+  const document = pages.find((page) => page.document)?.document || {};
+  return mergeQuestionPages(pages).map((question) => {
+    const stem = realStem(question.stem), number = question.sourceQuestionNumber, choice = /单选|多选|选择/.test(String(question.questionType || ""));
+    if (!stem || !/[\p{L}\p{N}]/u.test(stem)) throw new Error(`第 ${number} 题缺少完整题干，需重新识别跨页内容`);
+    if (choice && Number(document.choiceOptionCount) === 4 && !["A", "B", "C", "D"].every((letter) => new RegExp(`(?:^|\\n)\\s*${letter}[.．、:：)）\\s]`).test(String(question.options || "")))) throw new Error(`第 ${number} 题选项不完整，需重新识别跨页内容`);
+    const referencedStatements = [...new Set(String(question.options || "").match(/[①②③④⑤⑥⑦⑧⑨⑩]/g) || [])];
+    const statements = [stem, question.material, JSON.stringify(question.subQuestions || [])].join("\n");
+    if (choice && referencedStatements.some((marker) => !statements.includes(marker))) throw new Error(`第 ${number} 题缺少组合选项对应的陈述，需重新识别原页`);
+    return { ...question, stem, stage: String(document.stage || "未标注"), grade: String(document.grade || "未标注"), year: Number(document.year) || undefined, region: String(document.region || ""), score: Number(question.score) > 0 ? question.score : choice ? Number(document.choiceScore) || 0 : 0 };
+  });
 }
 
 function mergeAnswerPages(pages: Array<{ answers: AiAnswer[]; continuation: Record<string, unknown> | null }>) {
@@ -161,13 +203,13 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
         const { questionImages, answerImages } = await visualImages();
         // Older checkpoints lost cross-page continuations. Re-recognize those pages
         // from the stored originals instead of importing an incomplete question.
-        const pageRecognitionVersion = "source-only-v2", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
+        const pageRecognitionVersion = "source-only-v3", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
         const questionPages = savedQuestionPages(checkpointValid ? currentJob.checkpoint.questionPages : []), answerPages = savedAnswerPages(checkpointValid ? currentJob.checkpoint.answerPages : []), batchSize = 1;
         if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
         if (questionPages.length < questionImages.length) {
           const start = questionPages.length, batch = questionImages.slice(start, start + batchSize);
-          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.6", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
-            system: "你是中小学题卷逐页抄录引擎。逐题提取本页全部正式题目，完整保留原题号、共用材料、图表文字、题干、全部选项和小问。不要漏掉页底尚未结束的题目，下一页会接续。页首上一题的续文写入 continuationForPreviousQuestion，不伪造题号。组合选择题的①②③④陈述写入题干，A/B/C/D写入options，小问仅用于材料题。不要生成答案、难度或推测教材知识点。分值只记录原文明确标注的值，置信度为0-1。输出紧凑JSON {questions:[{sourceQuestionNumber,material,stem,options,subQuestions,questionType,score,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions}|null}。",
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.7", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
+            system: "你是中小学题卷逐页抄录引擎。逐题提取本页全部正式题目，完整保留原题号、共用材料、图表文字、题干、全部选项和小问。不要漏掉页底尚未结束的题目，下一页会接续。页首上一题的续文写入 continuationForPreviousQuestion 的 material/stem/options/subQuestions对应字段，不要自创字段或伪造题号。组合选择题的①②③④陈述写入题干，A/B/C/D写入options，小问仅用于材料题。不要生成答案、难度或推测教材知识点。分值只记录原文明确标注的值，置信度为0-1。首页同时提取原文明确的学段、适用年级、年份、地区及选择题每题分值和选项数量，不明确则留空；中考适用九年级。输出紧凑JSON {document:{stage,grade,year,region,choiceScore,choiceOptionCount}|null,questions:[{sourceQuestionNumber,material,stem,options,subQuestions,questionType,score,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions}|null}。",
             payload: { fileName: file.name, page: start + offset + 1, totalPages: questionImages.length }, images: [image], validate: validateQuestionPage })));
           questionPages.push(...recognized.map((page) => page.data));
           const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
@@ -177,8 +219,8 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
         }
         if (answerPages.length < answerImages.length) {
           const start = answerPages.length, batch = answerImages.slice(start, start + batchSize);
-          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-answer-page-v2.6", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
-            system: "你是中小学答案卷逐页结构化引擎。只提取本页可见的原题号、答案、答题要点和解析。若页首是上一题解析的续接内容，把它写入 continuationForPreviousAnswer，不要伪造题号。不要把标题和小标题当作题目，不要补造。输出 {answers:[{sourceQuestionNumber,answer,answerPoints,analysis}],continuationForPreviousAnswer:{answer,answerPoints,analysis}|null}。",
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-answer-page-v2.7", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
+            system: "你是中小学答案卷逐页抄录引擎。只提取本页可见的原题号、完整答案、答题要点和完整解析（包括原文考查点）。answer必须是实际答案全文，不能只写“示例”“略”等标题。knowledgePoints只抄录本题原文明确的“考查点”，无则留空。页首上一题解析的续文写入 continuationForPreviousAnswer，不伪造题号。不要把通用答题模板和小标题当题目，不补造、不压缩原文。输出紧凑JSON {answers:[{sourceQuestionNumber,answer,answerPoints,analysis,knowledgePoints}],continuationForPreviousAnswer:{answer,answerPoints,analysis}|null}。",
             payload: { fileName: answerFileName, page: start + offset + 1, totalPages: answerImages.length }, images: [image], validate: validateAnswerPage })));
           answerPages.push(...recognized.map((page) => page.data));
           const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
@@ -186,7 +228,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
           if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
           return { requeue: true, recognizedPages: completedPages, totalPages };
         }
-        const mergedQuestions = mergeQuestionPages(questionPages), mergedAnswers = mergeAnswerPages(answerPages);
+        const mergedQuestions = finalizeQuestionPages(questionPages), mergedAnswers = mergeAnswerPages(answerPages);
         if (answerBuffer) validatePairedQuestionNumbers(mergedQuestions, mergedAnswers);
         const merged = mergeVisualQuestions(mergedQuestions, mergedAnswers); questions = answerBuffer ? validatePairedQuestions({ questions: merged }) : validateQuestions({ questions: merged }); needsImportPhase = true;
       } else {
@@ -200,7 +242,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
     if (!questions.length) throw new Error("没有识别到可校对的题目");
     if (needsImportPhase) {
       if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
-      await updateJob(access, jobId, { state: "queued", stage: "recognized", progress: 55, processed: questions.length, total: questions.length, checkpoint: { recognizedQuestions: questions }, message: `已识别 ${questions.length} 题，后台继续自动入库` });
+      await updateJob(access, jobId, { state: "queued", stage: "recognized", progress: 55, processed: questions.length, total: questions.length, checkpoint: { ...currentJob.checkpoint, recognizedQuestions: questions }, message: `已识别 ${questions.length} 题，后台继续自动入库` });
       if (!await continueBackgroundJob(jobId, leaseOwner)) throw new Error("后台任务续跑租约已失效");
       return { requeue: true, recognized: questions.length };
     }
@@ -223,6 +265,6 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
 
 export async function getQuestionImportV2(access: AccessContext, id: string) {
   const job = await getJob(access, id); if (!job || job.type !== "question-import") return null; const questionSetId = Number(job.result.questionSetId || 0); if (!questionSetId) return { job, questionSet: null, questions: [] };
-  const questionSet = await env.DB.prepare("SELECT id,name,source_file AS sourceFile,import_report AS importReport,duplicate_report AS duplicateReport,parse_stage AS parseStage,review_progress AS reviewProgress,status,created_at AS createdAt FROM question_sets WHERE id=?").bind(questionSetId).first<Record<string, unknown>>(), rows = await env.DB.prepare("SELECT id,stem,material,question_type AS questionType,difficulty,answer,analysis,knowledge_points AS knowledgePoints,parse_confidence AS parseConfidence,review_status AS reviewStatus,status,updated_at AS updatedAt FROM questions WHERE question_set_id=? ORDER BY id LIMIT 300").bind(questionSetId).all<Record<string, unknown>>();
+  const questionSet = await env.DB.prepare("SELECT id,name,source_file AS sourceFile,import_report AS importReport,duplicate_report AS duplicateReport,parse_stage AS parseStage,review_progress AS reviewProgress,status,created_at AS createdAt FROM question_sets WHERE id=?").bind(questionSetId).first<Record<string, unknown>>(), rows = await env.DB.prepare("SELECT id,stem,material,options,sub_questions AS subQuestions,question_type AS questionType,difficulty,score,stage,grade,year,region,answer,answer_points AS answerPoints,analysis,knowledge_points AS knowledgePoints,notes,parse_confidence AS parseConfidence,review_status AS reviewStatus,status,created_at AS createdAt,updated_at AS updatedAt FROM questions WHERE question_set_id=? ORDER BY id LIMIT 300").bind(questionSetId).all<Record<string, unknown>>();
   return { job, questionSet: questionSet ? { ...questionSet, report: parseJsonObject(questionSet.importReport), duplicates: parseJsonObject(questionSet.duplicateReport) } : null, questions: rows.results };
 }
