@@ -67,6 +67,27 @@ const extractJson = (content: unknown) => {
   try { return JSON.parse(candidate); } catch { throw new V2AiError("AI 返回内容不是有效 JSON，未进入业务流程", "SCHEMA_INVALID"); }
 };
 
+async function readChatEnvelope(response: Response) {
+  if (!response.headers?.get?.("content-type")?.toLowerCase().includes("text/event-stream")) return response.json() as Promise<Record<string, any>>;
+  const raw = await response.text();
+  let content = "", finishReason = "", usage: Record<string, unknown> = {}, completed = false;
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (data === "[DONE]") { completed = true; continue; }
+    if (!data) continue;
+    let event: Record<string, any>;
+    try { event = JSON.parse(data) as Record<string, any>; } catch { throw new V2AiError("模型流式响应片段损坏，未使用不完整结果", "NETWORK_ERROR"); }
+    const choice = event.choices?.[0], delta = choice?.delta?.content;
+    if (typeof delta === "string") content += delta;
+    if (typeof choice?.message?.content === "string") content += choice.message.content;
+    if (choice?.finish_reason) finishReason = String(choice.finish_reason);
+    if (event.usage && typeof event.usage === "object") usage = event.usage;
+  }
+  if (!content || (!completed && !finishReason)) throw new V2AiError("模型流式响应提前中断，未使用不完整结果", "NETWORK_ERROR");
+  return { choices: [{ finish_reason: finishReason || "stop", message: { content } }], usage };
+}
+
 export async function callV2AiJson<T>(input: AiCallInput<T>) {
   const routes = routesFor(input.capability);
   if (!routes.length || (v2RuntimeValue("AI_V2_ENABLED") && v2RuntimeValue("AI_V2_ENABLED") !== "true")) throw new V2AiError("V2 智能服务尚未启用", "AI_NOT_CONFIGURED", 503);
@@ -94,10 +115,10 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
           const response = await fetch(chatEndpoint(route.baseUrl), {
             method: "POST", signal: controller.signal,
             headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json", Accept: "application/json", "Accept-Encoding": "identity", ...(route.provider === "opencode-zen" ? { "x-opencode-session": session, "User-Agent": "zhishi-teacher-hub/2.0" } : {}) },
-            body: JSON.stringify({ model: route.model, temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, ...(input.thinking ? { thinking: { type: input.thinking } } : {}), response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
+            body: JSON.stringify({ model: route.model, ...(input.capability === "vision" ? { stream: true } : {}), temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, ...(input.thinking ? { thinking: { type: input.thinking } } : {}), response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
           });
           if (!response.ok) throw new V2AiError(`模型服务返回 ${response.status}`, `HTTP_${response.status}`, response.status === 429 ? 429 : 502);
-          envelope = await response.json() as Record<string, any>;
+          envelope = await readChatEnvelope(response);
           break;
         } catch (reason) {
           if (reason instanceof V2AiError) throw reason;

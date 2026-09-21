@@ -148,6 +148,24 @@ test("vision routing switches to a second multimodal model after the preferred m
   assert.ok(updates.some((row) => row.sql.includes("status='completed'")));
 });
 
+test("vision responses stream early chunks and assemble one validated JSON object", async () => {
+  const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const requests = [], env = { OPENAI_API_KEY: "fixture-key", OPENAI_BASE_URL: "https://example.invalid/v1", OPENAI_VISION_MODEL: "mimo-v2.5", DB: { prepare() { return { bind() { return { first: async () => ({ id: "run" }), run: async () => ({}) }; } }; } } };
+  const evaluated = { exports: {} };
+  const stream = [
+    'data: {"choices":[{"delta":{"content":"{\\"questions\\":"},"finish_reason":null}]}',
+    'data: {"choices":[{"delta":{"content":"[]}"},"finish_reason":"stop"}]}',
+    "data: [DONE]",
+    "",
+  ].join("\n");
+  const fetcher = async (_url, request) => { requests.push(JSON.parse(request.body)); return { ok: true, headers: { get: () => "text/event-stream" }, text: async () => stream }; };
+  new Function("module", "exports", "require", "fetch", code)(evaluated, evaluated.exports, (name) => name === "cloudflare:workers" ? { env } : { anonymizeForAi: (value) => ({ value, report: {} }), safeInputSummary: () => "fixture" }, fetcher);
+  const result = await evaluated.exports.callV2AiJson({ access: { id: 1 }, capability: "vision", system: "fixture", payload: {}, promptVersion: "fixture", validate: (value) => value });
+  assert.deepEqual(result.data, { questions: [] });
+  assert.equal(requests[0].stream, true);
+});
+
 test("pure extraction uses instant mode and rejects truncated JSON even when syntactically valid", async () => {
   const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
   const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
