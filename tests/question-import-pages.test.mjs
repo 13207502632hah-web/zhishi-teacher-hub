@@ -159,7 +159,11 @@ test("vision responses stream early chunks and assemble one validated JSON objec
     "data: [DONE]",
     "",
   ].join("\n");
-  const fetcher = async (_url, request) => { requests.push(JSON.parse(request.body)); return { ok: true, headers: { get: () => "text/event-stream" }, text: async () => stream }; };
+  const fetcher = async (_url, request) => {
+    requests.push(JSON.parse(request.body));
+    const bytes = new TextEncoder().encode(stream), split = Math.floor(bytes.length / 2); let index = 0;
+    return { ok: true, headers: { get: () => "text/event-stream" }, body: { getReader: () => ({ read: async () => index === 0 ? (index++, { done: false, value: bytes.slice(0, split) }) : index === 1 ? (index++, { done: false, value: bytes.slice(split) }) : { done: true, value: undefined } }) } };
+  };
   new Function("module", "exports", "require", "fetch", code)(evaluated, evaluated.exports, (name) => name === "cloudflare:workers" ? { env } : { anonymizeForAi: (value) => ({ value, report: {} }), safeInputSummary: () => "fixture" }, fetcher);
   const result = await evaluated.exports.callV2AiJson({ access: { id: 1 }, capability: "vision", system: "fixture", payload: {}, promptVersion: "fixture", validate: (value) => value });
   assert.deepEqual(result.data, { questions: [] });

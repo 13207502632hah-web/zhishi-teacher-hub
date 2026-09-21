@@ -69,13 +69,12 @@ const extractJson = (content: unknown) => {
 
 async function readChatEnvelope(response: Response) {
   if (!response.headers?.get?.("content-type")?.toLowerCase().includes("text/event-stream")) return response.json() as Promise<Record<string, any>>;
-  const raw = await response.text();
   let content = "", finishReason = "", usage: Record<string, unknown> = {}, completed = false;
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
+  const acceptLine = (line: string) => {
+    if (!line.startsWith("data:")) return;
     const data = line.slice(5).trim();
-    if (data === "[DONE]") { completed = true; continue; }
-    if (!data) continue;
+    if (data === "[DONE]") { completed = true; return; }
+    if (!data) return;
     let event: Record<string, any>;
     try { event = JSON.parse(data) as Record<string, any>; } catch { throw new V2AiError("模型流式响应片段损坏，未使用不完整结果", "NETWORK_ERROR"); }
     const choice = event.choices?.[0], delta = choice?.delta?.content;
@@ -83,7 +82,21 @@ async function readChatEnvelope(response: Response) {
     if (typeof choice?.message?.content === "string") content += choice.message.content;
     if (choice?.finish_reason) finishReason = String(choice.finish_reason);
     if (event.usage && typeof event.usage === "object") usage = event.usage;
+  };
+  const reader = response.body?.getReader();
+  if (!reader) throw new V2AiError("模型流式响应缺少可读取内容", "NETWORK_ERROR");
+  const decoder = new TextDecoder(); let pending = "";
+  for (;;) {
+    const part = await reader.read();
+    pending += decoder.decode(part.value || new Uint8Array(), { stream: !part.done });
+    let newline = pending.indexOf("\n");
+    while (newline >= 0) {
+      acceptLine(pending.slice(0, newline).replace(/\r$/, ""));
+      pending = pending.slice(newline + 1); newline = pending.indexOf("\n");
+    }
+    if (part.done) break;
   }
+  if (pending.trim()) acceptLine(pending.trim());
   if (!content || (!completed && !finishReason)) throw new V2AiError("模型流式响应提前中断，未使用不完整结果", "NETWORK_ERROR");
   return { choices: [{ finish_reason: finishReason || "stop", message: { content } }], usage };
 }
