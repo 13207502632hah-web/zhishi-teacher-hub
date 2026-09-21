@@ -104,6 +104,27 @@ test("AI timeout also bounds a stalled response body after headers arrive", asyn
   assert.ok(updates.some((row) => row.values.includes("NETWORK_ERROR")));
 });
 
+test("transient transport failures retry once with a fresh provider session", async () => {
+  const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const requests = [], updates = [];
+  const env = { OPENAI_API_KEY: "fixture-key", OPENAI_BASE_URL: "https://example.invalid/v1", OPENAI_VISION_MODEL: "fixture-model", DB: { prepare(sql) { return { bind(...values) { return { first: async () => ({ id: "run" }), run: async () => { updates.push({ sql, values }); } }; } }; } } };
+  const evaluated = { exports: {} };
+  const fetcher = async (_url, request) => {
+    requests.push(request);
+    if (requests.length === 1) throw new Error("connection reset");
+    return { ok: true, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: '{"questions":[]}' } }] }) };
+  };
+  new Function("module", "exports", "require", "fetch", code)(evaluated, evaluated.exports, (name) => name === "cloudflare:workers" ? { env } : { anonymizeForAi: (value) => ({ value, report: {} }), safeInputSummary: () => "fixture" }, fetcher);
+  const result = await evaluated.exports.callV2AiJson({ access: { id: 1 }, capability: "vision", system: "fixture", payload: {}, promptVersion: "fixture", validate: (value) => value });
+  assert.deepEqual(result.data, { questions: [] });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].headers["User-Agent"], "zhishi-teacher-hub/2.0");
+  assert.notEqual(requests[0].headers["x-opencode-session"], requests[1].headers["x-opencode-session"]);
+  assert.ok(updates.some((row) => row.sql.includes("status='completed'")));
+  assert.ok(!updates.some((row) => row.values.includes("NETWORK_ERROR")));
+});
+
 test("pure extraction uses instant mode and rejects truncated JSON even when syntactically valid", async () => {
   const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
   const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;

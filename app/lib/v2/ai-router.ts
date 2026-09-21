@@ -85,17 +85,26 @@ export async function callV2AiJson<T>(input: AiCallInput<T>) {
       const userContent: unknown = input.images?.length
         ? [{ type: "text", text: JSON.stringify(anonymized.value) }, ...input.images.map((url) => ({ type: "image_url", image_url: { url } }))]
         : JSON.stringify(anonymized.value);
-      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), input.timeoutMs || (input.capability === "vision" ? 90_000 : 60_000));
-      let envelope: Record<string, any>;
-      try {
-        const response = await fetch(chatEndpoint(route.baseUrl), {
-          method: "POST", signal: controller.signal,
-          headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json", ...(route.provider === "opencode-zen" ? { "x-opencode-session": openCodeSession, "User-Agent": "zhishi-teacher-hub/2.0" } : {}) },
-          body: JSON.stringify({ model: route.model, temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, ...(input.thinking ? { thinking: { type: input.thinking } } : {}), response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
-        });
-        if (!response.ok) throw new V2AiError(`模型服务返回 ${response.status}`, `HTTP_${response.status}`, response.status === 429 ? 429 : 502);
-        envelope = await response.json() as Record<string, any>;
-      } finally { clearTimeout(timeout); }
+      let envelope: Record<string, any> | undefined;
+      for (let transportAttempt = 0; transportAttempt < 2; transportAttempt++) {
+        const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), input.timeoutMs || (input.capability === "vision" ? 90_000 : 60_000));
+        const session = transportAttempt === 0 ? openCodeSession : `${openCodeSession.slice(0, 88)}-retry2`;
+        try {
+          const response = await fetch(chatEndpoint(route.baseUrl), {
+            method: "POST", signal: controller.signal,
+            headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json", ...(route.provider === "opencode-zen" ? { "x-opencode-session": session, "User-Agent": "zhishi-teacher-hub/2.0" } : {}) },
+            body: JSON.stringify({ model: route.model, temperature: input.capability === "fast" ? 0.25 : 0.1, max_tokens: input.maxTokens || 8000, ...(input.thinking ? { thinking: { type: input.thinking } } : {}), response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.system}\n只输出一个 JSON 对象；所有结论必须给出依据，不得声称已经执行正式业务动作。` }, { role: "user", content: userContent }] }),
+          });
+          if (!response.ok) throw new V2AiError(`模型服务返回 ${response.status}`, `HTTP_${response.status}`, response.status === 429 ? 429 : 502);
+          envelope = await response.json() as Record<string, any>;
+          break;
+        } catch (reason) {
+          if (reason instanceof V2AiError) throw reason;
+          if (transportAttempt === 1) throw new V2AiError(reason instanceof Error ? reason.message : "模型请求失败", "NETWORK_ERROR");
+          await new Promise((resolve) => setTimeout(resolve, 750));
+        } finally { clearTimeout(timeout); }
+      }
+      if (!envelope) throw new V2AiError("模型请求未返回响应", "NETWORK_ERROR");
       if (envelope.choices?.[0]?.finish_reason === "length") throw new V2AiError("模型输出被截断，未将不完整结果用于导入", "OUTPUT_TRUNCATED");
       const parsed = extractJson(envelope.choices?.[0]?.message?.content ?? envelope.output_text ?? envelope.output);
       const data = input.validate(parsed);
