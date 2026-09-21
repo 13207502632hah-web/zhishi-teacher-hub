@@ -6,7 +6,7 @@ import test from "node:test";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 const source = readFileSync(new URL("../app/lib/v2/question-import-service.ts", import.meta.url), "utf8");
-const helpers = source.slice(source.indexOf("function validateQuestions("), source.indexOf("export async function createQuestionImportV2("));
+const helpers = source.slice(source.indexOf("type ImportedTable"), source.indexOf("export async function createQuestionImportV2("));
 const compiled = ts.transpileModule(helpers, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const api = new Function(`${compiled}; return { validateQuestionPage, validateAnswerPage, savedQuestionPages, savedAnswerPages, mergeQuestionPages, mergeAnswerPages, mergeVisualQuestions, validatePairedQuestionNumbers, finalizeQuestionPages };`)();
 const persist = (value) => JSON.parse(JSON.stringify(value));
@@ -42,6 +42,23 @@ test("assembly refuses missing stems, incomplete four-option choices and unstruc
   assert.throws(() => api.validateQuestionPage({ questions: [], continuationForPreviousQuestion: { text: "C. 沟通 D. 竞争" } }), /跨页续文缺少有效内容/);
   assert.throws(() => api.finalizeQuestionPages([{ document: {}, continuation: null, questions: [{ sourceQuestionNumber: 3, stem: "（　　）" }] }]), /缺少完整题干/);
   assert.throws(() => api.finalizeQuestionPages([{ document: {}, continuation: null, questions: [{ sourceQuestionNumber: 5, stem: "事迹告诉我们", questionType: "单选题", options: "A. ①②\nB. ①③\nC. ②④\nD. ③④" }] }]), /缺少组合选项对应的陈述/);
+});
+
+test("data charts require a complete rectangular table before a page can be checkpointed", () => {
+  assert.throws(() => api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 4, material: "根据柱状图回答问题", stem: "从图中可以看出什么？", tables: [] }] }), /提到图表但未返回结构化数据/);
+  assert.throws(() => api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 4, material: "居民收入统计图", stem: "概括变化", tables: [{ kind: "bar_chart", rowCount: 3, columnCount: 3, complete: true, rows: [["年份", "城镇", "农村"], ["2023", "51821", "21691"]] }] }] }), /图表数据不完整/);
+  const page = api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 4, material: "居民收入柱状图", stem: "概括变化", tables: [{ kind: "bar_chart", title: "居民收入情况", unit: "元", rowCount: 3, columnCount: 3, complete: true, rows: [["年份", "城镇", "农村"], ["2023", "51821", "21691"], ["2024", "54188", "23119"]] }] }] });
+  assert.deepEqual(page.questions[0].tables[0].rows[2], ["2024", "54188", "23119"]);
+  assert.equal(page.questions[0].tables[0].needsReview, false);
+});
+
+test("structured charts survive cross-page merging", () => {
+  const pages = [
+    api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 25, material: "统计图", stem: "阅读材料", tables: [{ kind: "line_chart", rowCount: 2, columnCount: 2, complete: true, rows: [["年份", "数值"], ["2024", "100"]] }] }] }),
+    api.validateQuestionPage({ questions: [{ sourceQuestionNumber: 25, stem: "回答问题", tables: [{ kind: "table", rowCount: 2, columnCount: 2, complete: true, rows: [["项目", "结果"], ["A", "B"]] }] }] }),
+  ];
+  const merged = api.mergeQuestionPages(api.savedQuestionPages(persist(pages)));
+  assert.equal(merged[0].tables.length, 2);
 });
 
 test("answer labels are not counted as the actual answer", () => {

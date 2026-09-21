@@ -96,8 +96,10 @@ test("question import uses JSON file payloads so Vinext does not intercept multi
   assert.match(intake, /PDF 逐页识别图不完整/);
   assert.match(intake, /mergeQuestionPages/);
   assert.match(intake, /continuationForPreviousQuestion/);
-  assert.match(intake, /question-import-page-v2\.7/);
+  assert.match(intake, /question-import-page-v2\.8/);
   assert.match(intake, /question-answer-page-v2\.7/);
+  assert.match(intake, /标题、单位、表头、图例和每一个可见文字或数值/);
+  assert.match(intake, /rowCount和columnCount必须与rows实际尺寸完全一致/);
   assert.match(intake, /batchSize = 1/);
   assert.match(intake, /recognizing_pages/);
   assert.match(intake, /timeoutMs: 60_000/);

@@ -49,9 +49,48 @@ function preserveDocxVisuals(questions: AiQuestion[], localQuestions: AiQuestion
   });
 }
 
+type ImportedTable = {
+  id: string;
+  kind: string;
+  title: string;
+  unit: string;
+  rows: string[][];
+  rowCount: number;
+  columnCount: number;
+  complete: true;
+  sourcePage?: number;
+  needsReview: false;
+};
+
+const chartCue = /(?:柱状图|条形图|折线图|曲线图|饼图|扇形图|统计图|数据图|统计表|图表|表格)/;
+function normalizeImportedTables(value: unknown, questionNumber: number | string): ImportedTable[] {
+  if (value == null || value === "") return [];
+  if (!Array.isArray(value)) throw new Error(`第 ${questionNumber} 题图表结构无效，需重新识别原页`);
+  return value.map((item, index) => {
+    const table = objectOrNull(item);
+    if (!table || !Array.isArray(table.rows)) throw new Error(`第 ${questionNumber} 题第 ${index + 1} 个图表缺少数据网格，需重新识别原页`);
+    const rows = table.rows.map((row) => Array.isArray(row) ? row.map((cell) => answerText(cell)) : []).filter((row) => row.some(Boolean));
+    const rowCount = Number(table.rowCount), columnCount = Number(table.columnCount);
+    if (table.complete !== true || rows.length < 2 || !Number.isInteger(rowCount) || !Number.isInteger(columnCount) || rowCount !== rows.length || columnCount < 2 || rows.some((row) => row.length !== columnCount)) {
+      throw new Error(`第 ${questionNumber} 题第 ${index + 1} 个图表数据不完整，需重新识别标题、单位、表头和全部数值`);
+    }
+    const kind = String(table.kind || "table").trim().toLowerCase();
+    if (kind !== "table" && !rows.slice(1).flat().some((cell) => /\d/.test(cell))) throw new Error(`第 ${questionNumber} 题第 ${index + 1} 个统计图缺少数值，需重新识别原页`);
+    return {
+      id: String(table.id || `visual-${questionNumber}-${index + 1}`), kind, title: answerText(table.title), unit: answerText(table.unit), rows,
+      rowCount, columnCount, complete: true as const, sourcePage: Number(table.sourcePage) || undefined, needsReview: false as const,
+    };
+  });
+}
+
 function validateQuestions(value: unknown) {
   const questions = (value as Record<string, unknown>)?.questions; if (!Array.isArray(questions)) throw new Error("模型没有返回题目列表");
-  return questions.filter((item) => item && typeof item === "object" && String((item as Record<string, unknown>).stem || "").trim()).slice(0, 300).map((item, index) => { const row = item as Record<string, unknown>, difficulty = Number(row.difficulty), confidence = Number(row.parseConfidence), confidenceText = String(row.parseConfidence || ""); return { ...row, stem: String(row.stem).trim(), sourceQuestionNumber: Number(row.sourceQuestionNumber || index + 1), questionType: String(row.questionType || "材料题"), difficulty: Number.isFinite(difficulty) ? Math.max(1, Math.min(5, difficulty)) : 3, options: Array.isArray(row.options) ? row.options.join("\n") : String(row.options || ""), parseConfidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : /高/.test(confidenceText) ? .9 : /低/.test(confidenceText) ? .4 : .65, status: "review", reviewStatus: "pending", reviewed: false, importNotes: Array.isArray(row.importNotes) ? row.importNotes.map(String) : String(row.importNotes || "").trim() ? [String(row.importNotes)] : [] } as AiQuestion; });
+  return questions.filter((item) => item && typeof item === "object" && String((item as Record<string, unknown>).stem || "").trim()).slice(0, 300).map((item, index) => {
+    const row = item as Record<string, unknown>, difficulty = Number(row.difficulty), confidence = Number(row.parseConfidence), confidenceText = String(row.parseConfidence || ""), sourceQuestionNumber = Number(row.sourceQuestionNumber || index + 1), tables = normalizeImportedTables(row.tables, sourceQuestionNumber);
+    const visualText = [row.material, row.stem, ...(Array.isArray(row.importNotes) ? row.importNotes : [row.importNotes])].map(answerText).join("\n");
+    if (chartCue.test(visualText) && !tables.length) throw new Error(`第 ${sourceQuestionNumber} 题提到图表但未返回结构化数据，需重新识别原页`);
+    return { ...row, stem: String(row.stem).trim(), sourceQuestionNumber, questionType: String(row.questionType || "材料题"), difficulty: Number.isFinite(difficulty) ? Math.max(1, Math.min(5, difficulty)) : 3, options: Array.isArray(row.options) ? row.options.join("\n") : String(row.options || ""), tables, parseConfidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : /高/.test(confidenceText) ? .9 : /低/.test(confidenceText) ? .4 : .65, status: "review", reviewStatus: "pending", reviewed: false, importNotes: Array.isArray(row.importNotes) ? row.importNotes.map(String) : String(row.importNotes || "").trim() ? [String(row.importNotes)] : [] } as AiQuestion;
+  });
 }
 
 function validateAnswers(value: unknown) {
@@ -68,8 +107,11 @@ const answerText = (value: unknown): string => Array.isArray(value) ? value.map(
 function questionContinuation(value: unknown) {
   if (value == null) return null;
   const continuation = objectOrNull(value);
-  if (!continuation || !["material", "stem", "options", "subQuestions"].some((field) => answerText(continuation[field]))) throw new Error("跨页续文缺少有效内容字段，需重新识别本页");
-  return continuation;
+  if (!continuation || !["material", "stem", "options", "subQuestions", "tables"].some((field) => answerText(continuation[field]))) throw new Error("跨页续文缺少有效内容字段，需重新识别本页");
+  const tables = normalizeImportedTables(continuation.tables, "上一");
+  const visualText = [continuation.material, continuation.stem, ...(Array.isArray(continuation.importNotes) ? continuation.importNotes : [continuation.importNotes])].map(answerText).join("\n");
+  if (chartCue.test(visualText) && !tables.length) throw new Error("跨页续文提到图表但未返回结构化数据，需重新识别本页");
+  return { ...continuation, tables };
 }
 function validateQuestionPage(value: unknown) { return { questions: validateQuestions(value), continuation: questionContinuation((value as Record<string, unknown>)?.continuationForPreviousQuestion), document: objectOrNull((value as Record<string, unknown>)?.document) }; }
 function validateAnswerPage(value: unknown) { return { answers: validateAnswers(value), continuation: objectOrNull((value as Record<string, unknown>)?.continuationForPreviousAnswer) }; }
@@ -78,7 +120,7 @@ function savedAnswerPages(value: unknown) { return Array.isArray(value) ? value.
 
 function contentScore(value: Record<string, unknown>) {
   let total = 0;
-  for (const item of [value.material, value.stem, value.options, value.subQuestions, value.answer, value.answerPoints, value.analysis]) total += JSON.stringify(item || "").length;
+  for (const item of [value.material, value.stem, value.options, value.subQuestions, value.tables, value.answer, value.answerPoints, value.analysis]) total += JSON.stringify(item || "").length;
   return total;
 }
 function mergeVisualQuestions(candidates: AiQuestion[], answers: AiAnswer[]) {
@@ -100,10 +142,11 @@ const realStem = (value: unknown) => {
   return /^[（(【\[]?(?:题干缺失|题目未完|题干未完|待续|续上页|题目未完整)[\s\S]*[）)】\]]?$/.test(stem) ? "" : stem;
 };
 function mergeQuestionFragment(left: AiQuestion, right: Record<string, unknown>): AiQuestion {
+  const tables = [...(Array.isArray(left.tables) ? left.tables : []), ...(Array.isArray(right.tables) ? right.tables : [])].filter((item, index, items) => items.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(item)) === index);
   return { ...left, ...right, sourceQuestionNumber: left.sourceQuestionNumber,
     stem: mergedText(realStem(left.stem), realStem(right.stem)), material: mergedText(left.material, right.material), options: mergedText(left.options, right.options),
     subQuestions: [...(Array.isArray(left.subQuestions) ? left.subQuestions : []), ...(Array.isArray(right.subQuestions) ? right.subQuestions : [])].filter((item, index, items) => items.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(item)) === index),
-    score: Number(right.score) > 0 ? right.score : left.score,
+    tables, score: Number(right.score) > 0 ? right.score : left.score,
   };
 }
 function mergeQuestionPages(pages: Array<{ questions: AiQuestion[]; continuation: Record<string, unknown> | null }>) {
@@ -203,13 +246,13 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
         const { questionImages, answerImages } = await visualImages();
         // Older checkpoints lost cross-page continuations. Re-recognize those pages
         // from the stored originals instead of importing an incomplete question.
-        const pageRecognitionVersion = "source-only-v3", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
+        const pageRecognitionVersion = "source-only-v4", checkpointValid = currentJob.checkpoint.pageRecognitionVersion === pageRecognitionVersion;
         const questionPages = savedQuestionPages(checkpointValid ? currentJob.checkpoint.questionPages : []), answerPages = savedAnswerPages(checkpointValid ? currentJob.checkpoint.answerPages : []), batchSize = 1;
         if (!leaseOwner) throw new Error("后台任务缺少续跑租约");
         if (questionPages.length < questionImages.length) {
           const start = questionPages.length, batch = questionImages.slice(start, start + batchSize);
-          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.7", maxTokens: 5000, timeoutMs: 60_000, thinking: "disabled",
-            system: "你是中小学题卷逐页抄录引擎。逐题提取本页全部正式题目，完整保留原题号、共用材料、图表文字、题干、全部选项和小问。不要漏掉页底尚未结束的题目，下一页会接续。页首上一题的续文写入 continuationForPreviousQuestion 的 material/stem/options/subQuestions对应字段，不要自创字段或伪造题号。组合选择题的①②③④陈述写入题干，A/B/C/D写入options，小问仅用于材料题。不要生成答案、难度或推测教材知识点。分值只记录原文明确标注的值，置信度为0-1。首页同时提取原文明确的学段、适用年级、年份、地区及选择题每题分值和选项数量，不明确则留空；中考适用九年级。输出紧凑JSON {document:{stage,grade,year,region,choiceScore,choiceOptionCount}|null,questions:[{sourceQuestionNumber,material,stem,options,subQuestions,questionType,score,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions}|null}。",
+          const recognized = await Promise.all(batch.map((image, offset) => callV2AiJson({ access, capability: "vision", jobId, promptVersion: "question-import-page-v2.8", maxTokens: 7000, timeoutMs: 60_000, thinking: "disabled",
+            system: "你是中小学题卷逐页抄录引擎。逐题提取本页全部正式题目，完整保留原题号、共用材料、图表文字、题干、全部选项和小问。凡题目含任何表格（包括事例—形式、名言—解读等对照表）、统计表、柱状图、条形图、折线图、曲线图、饼图或其他数据图，必须把标题、单位、表头、图例和每一个可见文字或数值抄成tables二维网格；rows第一行是表头，rowCount和columnCount必须与rows实际尺寸完全一致，全部抄完才可将complete设为true。原图没有标题或单位时对应字段留空，禁止猜测；漏一个单元格也不得返回成功。漫画、地图和示意图的全部可见文字写入material或importNotes，不要臆造数据表。不要漏掉页底尚未结束的题目，下一页会接续。页首上一题的续文写入 continuationForPreviousQuestion 的 material/stem/options/subQuestions/tables对应字段，不要自创字段或伪造题号。组合选择题的①②③④陈述写入题干，A/B/C/D写入options，小问仅用于材料题。不要生成答案、难度或推测教材知识点。分值只记录原文明确标注的值，置信度为0-1。首页同时提取原文明确的学段、适用年级、年份、地区及选择题每题分值和选项数量，不明确则留空；中考适用九年级。输出紧凑JSON {document:{stage,grade,year,region,choiceScore,choiceOptionCount}|null,questions:[{sourceQuestionNumber,material,stem,options,subQuestions,tables:[{id,kind,title,unit,rowCount,columnCount,complete,rows}],questionType,score,parseConfidence,importNotes}],continuationForPreviousQuestion:{material,stem,options,subQuestions,tables}|null}。",
             payload: { fileName: file.name, page: start + offset + 1, totalPages: questionImages.length }, images: [image], validate: validateQuestionPage })));
           questionPages.push(...recognized.map((page) => page.data));
           const completedPages = questionPages.length + answerPages.length, totalPages = questionImages.length + answerImages.length;
@@ -265,6 +308,7 @@ export async function processQuestionImportJobV2(access: AccessContext, jobId: s
 
 export async function getQuestionImportV2(access: AccessContext, id: string) {
   const job = await getJob(access, id); if (!job || job.type !== "question-import") return null; const questionSetId = Number(job.result.questionSetId || 0); if (!questionSetId) return { job, questionSet: null, questions: [] };
-  const questionSet = await env.DB.prepare("SELECT id,name,source_file AS sourceFile,import_report AS importReport,duplicate_report AS duplicateReport,parse_stage AS parseStage,review_progress AS reviewProgress,status,created_at AS createdAt FROM question_sets WHERE id=?").bind(questionSetId).first<Record<string, unknown>>(), rows = await env.DB.prepare("SELECT id,stem,material,options,sub_questions AS subQuestions,question_type AS questionType,difficulty,score,stage,grade,year,region,answer,answer_points AS answerPoints,analysis,knowledge_points AS knowledgePoints,notes,parse_confidence AS parseConfidence,review_status AS reviewStatus,status,created_at AS createdAt,updated_at AS updatedAt FROM questions WHERE question_set_id=? ORDER BY id LIMIT 300").bind(questionSetId).all<Record<string, unknown>>();
-  return { job, questionSet: questionSet ? { ...questionSet, report: parseJsonObject(questionSet.importReport), duplicates: parseJsonObject(questionSet.duplicateReport) } : null, questions: rows.results };
+  const questionSet = await env.DB.prepare("SELECT id,name,source_file AS sourceFile,import_report AS importReport,duplicate_report AS duplicateReport,parse_stage AS parseStage,review_progress AS reviewProgress,status,created_at AS createdAt FROM question_sets WHERE id=?").bind(questionSetId).first<Record<string, unknown>>(), rows = await env.DB.prepare("SELECT id,stem,material,options,sub_questions AS subQuestions,tables,attachments,question_type AS questionType,difficulty,score,stage,grade,year,region,answer,answer_points AS answerPoints,analysis,knowledge_points AS knowledgePoints,notes,parse_confidence AS parseConfidence,review_status AS reviewStatus,status,created_at AS createdAt,updated_at AS updatedAt FROM questions WHERE question_set_id=? ORDER BY id LIMIT 300").bind(questionSetId).all<Record<string, unknown>>();
+  const parseArray = (value: unknown) => { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return Array.isArray(parsed) ? parsed : []; } catch { return []; } };
+  return { job, questionSet: questionSet ? { ...questionSet, report: parseJsonObject(questionSet.importReport), duplicates: parseJsonObject(questionSet.duplicateReport) } : null, questions: rows.results.map((row) => ({ ...row, tables: parseArray(row.tables), attachments: parseArray(row.attachments) })) };
 }
