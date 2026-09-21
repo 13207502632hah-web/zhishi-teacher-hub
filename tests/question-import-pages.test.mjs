@@ -120,6 +120,8 @@ test("transient transport failures retry once with a fresh provider session", as
   assert.deepEqual(result.data, { questions: [] });
   assert.equal(requests.length, 2);
   assert.equal(requests[0].headers["User-Agent"], "zhishi-teacher-hub/2.0");
+  assert.equal(requests[0].headers.Accept, "application/json");
+  assert.equal(requests[0].headers["Accept-Encoding"], "identity");
   assert.notEqual(requests[0].headers["x-opencode-session"], requests[1].headers["x-opencode-session"]);
   assert.ok(updates.some((row) => row.sql.includes("status='completed'")));
   assert.ok(!updates.some((row) => row.values.includes("NETWORK_ERROR")));
