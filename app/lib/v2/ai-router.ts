@@ -46,7 +46,8 @@ function routesFor(capability: Exclude<AiCapability, "embedding">): AiRoute[] {
       : capability === "vision" ? v2RuntimeValue("OPENAI_VISION_MODEL") || "mimo-v2.5"
       : v2RuntimeValue("OPENAI_REASONING_MODEL") || "gpt-5.6-luna";
     routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: preferred });
-    if (preferred !== "deepseek-v4-pro" && capability !== "vision") routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: "deepseek-v4-pro" });
+    if (capability === "vision" && preferred !== "mimo-v2.5") routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: "mimo-v2.5" });
+    else if (preferred !== "deepseek-v4-pro" && capability !== "vision") routes.push({ provider: "opencode-zen", baseUrl: openCodeBase, apiKey: openCodeKey, model: "deepseek-v4-pro" });
   }
   const deepSeekKey = v2RuntimeValue("DEEPSEEK_API_KEY");
   if (deepSeekKey && v2RuntimeValue("DEEPSEEK_AI_ENABLED") === "true" && capability !== "vision") {

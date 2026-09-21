@@ -94,7 +94,7 @@ test("answer continuations survive checkpoints and remain attached to the origin
 test("AI timeout also bounds a stalled response body after headers arrive", async () => {
   const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
   const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const updates = [], env = { OPENAI_API_KEY: "fixture-key", OPENAI_BASE_URL: "https://example.invalid/v1", OPENAI_VISION_MODEL: "fixture-model", DB: { prepare(sql) { return { bind(...values) { return { first: async () => ({ id: "run" }), run: async () => { updates.push({ sql, values }); } }; } }; } } };
+  const updates = [], env = { OPENAI_API_KEY: "fixture-key", OPENAI_BASE_URL: "https://example.invalid/v1", OPENAI_VISION_MODEL: "mimo-v2.5", DB: { prepare(sql) { return { bind(...values) { return { first: async () => ({ id: "run" }), run: async () => { updates.push({ sql, values }); } }; } }; } } };
   const evaluated = { exports: {} };
   const fetcher = async (_url, { signal }) => ({ ok: true, json: () => new Promise((resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("body timeout")), { once: true }); }) });
   new Function("module", "exports", "require", "fetch", code)(evaluated, evaluated.exports, (name) => name === "cloudflare:workers" ? { env } : { anonymizeForAi: (value) => ({ value, report: {} }), safeInputSummary: () => "fixture" }, fetcher);
@@ -123,6 +123,27 @@ test("transient transport failures retry once with a fresh provider session", as
   assert.notEqual(requests[0].headers["x-opencode-session"], requests[1].headers["x-opencode-session"]);
   assert.ok(updates.some((row) => row.sql.includes("status='completed'")));
   assert.ok(!updates.some((row) => row.values.includes("NETWORK_ERROR")));
+});
+
+test("vision routing switches to a second multimodal model after the preferred model fails", async () => {
+  const router = readFileSync(new URL("../app/lib/v2/ai-router.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(router, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const models = [], updates = [];
+  const env = { OPENAI_API_KEY: "fixture-key", OPENAI_BASE_URL: "https://example.invalid/v1", OPENAI_VISION_MODEL: "kimi-k2.6", DB: { prepare(sql) { return { bind(...values) { return { first: async () => ({ id: "run" }), run: async () => { updates.push({ sql, values }); } }; } }; } } };
+  const evaluated = { exports: {} };
+  const fetcher = async (_url, request) => {
+    const body = JSON.parse(request.body);
+    models.push(body.model);
+    if (body.model === "kimi-k2.6") return { ok: false, status: 502 };
+    return { ok: true, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: '{"questions":[]}' } }] }) };
+  };
+  new Function("module", "exports", "require", "fetch", code)(evaluated, evaluated.exports, (name) => name === "cloudflare:workers" ? { env } : { anonymizeForAi: (value) => ({ value, report: {} }), safeInputSummary: () => "fixture" }, fetcher);
+  const result = await evaluated.exports.callV2AiJson({ access: { id: 1 }, capability: "vision", system: "fixture", payload: {}, promptVersion: "fixture", validate: (value) => value });
+  assert.deepEqual(result.data, { questions: [] });
+  assert.deepEqual(models, ["kimi-k2.6", "mimo-v2.5"]);
+  assert.equal(result.model, "mimo-v2.5");
+  assert.ok(updates.some((row) => row.values.includes("HTTP_502")));
+  assert.ok(updates.some((row) => row.sql.includes("status='completed'")));
 });
 
 test("pure extraction uses instant mode and rejects truncated JSON even when syntactically valid", async () => {
